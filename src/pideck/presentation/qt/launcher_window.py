@@ -131,6 +131,27 @@ class LauncherTile(QPushButton):
         self.style().polish(self)
 
 
+class LauncherAction(QPushButton):
+    """Focusable footer action that participates in directional navigation."""
+
+    navigation_requested = Signal(object)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Forward directional keys to the launcher footer navigation."""
+        direction_by_key = {
+            Qt.Key.Key_Left: NavigationDirection.LEFT,
+            Qt.Key.Key_Right: NavigationDirection.RIGHT,
+            Qt.Key.Key_Up: NavigationDirection.UP,
+            Qt.Key.Key_Down: NavigationDirection.DOWN,
+        }
+        direction = direction_by_key.get(event.key())
+        if direction is not None:
+            self.navigation_requested.emit(direction)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class LauncherWindow(QMainWindow):
     """Present configurable application tiles with TV-friendly keyboard focus."""
 
@@ -156,6 +177,7 @@ class LauncherWindow(QMainWindow):
         self._asset_root = asset_root
         self._reduced_motion = reduced_motion
         self._running_identifier: str | None = None
+        self._has_been_shown = False
         self._tiles: list[LauncherTile] = []
         self.setObjectName("launcher_window")
         self.setWindowTitle("PiDeck")
@@ -183,15 +205,18 @@ class LauncherWindow(QMainWindow):
 
     def show_launcher(self) -> None:
         """Show the launcher fullscreen and focus its first available tile."""
+        if not self._has_been_shown:
+            self._controller.reset_focus()
+            self._has_been_shown = True
         self.showFullScreen()
-        self._rebuild_tiles()
         self._focus_current_tile()
         QTimer.singleShot(0, self._enforce_fullscreen)
 
     def resizeEvent(self, event: object) -> None:
         """Reflow tiles when the available screen geometry changes."""
         super().resizeEvent(event)
-        self._rebuild_tiles()
+        if self._controller.state.applications and self._column_count() != self._controller.state.columns:
+            self._rebuild_tiles()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Translate arrow, activation, and escape keys into launcher intents."""
@@ -235,16 +260,24 @@ class LauncherWindow(QMainWindow):
         """Create intent-only settings and shutdown controls."""
         footer = QHBoxLayout()
         footer.addStretch()
-        settings = QPushButton("Settings", self._root)
+        settings = LauncherAction("Settings", self._root)
         settings.setObjectName("launcher_action")
-        settings.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        settings.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         settings.setIcon(icon_for_path(self._theme.icons.get("settings")))
         settings.clicked.connect(self.settings_requested)
-        shutdown = QPushButton("Shutdown", self._root)
+        settings.navigation_requested.connect(
+            lambda direction: self._handle_action_navigation(settings, direction)
+        )
+        shutdown = LauncherAction("Shutdown", self._root)
         shutdown.setObjectName("launcher_action")
-        shutdown.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        shutdown.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         shutdown.setIcon(icon_for_path(self._theme.icons.get("power")))
         shutdown.clicked.connect(self.shutdown_requested)
+        shutdown.navigation_requested.connect(
+            lambda direction: self._handle_action_navigation(shutdown, direction)
+        )
+        self._settings_button = settings
+        self._shutdown_button = shutdown
         footer.addWidget(settings)
         footer.addWidget(shutdown)
         self._root_layout.addLayout(footer)
@@ -312,6 +345,7 @@ class LauncherWindow(QMainWindow):
             self.showFullScreen()
         self.raise_()
         self.activateWindow()
+        self._focus_current_tile()
 
     def _focus_current_tile(self) -> None:
         """Focus the tile selected by the pure launcher controller."""
@@ -320,8 +354,29 @@ class LauncherWindow(QMainWindow):
 
     def _handle_tile_navigation(self, direction: NavigationDirection) -> None:
         """Move the controller and focus the resulting tile."""
+        current_index = self._controller.state.focused_index
+        columns = self._controller.state.columns
+        if (
+            direction is NavigationDirection.DOWN
+            and current_index + columns >= len(self._controller.state.applications)
+        ):
+            self._settings_button.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
         self._controller.move(direction)
         self._focus_current_tile()
+
+    def _handle_action_navigation(
+        self,
+        action: LauncherAction,
+        direction: NavigationDirection,
+    ) -> None:
+        """Move between footer actions or return to the selected tile."""
+        if action is self._settings_button and direction is NavigationDirection.RIGHT:
+            self._shutdown_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        elif action is self._shutdown_button and direction is NavigationDirection.LEFT:
+            self._settings_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        elif direction is NavigationDirection.UP:
+            self._focus_current_tile()
 
     def notify_session_started(
         self,

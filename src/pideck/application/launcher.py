@@ -94,3 +94,12 @@ class LauncherController:
     def activate(self) -> ApplicationDefinition | None:
         """Return the focused application as an activation intent."""
         return self._state.focused_application
+
+    def reset_focus(self) -> LauncherState:
+        """Select the first application while preserving the grid columns."""
+        self._state = LauncherState(
+            applications=self._state.applications,
+            focused_index=0,
+            columns=self._state.columns,
+        )
+        return self._state

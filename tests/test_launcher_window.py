@@ -68,6 +68,20 @@ def test_show_launcher_enters_fullscreen(application: QApplication) -> None:
     window.close()
 
 
+def test_show_launcher_selects_first_application(application: QApplication) -> None:
+    """The initial launcher presentation always selects the first tile."""
+    window = launcher_window(application)
+    QTest.keyClick(window._tiles[0], Qt.Key.Key_Right)
+
+    window.show_launcher()
+    application.processEvents()
+
+    assert window._controller.state.focused_index == 0
+    assert window._tiles[0].hasFocus()
+
+    window.close()
+
+
 def test_theme_animation_and_running_state_are_applied(application: QApplication) -> None:
     """Theme timing and running state reach the rendered tile."""
     window = launcher_window(application)
@@ -132,6 +146,26 @@ def test_arrow_keys_on_tile_use_grid_navigation(application: QApplication) -> No
     QTest.keyClick(window._tiles[0], Qt.Key.Key_Down)
 
     assert window._controller.state.focused_index == 2
+    assert window._tiles[2].hasFocus()
+
+    window.close()
+
+
+def test_arrow_keys_reach_settings_and_shutdown(application: QApplication) -> None:
+    """The last tile row leads to Settings, then horizontally to Shutdown."""
+    window = launcher_window(application)
+
+    QTest.keyClick(window._tiles[0], Qt.Key.Key_Down)
+    QTest.keyClick(window._tiles[2], Qt.Key.Key_Down)
+    assert window._settings_button.hasFocus()
+
+    QTest.keyClick(window._settings_button, Qt.Key.Key_Right)
+    assert window._shutdown_button.hasFocus()
+
+    QTest.keyClick(window._shutdown_button, Qt.Key.Key_Left)
+    assert window._settings_button.hasFocus()
+
+    QTest.keyClick(window._settings_button, Qt.Key.Key_Up)
     assert window._tiles[2].hasFocus()
 
     window.close()

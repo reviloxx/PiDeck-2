@@ -57,7 +57,7 @@ themes:
     tile:
       width: 240
       height: 135
-      gap: 16
+      gap: 32
     animation:
       duration_ms: 180
       reduced_motion_duration_ms: 0
