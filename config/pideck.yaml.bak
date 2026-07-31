@@ -91,4 +91,4 @@ input:
   bindings:
     home: Ctrl+Alt+H
 settings:
-  reduced_motion: true
+  reduced_motion: false
