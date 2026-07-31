@@ -1,5 +1,6 @@
 """Fullscreen Qt launcher window for Milestone 2."""
 
+import math
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt, Signal
@@ -45,9 +46,8 @@ class LauncherTile(QPushButton):
         self.application = application
         self.setObjectName("launcher_tile")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumWidth(theme.tile.width)
-        self.setFixedHeight(theme.tile.height)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setFixedSize(theme.tile.width, theme.tile.height)
         self.setText("")
         self._build_content(application, asset_root, input_icon)
         self.clicked.connect(lambda: self.activated.emit(application))
@@ -175,6 +175,7 @@ class LauncherWindow(QMainWindow):
         self._grid_layout.setContentsMargins(0, 20, 0, 12)
         self._grid_layout.setHorizontalSpacing(theme.tile.gap)
         self._grid_layout.setVerticalSpacing(theme.tile.gap)
+        self._grid_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._root_layout.addWidget(self._grid_container, stretch=1)
         self._build_footer()
         apply_theme(self, theme)
@@ -282,20 +283,26 @@ class LauncherWindow(QMainWindow):
         self._focus_current_tile()
 
     def _column_count(self) -> int:
-        """Calculate tile columns from current width and theme tile dimensions."""
+        """Calculate balanced tile columns from count and available geometry."""
+        available_width, available_height = self._available_grid_size()
+        return calculate_tile_columns(
+            len(self._controller.state.applications),
+            available_width,
+            available_height,
+            self._theme.tile.width,
+            self._theme.tile.height,
+            self._theme.tile.gap,
+        )
+
+    def _available_grid_size(self) -> tuple[int, int]:
+        """Return usable dimensions before or after the window is visible."""
         if self.isVisible():
-            available_width = self.width() - 96
-        else:
-            screen = self.screen()
-            if screen is None:
-                screen = QApplication.primaryScreen()
-            available_width = (
-                screen.availableGeometry().width() - 96
-                if screen is not None
-                else self._theme.tile.width
-            )
-        available_width = max(available_width, self._theme.tile.width)
-        return max(1, (available_width + self._theme.tile.gap) // (self._theme.tile.width + self._theme.tile.gap))
+            return max(self.width() - 96, 1), max(self.height() - 180, 1)
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return self._theme.tile.width, self._theme.tile.height
+        geometry = screen.availableGeometry()
+        return max(geometry.width() - 96, 1), max(geometry.height() - 180, 1)
 
     def _enforce_fullscreen(self) -> None:
         """Reassert fullscreen after the window manager maps the launcher."""
@@ -411,6 +418,26 @@ def _preferred_input_tooltip(preferred_input: PreferredInput) -> str:
         PreferredInput.KEYBOARD: "Keyboard",
         PreferredInput.MOUSE: "Mouse",
     }[preferred_input]
+
+
+def calculate_tile_columns(
+    application_count: int,
+    available_width: int,
+    available_height: int,
+    tile_width: int,
+    tile_height: int,
+    gap: int,
+) -> int:
+    """Choose a compact grid shape that respects screen width and height."""
+    if application_count <= 0:
+        return 1
+    max_columns = max(1, (available_width + gap) // (tile_width + gap))
+    aspect_adjustment = (available_width * tile_height) / max(
+        available_height * tile_width,
+        1,
+    )
+    ideal_columns = max(1, math.ceil(math.sqrt(application_count * aspect_adjustment)))
+    return min(application_count, max_columns, ideal_columns)
 
 
 def _resolve_asset(path: Path | None, asset_root: Path) -> Path | None:

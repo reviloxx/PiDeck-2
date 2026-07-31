@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QPushButton
 from pideck.application.launcher import LauncherController
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
-from pideck.presentation.qt.launcher_window import LauncherWindow
+from pideck.presentation.qt.launcher_window import LauncherWindow, calculate_tile_columns
 from tests.test_configuration import configuration_document
 
 
@@ -135,6 +135,12 @@ def test_arrow_keys_on_tile_use_grid_navigation(application: QApplication) -> No
     assert window._tiles[2].hasFocus()
 
     window.close()
+
+
+def test_grid_shape_balances_application_count_and_screen_space() -> None:
+    """The grid uses multiple rows for six apps and narrows on small screens."""
+    assert calculate_tile_columns(6, 1886, 935, 240, 135, 16) == 3
+    assert calculate_tile_columns(6, 704, 420, 240, 135, 16) == 2
 
 
 def test_settings_and_shutdown_are_intents(application: QApplication) -> None:
