@@ -358,6 +358,8 @@ class SettingsWindow(QDialog):
             return True
         if watched in self._nav_buttons:
             nav_index = self._nav_buttons.index(watched)
+            if key == Qt.Key.Key_Left:
+                return True
             if key == Qt.Key.Key_Down:
                 if nav_index == len(self._nav_buttons) - 1:
                     self._set_active_nav(None)

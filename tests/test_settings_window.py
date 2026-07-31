@@ -80,6 +80,9 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     window = settings_window(application)
 
     assert window._nav_buttons[0].hasFocus()
+    QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Left)
+    assert window._nav_buttons[0].hasFocus()
+    assert window._nav_buttons[0].property("active") is True
     QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Right)
     assert window._theme_row.hasFocus()
     QTest.keyClick(window._theme_row, Qt.Key.Key_Down)
