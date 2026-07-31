@@ -64,21 +64,48 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
 
     assert window._nav_buttons[0].hasFocus()
     QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Right)
-    assert window._theme_combo.hasFocus()
-    QTest.keyClick(window._theme_combo, Qt.Key.Key_Down)
-    assert window._reduced_motion.hasFocus()
-    QTest.keyClick(window._reduced_motion, Qt.Key.Key_Left)
+    assert window._theme_row.hasFocus()
+    QTest.keyClick(window._theme_row, Qt.Key.Key_Down)
+    assert window._motion_row.hasFocus()
+    QTest.keyClick(window._motion_row, Qt.Key.Key_Left)
     assert window._reduced_motion.isChecked() is True
-    QTest.keyClick(window._reduced_motion, Qt.Key.Key_Left)
+    QTest.keyClick(window._motion_row, Qt.Key.Key_Left)
     assert window._reduced_motion.isChecked() is False
-    QTest.keyClick(window._reduced_motion, Qt.Key.Key_Up)
-    QTest.keyClick(window._theme_combo, Qt.Key.Key_Up)
+    QTest.keyClick(window._motion_row, Qt.Key.Key_Up)
+    QTest.keyClick(window._theme_row, Qt.Key.Key_Up)
     assert window._nav_buttons[0].hasFocus()
     QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Down)
     assert window._nav_buttons[1].hasFocus()
+    assert window._nav_buttons[1].property("active") is True
+    assert window._nav_buttons[0].property("active") is False
     QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Right)
     assert window._applications.hasFocus()
     QTest.keyClick(window._applications, Qt.Key.Key_Down)
     assert window._save_button.hasFocus()
+
+    window.close()
+
+
+def test_home_application_list_accepts_keyboard_navigation(application: QApplication) -> None:
+    """The home-screen list moves between application rows before handing off."""
+    document = configuration_document()
+    document["applications"] = [
+        {"id": identifier, "name": identifier.title(), "executable": identifier}
+        for identifier in ("one", "two", "three")
+    ]
+    document["home"]["visible_applications"] = []
+    configuration = YamlConfigurationParser().parse(document)
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd())
+    window.show()
+    application.processEvents()
+
+    QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Down)
+    QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Right)
+    assert window._applications.hasFocus()
+    assert window._applications.currentRow() == 0
+    QTest.keyClick(window._applications, Qt.Key.Key_Down)
+    assert window._applications.currentRow() == 1
+    QTest.keyClick(window._applications, Qt.Key.Key_Up)
+    assert window._applications.currentRow() == 0
 
     window.close()

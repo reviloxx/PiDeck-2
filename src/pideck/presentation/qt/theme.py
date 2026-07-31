@@ -133,6 +133,10 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border: 1px solid %(border)s;
             border-radius: 8px;
         }
+        QFrame#settings_row:focus {
+            background-color: %(active_surface)s;
+            border: 2px solid %(focus)s;
+        }
         QLabel#settings_label {
             color: %(text)s;
             font-size: %(body_size)spx;

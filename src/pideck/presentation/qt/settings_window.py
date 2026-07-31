@@ -26,6 +26,37 @@ from pideck.domain.theme import ThemeDefinition
 from .theme import apply_theme, icon_for_path
 
 
+class SettingsRow(QFrame):
+    """Focusable settings row that exposes console-style directional input."""
+
+    navigation_requested = Signal(object)
+    adjustment_requested = Signal(object)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Route directional keys without moving focus into child controls."""
+        direction_by_key = {
+            Qt.Key.Key_Left: Qt.Key.Key_Left,
+            Qt.Key.Key_Right: Qt.Key.Key_Right,
+            Qt.Key.Key_Up: Qt.Key.Key_Up,
+            Qt.Key.Key_Down: Qt.Key.Key_Down,
+        }
+        key = direction_by_key.get(event.key())
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            self.adjustment_requested.emit(key)
+            event.accept()
+            return
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            self.navigation_requested.emit(key)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def mousePressEvent(self, event: object) -> None:
+        """Focus the complete row when it is clicked."""
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+        super().mousePressEvent(event)
+
+
 class SettingsWindow(QDialog):
     """Edit launcher settings in a fullscreen, controller-friendly menu."""
 
@@ -148,6 +179,7 @@ class SettingsWindow(QDialog):
             QComboBox(page),
         )
         self._theme_combo.setObjectName("settings_control")
+        self._theme_row = theme_row
         for theme in self._configuration.themes:
             self._theme_combo.addItem(theme.name, theme.identifier)
         current_index = self._theme_combo.findData(self._configuration.home.theme)
@@ -160,15 +192,13 @@ class SettingsWindow(QDialog):
             QCheckBox(page),
         )
         self._reduced_motion.setObjectName("settings_control")
+        self._motion_row = motion_row
         self._reduced_motion.setText("On")
         self._reduced_motion.setChecked(self._configuration.settings.reduced_motion)
         layout.addWidget(theme_row)
         layout.addWidget(motion_row)
         layout.addStretch()
-        self._page_controls[0] = [self._theme_combo, self._reduced_motion]
-        for control in self._page_controls[0]:
-            control.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-            control.installEventFilter(self)
+        self._page_controls[0] = [theme_row, motion_row]
         return page
 
     def _build_home_page(self) -> QWidget:
@@ -207,8 +237,13 @@ class SettingsWindow(QDialog):
         control: QWidget,
     ) -> tuple[QFrame, QWidget]:
         """Create a consistent labelled settings row."""
-        row = QFrame(parent)
+        row = SettingsRow(parent)
         row.setObjectName("settings_row")
+        row.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        row.navigation_requested.connect(self._handle_row_navigation)
+        row.adjustment_requested.connect(
+            lambda key, settings_row=row: self._handle_row_adjustment(settings_row, key)
+        )
         layout = QHBoxLayout(row)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(20)
@@ -222,6 +257,7 @@ class SettingsWindow(QDialog):
         text.addWidget(description_label)
         layout.addLayout(text, stretch=1)
         control.setMinimumWidth(220)
+        control.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(control)
         return row, control
 
@@ -262,6 +298,11 @@ class SettingsWindow(QDialog):
         if focus_first:
             self._focus_first_page_control()
 
+    def _focus_nav(self, index: int) -> None:
+        """Focus and visually select one category in the rail."""
+        self._select_page(index, focus_first=False)
+        self._nav_buttons[index].setFocus(Qt.FocusReason.OtherFocusReason)
+
     def _focus_first_page_control(self) -> None:
         """Focus the first usable control on the selected page."""
         controls = self._page_controls.get(self._current_page, [])
@@ -270,7 +311,35 @@ class SettingsWindow(QDialog):
 
     def _focus_selected_nav(self) -> None:
         """Return focus to the active category button."""
-        self._nav_buttons[self._current_page].setFocus(Qt.FocusReason.OtherFocusReason)
+        self._focus_nav(self._current_page)
+
+    def _handle_row_navigation(self, direction: object) -> None:
+        """Move between whole settings rows and the category rail/footer."""
+        rows = self._page_controls.get(self._current_page, [])
+        focused_row = self.focusWidget()
+        if focused_row not in rows:
+            return
+        row_index = rows.index(focused_row)
+        if direction == Qt.Key.Key_Up:
+            if row_index == 0:
+                self._focus_selected_nav()
+            else:
+                rows[row_index - 1].setFocus(Qt.FocusReason.OtherFocusReason)
+        elif direction == Qt.Key.Key_Down:
+            if row_index == len(rows) - 1:
+                self._save_button.setFocus(Qt.FocusReason.OtherFocusReason)
+            else:
+                rows[row_index + 1].setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _handle_row_adjustment(self, row: SettingsRow, key: object) -> None:
+        """Adjust a row's child value using left and right input."""
+        if row is self._theme_row and isinstance(self._theme_combo, QComboBox):
+            step = -1 if key == Qt.Key.Key_Left else 1
+            self._theme_combo.setCurrentIndex(
+                max(0, min(self._theme_combo.count() - 1, self._theme_combo.currentIndex() + step))
+            )
+        elif row is self._motion_row and isinstance(self._reduced_motion, QCheckBox):
+            self._reduced_motion.toggle()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         """Implement deterministic D-pad navigation across the settings surface."""
@@ -286,10 +355,10 @@ class SettingsWindow(QDialog):
         if watched in self._nav_buttons:
             nav_index = self._nav_buttons.index(watched)
             if key == Qt.Key.Key_Down:
-                self._nav_buttons[min(nav_index + 1, len(self._nav_buttons) - 1)].setFocus()
+                self._focus_nav(min(nav_index + 1, len(self._nav_buttons) - 1))
                 return True
             if key == Qt.Key.Key_Up:
-                self._nav_buttons[max(nav_index - 1, 0)].setFocus()
+                self._focus_nav(max(nav_index - 1, 0))
                 return True
             if key == Qt.Key.Key_Right:
                 self._select_page(nav_index)
@@ -307,31 +376,22 @@ class SettingsWindow(QDialog):
                 if controls:
                     controls[-1].setFocus()
                     return True
-        controls = self._page_controls.get(self._current_page, [])
-        if watched in controls:
-            control_index = controls.index(watched)
-            if isinstance(watched, QComboBox) and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-                step = -1 if key == Qt.Key.Key_Left else 1
-                watched.setCurrentIndex(max(0, min(watched.count() - 1, watched.currentIndex() + step)))
-                return True
-            if isinstance(watched, QCheckBox) and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-                watched.toggle()
-                return True
+        if watched is self._applications:
+            current_row = self._applications.currentRow()
+            last_row = self._applications.count() - 1
             if key == Qt.Key.Key_Left:
                 self._focus_selected_nav()
                 return True
-            if key == Qt.Key.Key_Down and control_index < len(controls) - 1:
-                controls[control_index + 1].setFocus()
-                return True
-            if key == Qt.Key.Key_Up and control_index > 0:
-                controls[control_index - 1].setFocus()
-                return True
-            if key == Qt.Key.Key_Up and control_index == 0:
+            if key == Qt.Key.Key_Up and current_row == 0:
                 self._focus_selected_nav()
                 return True
-            if key == Qt.Key.Key_Down and control_index == len(controls) - 1:
-                self._save_button.setFocus()
+            if key == Qt.Key.Key_Down and current_row == last_row:
+                self._save_button.setFocus(Qt.FocusReason.OtherFocusReason)
                 return True
+            return super().eventFilter(watched, event)
+        controls = self._page_controls.get(self._current_page, [])
+        if watched in controls:
+            return super().eventFilter(watched, event)
         return super().eventFilter(watched, event)
 
     def _submit(self) -> None:
