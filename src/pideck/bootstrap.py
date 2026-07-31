@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING, Sequence
 
 from pideck.application.dependencies import ApplicationDependencies
 from pideck.application.session import ApplicationSessionService, LaunchStatus, SessionObserver
+from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
+from pideck.domain.errors import ConfigurationError
 from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.logging import configure_logging
@@ -17,6 +19,7 @@ from pideck.infrastructure.theme import FileThemeRepository
 
 if TYPE_CHECKING:
     from pideck.presentation.qt.launcher_window import LauncherWindow
+    from pideck.presentation.qt.settings_window import SettingsWindow
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -124,6 +127,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
     application.setApplicationName("PiDeck")
     asset_root = parsed_arguments.asset_root or parsed_arguments.config.parent
     window = build_launcher_window(dependencies, asset_root)
+    current_configuration = dependencies.configuration
+    settings_service = SettingsService()
+    settings_window: SettingsWindow | None = None
     session_observer: SessionObserver = _QtSessionObserver(window)
     session_service = ApplicationSessionService(dependencies.process_supervisor, session_observer)
 
@@ -164,10 +170,42 @@ def main(arguments: Sequence[str] | None = None) -> int:
         session_service.close()
         application.quit()
 
+    def handle_settings_saved(update: SettingsUpdate) -> None:
+        """Persist settings and apply them to the running launcher."""
+        nonlocal current_configuration, settings_window
+        if settings_window is None:
+            return
+        try:
+            current_configuration = settings_service.save(
+                dependencies.configuration_repository,
+                current_configuration,
+                update,
+            )
+            theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        except ConfigurationError as error:
+            settings_window.show_error(str(error))
+            return
+        window.apply_configuration(current_configuration, theme)
+        settings_window.accept()
+        window.show_launcher()
+        dependencies.logger.info("Settings saved theme=%s", current_configuration.home.theme)
+
+    def handle_settings_request() -> None:
+        """Open the modal settings surface and suspend the launcher behind it."""
+        nonlocal settings_window
+        from pideck.presentation.qt.settings_window import SettingsWindow
+
+        if settings_window is not None:
+            settings_window.close()
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        settings_window = SettingsWindow(current_configuration, theme, asset_root, window)
+        settings_window.settings_submitted.connect(handle_settings_saved)
+        settings_window.finished.connect(lambda _: window.show_launcher())
+        window.hide()
+        settings_window.show_fullscreen()
+
     window.application_requested.connect(handle_application_request)
-    window.settings_requested.connect(
-        lambda: dependencies.logger.info("Settings activation requested")
-    )
+    window.settings_requested.connect(handle_settings_request)
     window.shutdown_requested.connect(handle_shutdown_request)
     window.show_launcher()
     return application.exec()

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from pideck.application.launcher import LauncherController, NavigationDirection
+from pideck.domain.configuration import Configuration
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, PreferredInput
 from pideck.domain.theme import ThemeDefinition
 
@@ -377,6 +378,22 @@ class LauncherWindow(QMainWindow):
             self._settings_button.setFocus(Qt.FocusReason.OtherFocusReason)
         elif direction is NavigationDirection.UP:
             self._focus_current_tile()
+
+    def apply_configuration(
+        self,
+        configuration: Configuration,
+        theme: ThemeDefinition,
+    ) -> None:
+        """Apply saved settings and rebuild the launcher presentation."""
+        self._controller.update_configuration(configuration)
+        self._theme = theme
+        self._reduced_motion = configuration.settings.reduced_motion
+        self._grid_layout.setHorizontalSpacing(theme.tile.gap)
+        self._grid_layout.setVerticalSpacing(theme.tile.gap)
+        self._settings_button.setIcon(icon_for_path(theme.icons.get("settings")))
+        self._shutdown_button.setIcon(icon_for_path(theme.icons.get("power")))
+        apply_theme(self, theme)
+        self._rebuild_tiles()
 
     def notify_session_started(
         self,

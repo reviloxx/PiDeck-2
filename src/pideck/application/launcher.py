@@ -36,20 +36,8 @@ class LauncherController:
 
     def __init__(self, configuration: Configuration) -> None:
         """Create a controller from the validated home-screen configuration."""
-        applications_by_id = {
-            application.identifier: application
-            for application in configuration.applications
-        }
-        visible_ids = configuration.home.visible_applications
-        if visible_ids:
-            applications = tuple(
-                applications_by_id[identifier]
-                for identifier in visible_ids
-                if identifier in applications_by_id
-            )
-        else:
-            applications = tuple(configuration.applications)
-        self._state = LauncherState(applications=applications)
+        self._state = LauncherState(applications=())
+        self.update_configuration(configuration)
 
     @property
     def state(self) -> LauncherState:
@@ -94,6 +82,42 @@ class LauncherController:
     def activate(self) -> ApplicationDefinition | None:
         """Return the focused application as an activation intent."""
         return self._state.focused_application
+
+    def update_configuration(self, configuration: Configuration) -> LauncherState:
+        """Replace visible applications while preserving the focused identifier."""
+        focused_identifier = (
+            self._state.focused_application.identifier
+            if self._state.focused_application is not None
+            else None
+        )
+        applications_by_id = {
+            application.identifier: application
+            for application in configuration.applications
+        }
+        visible_ids = configuration.home.visible_applications
+        applications = (
+            tuple(
+                applications_by_id[identifier]
+                for identifier in visible_ids
+                if identifier in applications_by_id
+            )
+            if visible_ids
+            else tuple(configuration.applications)
+        )
+        focused_index = next(
+            (
+                index
+                for index, application in enumerate(applications)
+                if application.identifier == focused_identifier
+            ),
+            0,
+        )
+        self._state = LauncherState(
+            applications=applications,
+            focused_index=focused_index,
+            columns=min(self._state.columns, max(len(applications), 1)),
+        )
+        return self._state
 
     def reset_focus(self) -> LauncherState:
         """Select the first application while preserving the grid columns."""
