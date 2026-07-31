@@ -27,7 +27,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         )
     widget.setStyleSheet(
         """
-        QMainWindow, QWidget#launcher_root {
+        QMainWindow, QDialog#settings_window, QWidget#launcher_root, QWidget#settings_root {
             background-color: %(background)s;
             color: %(text)s;
             %(wallpaper_style)s
@@ -72,31 +72,146 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         QLabel#tile_icon {
             background: transparent;
         }
-        QPushButton#launcher_action {
-            background-color: transparent;
+        QPushButton#launcher_action, QPushButton#settings_footer {
+            background-color: %(surface)s;
             border: 1px solid %(muted_text)s;
-            border-radius: 6px;
-            color: %(muted_text)s;
-            padding: 8px 16px;
+            border-radius: 7px;
+            color: %(text)s;
+            min-height: 42px;
+            min-width: 130px;
+            padding: 0 18px;
         }
-        QPushButton#launcher_action:focus, QPushButton#launcher_action:hover {
+        QPushButton#launcher_action:focus, QPushButton#launcher_action:hover,
+        QPushButton#settings_footer:focus, QPushButton#settings_footer:hover {
+            background-color: %(active_surface)s;
+            border: 2px solid %(focus)s;
+        }
+        QFrame#settings_sidebar {
+            background-color: %(surface)s;
+            border: 1px solid %(border)s;
+            border-radius: 12px;
+        }
+        QLabel#settings_brand {
+            color: %(text)s;
+            font-size: %(heading_size)spx;
+            font-weight: 700;
+        }
+        QLabel#settings_sidebar_hint, QLabel#settings_description, QLabel#settings_hint {
+            color: %(muted_text)s;
+        }
+        QPushButton#settings_nav {
+            background-color: transparent;
+            border: 1px solid transparent;
+            border-radius: 7px;
+            color: %(muted_text)s;
+            padding: 14px 16px;
+            text-align: left;
+        }
+        QPushButton#settings_nav:hover, QPushButton#settings_nav:focus,
+        QPushButton#settings_nav[active="true"] {
+            background-color: %(active_surface)s;
             border-color: %(focus)s;
             color: %(text)s;
+        }
+        QFrame#settings_content {
+            background-color: %(content_surface)s;
+            border: 1px solid %(border)s;
+            border-radius: 12px;
+        }
+        QLabel#settings_kicker {
+            color: %(primary)s;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        QLabel#settings_heading {
+            color: %(text)s;
+            font-size: %(heading_size)spx;
+            font-weight: 700;
+        }
+        QFrame#settings_row {
+            background-color: %(surface)s;
+            border: 1px solid %(border)s;
+            border-radius: 8px;
+        }
+        QLabel#settings_label {
+            color: %(text)s;
+            font-size: %(body_size)spx;
+            font-weight: 700;
+        }
+        QComboBox#settings_control {
+            background-color: %(surface)s;
+            border: 1px solid %(muted_text)s;
+            border-radius: 6px;
+            color: %(text)s;
+            min-height: 42px;
+            padding: 0 12px;
+        }
+        QComboBox#settings_control:focus {
+            border: 2px solid %(focus)s;
+        }
+        QComboBox#settings_control QAbstractItemView {
+            background-color: %(surface)s;
+            border: 1px solid %(focus)s;
+            color: %(text)s;
+            selection-background-color: %(active_surface)s;
+            selection-color: %(text)s;
+        }
+        QCheckBox#settings_control {
+            color: %(text)s;
+            spacing: 10px;
+        }
+        QCheckBox#settings_control::indicator {
+            background-color: %(background)s;
+            border: 2px solid %(muted_text)s;
+            border-radius: 4px;
+            height: 24px;
+            width: 24px;
+        }
+        QCheckBox#settings_control::indicator:checked {
+            background-color: %(primary)s;
+            border-color: %(primary)s;
+        }
+        QListWidget#settings_applications {
+            background-color: %(surface)s;
+            border: 1px solid %(border)s;
+            border-radius: 8px;
+            color: %(text)s;
+            font-size: %(body_size)spx;
+            outline: none;
+            padding: 8px;
+        }
+        QListWidget#settings_applications::item {
+            border: 1px solid transparent;
+            border-radius: 6px;
+            padding: 12px;
+        }
+        QListWidget#settings_applications::item:selected,
+        QListWidget#settings_applications::item:focus {
+            background-color: %(active_surface)s;
+            border-color: %(focus)s;
+        }
+        QLabel#settings_error {
+            color: %(error)s;
+            font-weight: 700;
         }
         """
         % {
             "background": colors["background"],
             "surface": colors["surface"],
+            "content_surface": _blend(colors["background"], colors["surface"], 0.45),
+            "border": _blend(colors["surface"], colors["text"], 0.16),
             "text": colors["text"],
             "muted_text": colors["muted_text"],
             "focus": colors["focus"],
             "primary": colors["primary"],
             "running": colors["running"],
+            "error": colors["error"],
             "heading_size": theme.fonts.heading_size,
             "body_size": theme.fonts.body_size,
             "focus_surface": _blend(colors["surface"], colors["focus"], 0.16),
             "primary_surface": _blend(colors["surface"], colors["primary"], 0.24),
             "running_surface": _blend(colors["surface"], colors["running"], 0.20),
+            "active_surface": _blend(colors["surface"], colors["focus"], 0.18),
             "wallpaper_style": wallpaper_style,
         }
     )

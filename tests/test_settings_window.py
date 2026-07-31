@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from pideck.application.settings import SettingsUpdate
@@ -54,4 +55,30 @@ def test_settings_window_emits_typed_update(application: QApplication) -> None:
     window._submit()
 
     assert updates == [SettingsUpdate("default", True, ("browser",))]
+    window.close()
+
+
+def test_settings_window_supports_dpad_navigation(application: QApplication) -> None:
+    """Arrow keys move through categories, controls, applications, and actions."""
+    window = settings_window(application)
+
+    assert window._nav_buttons[0].hasFocus()
+    QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Right)
+    assert window._theme_combo.hasFocus()
+    QTest.keyClick(window._theme_combo, Qt.Key.Key_Down)
+    assert window._reduced_motion.hasFocus()
+    QTest.keyClick(window._reduced_motion, Qt.Key.Key_Left)
+    assert window._reduced_motion.isChecked() is True
+    QTest.keyClick(window._reduced_motion, Qt.Key.Key_Left)
+    assert window._reduced_motion.isChecked() is False
+    QTest.keyClick(window._reduced_motion, Qt.Key.Key_Up)
+    QTest.keyClick(window._theme_combo, Qt.Key.Key_Up)
+    assert window._nav_buttons[0].hasFocus()
+    QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Down)
+    assert window._nav_buttons[1].hasFocus()
+    QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Right)
+    assert window._applications.hasFocus()
+    QTest.keyClick(window._applications, Qt.Key.Key_Down)
+    assert window._save_button.hasFocus()
+
     window.close()
