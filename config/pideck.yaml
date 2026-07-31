@@ -1,0 +1,40 @@
+version: 1
+applications: []
+themes:
+  - id: default
+    name: Midnight
+    colors:
+      background: "#101214"
+      surface: "#1b1f24"
+      primary: "#63d6c5"
+      text: "#f4f7f7"
+      muted_text: "#9ca8aa"
+      focus: "#63d6c5"
+      running: "#f2b880"
+      error: "#ed7777"
+    fonts:
+      family: "DejaVu Sans"
+      heading_size: 28
+      body_size: 18
+    icons: {}
+    wallpaper: null
+    tile:
+      width: 320
+      height: 180
+      gap: 24
+    animation:
+      duration_ms: 180
+      reduced_motion_duration_ms: 0
+home:
+  visible_applications: []
+  theme: default
+input:
+  enabled_sources:
+    - cec
+    - gamepad
+    - keyboard
+    - mouse
+  bindings:
+    home: "Ctrl+Alt+H"
+settings:
+  reduced_motion: false
