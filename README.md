@@ -19,10 +19,16 @@ Run the foundation tests:
 pytest
 ```
 
-Validate a configuration without starting the future Qt launcher:
+Start the fullscreen launcher:
 
 ```bash
 pideck --config config/pideck.yaml
 ```
 
-The launcher UI and external application management are intentionally deferred to later milestones.
+Validate a configuration without starting Qt:
+
+```bash
+pideck --validate-only --config config/pideck.yaml
+```
+
+Milestone 2 provides the fullscreen tile launcher, keyboard navigation, focus handling, and intent signals. External application management is deferred to Milestone 3.
