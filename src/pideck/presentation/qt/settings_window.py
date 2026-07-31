@@ -420,9 +420,10 @@ class SettingsWindow(QDialog):
     def _handle_application_item_changed(
         self,
         item: QListWidgetItem,
-        state: Qt.CheckState,
+        state: Qt.CheckState | None = None,
     ) -> None:
         """Keep one application visible and emit valid list changes immediately."""
+        state = item.checkState() if state is None else state
         if state is Qt.CheckState.Unchecked and not any(
             self._applications.item(index).checkState() is Qt.CheckState.Checked
             for index in range(self._applications.count())

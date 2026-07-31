@@ -75,6 +75,29 @@ def test_settings_window_emits_changes_immediately(application: QApplication) ->
     window.close()
 
 
+def test_application_visibility_change_emits_immediately(application: QApplication) -> None:
+    """Toggling a home-screen application emits a persisted settings update."""
+    document = configuration_document()
+    document["applications"] = [
+        {"id": identifier, "name": identifier.title(), "executable": identifier}
+        for identifier in ("one", "two")
+    ]
+    document["home"]["visible_applications"] = ["one", "two"]
+    configuration = YamlConfigurationParser().parse(document)
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd())
+    updates: list[SettingsUpdate] = []
+    window.settings_changed.connect(updates.append)
+    window.show()
+    application.processEvents()
+
+    window._applications.item(0).setCheckState(Qt.CheckState.Unchecked)
+    application.processEvents()
+
+    assert updates
+    assert updates[-1].visible_applications == ("two",)
+    window.close()
+
+
 def test_settings_window_supports_dpad_navigation(application: QApplication) -> None:
     """Arrow keys move through categories, controls, applications, and actions."""
     window = settings_window(application)
