@@ -124,6 +124,18 @@ def test_arrow_keys_move_focus_and_enter_emits_application(application: QApplica
     window.close()
 
 
+def test_arrow_keys_on_tile_use_grid_navigation(application: QApplication) -> None:
+    """Arrow keys delivered to a focused tile move by grid coordinates."""
+    window = launcher_window(application)
+
+    QTest.keyClick(window._tiles[0], Qt.Key.Key_Down)
+
+    assert window._controller.state.focused_index == 2
+    assert window._tiles[2].hasFocus()
+
+    window.close()
+
+
 def test_settings_and_shutdown_are_intents(application: QApplication) -> None:
     """Footer controls emit intents without performing system operations."""
     window = launcher_window(application)

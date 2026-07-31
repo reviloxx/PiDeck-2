@@ -69,6 +69,9 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             color: %(muted_text)s;
             font-size: 12px;
         }
+        QLabel#tile_icon {
+            background: transparent;
+        }
         QPushButton#launcher_action {
             background-color: transparent;
             border: 1px solid %(muted_text)s;

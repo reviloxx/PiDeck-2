@@ -49,11 +49,15 @@ themes:
     icons:
       settings: ../assets/icons/settings.svg
       power: ../assets/icons/power.svg
+      input_cec: ../assets/icons/input-cec.svg
+      input_gamepad: ../assets/icons/input-gamepad.svg
+      input_keyboard: ../assets/icons/input-keyboard.svg
+      input_mouse: ../assets/icons/input-mouse.svg
     wallpaper: ../assets/themes/default/wallpaper.svg
     tile:
-      width: 320
-      height: 180
-      gap: 24
+      width: 240
+      height: 135
+      gap: 16
     animation:
       duration_ms: 180
       reduced_motion_duration_ms: 0

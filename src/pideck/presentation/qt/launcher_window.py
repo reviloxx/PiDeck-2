@@ -29,12 +29,14 @@ class LauncherTile(QPushButton):
     """Focusable application tile that emits the configured app on activation."""
 
     activated = Signal(object)
+    navigation_requested = Signal(object)
 
     def __init__(
         self,
         application: ApplicationDefinition,
         theme: ThemeDefinition,
         asset_root: Path,
+        input_icon: Path | None = None,
         reduced_motion: bool = False,
         parent: QWidget | None = None,
     ) -> None:
@@ -45,11 +47,57 @@ class LauncherTile(QPushButton):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(theme.tile.width, theme.tile.height)
-        self.setIcon(icon_for_path(_resolve_asset(application.icon, asset_root)))
-        self.setIconSize(QPixmap(72, 72).size())
-        self.setText(f"{application.name}\n{_preferred_input_label(application.preferred_input)}")
+        self.setText("")
+        self._build_content(application, asset_root, input_icon)
         self.clicked.connect(lambda: self.activated.emit(application))
         configure_tile_effect(self, theme, reduced_motion)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Forward directional keys to the launcher's grid controller."""
+        direction_by_key = {
+            Qt.Key.Key_Left: NavigationDirection.LEFT,
+            Qt.Key.Key_Right: NavigationDirection.RIGHT,
+            Qt.Key.Key_Up: NavigationDirection.UP,
+            Qt.Key.Key_Down: NavigationDirection.DOWN,
+        }
+        direction = direction_by_key.get(event.key())
+        if direction is not None:
+            self.navigation_requested.emit(direction)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _build_content(
+        self,
+        application: ApplicationDefinition,
+        asset_root: Path,
+        input_icon: Path | None,
+    ) -> None:
+        """Build the compact icon, title, and input-indicator tile content."""
+        content = QVBoxLayout(self)
+        content.setContentsMargins(12, 10, 12, 10)
+        content.setSpacing(6)
+        application_icon = QLabel(self)
+        application_icon.setObjectName("tile_icon")
+        application_icon.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        application_icon.setPixmap(
+            icon_for_path(_resolve_asset(application.icon, asset_root)).pixmap(56, 56)
+        )
+        content.addWidget(application_icon)
+
+        name = QLabel(application.name, self)
+        name.setObjectName("tile_name")
+        name.setWordWrap(True)
+        content.addWidget(name)
+        content.addStretch()
+
+        input_indicator = QLabel(self)
+        input_indicator.setObjectName("tile_input")
+        input_indicator.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+        input_indicator.setToolTip(_preferred_input_tooltip(application.preferred_input))
+        if input_icon is not None:
+            input_indicator.setPixmap(icon_for_path(input_icon).pixmap(24, 24))
+        content.addWidget(input_indicator)
 
     def focusInEvent(self, event: object) -> None:
         """Enable the theme glow when the tile receives keyboard focus."""
@@ -221,11 +269,13 @@ class LauncherWindow(QMainWindow):
                 application,
                 self._theme,
                 self._asset_root,
+                self._theme.icons.get(_preferred_input_icon_key(application.preferred_input)),
                 self._reduced_motion,
                 self._grid_container,
             )
             tile.set_running(application.identifier == self._running_identifier)
             tile.activated.connect(self.application_requested)
+            tile.navigation_requested.connect(self._handle_tile_navigation)
             self._tiles.append(tile)
             self._grid_layout.addWidget(tile, index // columns, index % columns)
         self._focus_current_tile()
@@ -259,6 +309,11 @@ class LauncherWindow(QMainWindow):
         """Focus the tile selected by the pure launcher controller."""
         if self._tiles:
             self._tiles[self._controller.state.focused_index].setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _handle_tile_navigation(self, direction: NavigationDirection) -> None:
+        """Move the controller and focus the resulting tile."""
+        self._controller.move(direction)
+        self._focus_current_tile()
 
     def notify_session_started(
         self,
@@ -337,10 +392,20 @@ class LauncherWindow(QMainWindow):
         self.show_launcher()
 
 
-def _preferred_input_label(preferred_input: PreferredInput) -> str:
-    """Return compact text for the tile's preferred input indicator."""
+def _preferred_input_icon_key(preferred_input: PreferredInput) -> str:
+    """Return the configured theme icon key for an input source."""
     return {
-        PreferredInput.CEC: "CEC remote",
+        PreferredInput.CEC: "input_cec",
+        PreferredInput.GAMEPAD: "input_gamepad",
+        PreferredInput.KEYBOARD: "input_keyboard",
+        PreferredInput.MOUSE: "input_mouse",
+    }[preferred_input]
+
+
+def _preferred_input_tooltip(preferred_input: PreferredInput) -> str:
+    """Return an accessible description for the input indicator icon."""
+    return {
+        PreferredInput.CEC: "HDMI-CEC remote",
         PreferredInput.GAMEPAD: "Game controller",
         PreferredInput.KEYBOARD: "Keyboard",
         PreferredInput.MOUSE: "Mouse",
