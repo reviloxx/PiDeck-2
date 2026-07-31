@@ -170,9 +170,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
         session_service.close()
         application.quit()
 
-    def handle_settings_saved(update: SettingsUpdate) -> None:
-        """Persist settings and apply them to the running launcher."""
-        nonlocal current_configuration, settings_window
+    def handle_settings_changed(update: SettingsUpdate) -> None:
+        """Persist each valid settings change and refresh both views."""
+        nonlocal current_configuration
         if settings_window is None:
             return
         try:
@@ -186,9 +186,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             settings_window.show_error(str(error))
             return
         window.apply_configuration(current_configuration, theme)
-        settings_window.accept()
-        window.show_launcher()
-        dependencies.logger.info("Settings saved theme=%s", current_configuration.home.theme)
+        settings_window.apply_theme_definition(theme)
+        dependencies.logger.info("Settings changed theme=%s", current_configuration.home.theme)
 
     def handle_settings_request() -> None:
         """Open the modal settings surface and suspend the launcher behind it."""
@@ -199,7 +198,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             settings_window.close()
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
         settings_window = SettingsWindow(current_configuration, theme, asset_root, window)
-        settings_window.settings_submitted.connect(handle_settings_saved)
+        settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.finished.connect(lambda _: window.show_launcher())
         window.hide()
         settings_window.show_fullscreen()

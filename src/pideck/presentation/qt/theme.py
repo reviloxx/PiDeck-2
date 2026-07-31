@@ -72,7 +72,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         QLabel#tile_icon {
             background: transparent;
         }
-        QPushButton#launcher_action, QPushButton#settings_footer {
+        QPushButton#launcher_action, QPushButton#settings_footer, QPushButton#settings_back {
             background-color: %(surface)s;
             border: 1px solid %(muted_text)s;
             border-radius: 7px;
@@ -82,7 +82,8 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             padding: 0 18px;
         }
         QPushButton#launcher_action:focus, QPushButton#launcher_action:hover,
-        QPushButton#settings_footer:focus, QPushButton#settings_footer:hover {
+        QPushButton#settings_footer:focus, QPushButton#settings_footer:hover,
+        QPushButton#settings_back:focus, QPushButton#settings_back:hover {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
         }

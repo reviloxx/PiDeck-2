@@ -58,6 +58,23 @@ def test_settings_window_emits_typed_update(application: QApplication) -> None:
     window.close()
 
 
+def test_settings_window_emits_changes_immediately(application: QApplication) -> None:
+    """Changing a value emits the update without a Save action."""
+    window = settings_window(application)
+    updates: list[SettingsUpdate] = []
+    window.settings_changed.connect(updates.append)
+
+    QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Right)
+    QTest.keyClick(window._theme_row, Qt.Key.Key_Down)
+    QTest.keyClick(window._motion_row, Qt.Key.Key_Space)
+
+    assert updates
+    assert updates[-1].reduced_motion is True
+    assert not hasattr(window, "_save_button")
+    assert not hasattr(window, "_cancel_button")
+    window.close()
+
+
 def test_settings_window_supports_dpad_navigation(application: QApplication) -> None:
     """Arrow keys move through categories, controls, applications, and actions."""
     window = settings_window(application)
@@ -67,9 +84,9 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     assert window._theme_row.hasFocus()
     QTest.keyClick(window._theme_row, Qt.Key.Key_Down)
     assert window._motion_row.hasFocus()
-    QTest.keyClick(window._motion_row, Qt.Key.Key_Left)
+    QTest.keyClick(window._motion_row, Qt.Key.Key_Space)
     assert window._reduced_motion.isChecked() is True
-    QTest.keyClick(window._motion_row, Qt.Key.Key_Left)
+    QTest.keyClick(window._motion_row, Qt.Key.Key_Return)
     assert window._reduced_motion.isChecked() is False
     QTest.keyClick(window._motion_row, Qt.Key.Key_Up)
     QTest.keyClick(window._theme_row, Qt.Key.Key_Up)
@@ -78,12 +95,11 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     assert window._nav_buttons[1].hasFocus()
     assert window._nav_buttons[1].property("active") is True
     assert window._nav_buttons[0].property("active") is False
-    QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Right)
-    assert window._applications.hasFocus()
-    QTest.keyClick(window._applications, Qt.Key.Key_Down)
-    assert window._save_button.hasFocus()
-
-    window.close()
+    QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Down)
+    assert window._back_button.hasFocus()
+    QTest.keyClick(window._back_button, Qt.Key.Key_Space)
+    assert window.isVisible() is False
+    return
 
 
 def test_home_application_list_accepts_keyboard_navigation(application: QApplication) -> None:
