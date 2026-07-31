@@ -1,5 +1,29 @@
 version: 1
-applications: []
+applications:
+  - id: kodi
+    name: Kodi
+    executable: kodi
+    preferred_input: cec
+  - id: steam-link
+    name: Steam Link
+    executable: steamlink
+    preferred_input: gamepad
+  - id: chromium
+    name: Chromium
+    executable: chromium
+    preferred_input: mouse
+  - id: firefox
+    name: Firefox
+    executable: firefox
+    preferred_input: mouse
+  - id: nomachine
+    name: NoMachine
+    executable: nxplayer
+    preferred_input: mouse
+  - id: retroarch
+    name: RetroArch
+    executable: retroarch
+    preferred_input: gamepad
 themes:
   - id: default
     name: Midnight
