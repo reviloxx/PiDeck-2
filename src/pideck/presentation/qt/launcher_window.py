@@ -45,8 +45,9 @@ class LauncherTile(QPushButton):
         self.application = application
         self.setObjectName("launcher_tile")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setMinimumSize(theme.tile.width, theme.tile.height)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumWidth(theme.tile.width)
+        self.setFixedHeight(theme.tile.height)
         self.setText("")
         self._build_content(application, asset_root, input_icon)
         self.clicked.connect(lambda: self.activated.emit(application))

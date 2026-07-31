@@ -50,6 +50,7 @@ def test_launcher_renders_tiles_and_focuses_first(application: QApplication) -> 
 
     assert len(window.findChildren(type(window._tiles[0]))) == 3
     assert window._tiles[0].hasFocus()
+    assert all(tile.height() == DEFAULT_THEME.tile.height for tile in window._tiles)
 
     window.close()
 
