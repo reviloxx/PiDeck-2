@@ -2,11 +2,12 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
+    QApplication,
     QLabel,
     QMainWindow,
     QPushButton,
@@ -133,7 +134,9 @@ class LauncherWindow(QMainWindow):
     def show_launcher(self) -> None:
         """Show the launcher fullscreen and focus its first available tile."""
         self.showFullScreen()
+        self._rebuild_tiles()
         self._focus_current_tile()
+        QTimer.singleShot(0, self._enforce_fullscreen)
 
     def resizeEvent(self, event: object) -> None:
         """Reflow tiles when the available screen geometry changes."""
@@ -229,8 +232,28 @@ class LauncherWindow(QMainWindow):
 
     def _column_count(self) -> int:
         """Calculate tile columns from current width and theme tile dimensions."""
-        available_width = max(self.width() - 96, self._theme.tile.width)
+        if self.isVisible():
+            available_width = self.width() - 96
+        else:
+            screen = self.screen()
+            if screen is None:
+                screen = QApplication.primaryScreen()
+            available_width = (
+                screen.availableGeometry().width() - 96
+                if screen is not None
+                else self._theme.tile.width
+            )
+        available_width = max(available_width, self._theme.tile.width)
         return max(1, (available_width + self._theme.tile.gap) // (self._theme.tile.width + self._theme.tile.gap))
+
+    def _enforce_fullscreen(self) -> None:
+        """Reassert fullscreen after the window manager maps the launcher."""
+        if not self.isVisible():
+            return
+        if not self.isFullScreen():
+            self.showFullScreen()
+        self.raise_()
+        self.activateWindow()
 
     def _focus_current_tile(self) -> None:
         """Focus the tile selected by the pure launcher controller."""

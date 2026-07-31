@@ -62,6 +62,7 @@ def test_show_launcher_enters_fullscreen(application: QApplication) -> None:
     application.processEvents()
 
     assert window.isFullScreen()
+    assert window.geometry() == window.screen().geometry()
 
     window.close()
 
