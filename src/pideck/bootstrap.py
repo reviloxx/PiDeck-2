@@ -7,15 +7,38 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
 from pideck.application.dependencies import ApplicationDependencies
+from pideck.application.session import ApplicationSessionService, LaunchStatus, SessionObserver
+from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
 from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.logging import configure_logging
+from pideck.infrastructure.process import SubprocessSupervisor
 from pideck.infrastructure.theme import FileThemeRepository
 
 if TYPE_CHECKING:
     from pideck.presentation.qt.launcher_window import LauncherWindow
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _QtSessionObserver:
+    """Bridge worker-thread session callbacks into Qt signals."""
+
+    def __init__(self, window: "LauncherWindow") -> None:
+        """Create an observer for one launcher window."""
+        self._window = window
+
+    def started(self, application: ApplicationDefinition, profile: ApplicationProfile | None) -> None:
+        """Forward a successful process start to the window."""
+        self._window.notify_session_started(application, profile)
+
+    def finished(self, application: ApplicationDefinition, return_code: int) -> None:
+        """Forward process exit and return-to-launcher behavior to the window."""
+        self._window.notify_session_finished(application, return_code)
+
+    def failed(self, application: ApplicationDefinition, message: str) -> None:
+        """Forward launch failure feedback to the window."""
+        self._window.notify_session_failed(application, message)
 
 
 def default_configuration_path() -> Path:
@@ -39,6 +62,7 @@ def build_dependencies(
         asset_root=asset_root or configuration_path.parent,
         fallback=DEFAULT_THEME,
     )
+    process_supervisor = SubprocessSupervisor()
     logger.info(
         "PiDeck foundation initialized applications=%d themes=%d configuration=%s",
         len(configuration.applications),
@@ -49,6 +73,7 @@ def build_dependencies(
         configuration=configuration,
         configuration_repository=configuration_repository,
         theme_repository=theme_repository,
+        process_supervisor=process_supervisor,
         logger=logger,
     )
 
@@ -94,15 +119,51 @@ def main(arguments: Sequence[str] | None = None) -> int:
     application.setApplicationName("PiDeck")
     asset_root = parsed_arguments.asset_root or parsed_arguments.config.parent
     window = build_launcher_window(dependencies, asset_root)
-    window.application_requested.connect(
-        lambda app: dependencies.logger.info(
-            "Application activation requested application=%s", app.identifier
-        )
-    )
+    session_observer: SessionObserver = _QtSessionObserver(window)
+    session_service = ApplicationSessionService(dependencies.process_supervisor, session_observer)
+
+    def handle_application_request(application_definition: ApplicationDefinition) -> None:
+        """Resolve profile and replacement decisions for a tile activation."""
+        result = session_service.request_launch(application_definition)
+        if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
+            selected_profile = window.choose_profile(result.profiles)
+            if selected_profile is None:
+                return
+            result = session_service.request_launch(application_definition, selected_profile)
+        if result.status is LaunchStatus.CONFIRMATION_REQUIRED:
+            if not window.confirm_application_replacement(result.application):
+                return
+            selected_profile = (
+                window.choose_profile(application_definition.profiles)
+                if len(application_definition.profiles) > 1
+                else None
+            )
+            if application_definition.profiles and selected_profile is None:
+                return
+            result = session_service.replace_running(application_definition, selected_profile)
+        if result.status is LaunchStatus.FAILED:
+            dependencies.logger.error(
+                "Application launch failed application=%s error=%s",
+                application_definition.identifier,
+                result.message,
+            )
+        else:
+            dependencies.logger.info(
+                "Application launch requested application=%s status=%s",
+                application_definition.identifier,
+                result.status,
+            )
+
+    def handle_shutdown_request() -> None:
+        """Stop any application session before ending the Qt event loop."""
+        session_service.close()
+        application.quit()
+
+    window.application_requested.connect(handle_application_request)
     window.settings_requested.connect(
         lambda: dependencies.logger.info("Settings activation requested")
     )
-    window.shutdown_requested.connect(application.quit)
+    window.shutdown_requested.connect(handle_shutdown_request)
     window.show_launcher()
     return application.exec()
 

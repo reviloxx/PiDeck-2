@@ -31,4 +31,4 @@ Validate a configuration without starting Qt:
 pideck --validate-only --config config/pideck.yaml
 ```
 
-Milestone 2 provides the fullscreen tile launcher, keyboard navigation, focus handling, and intent signals. External application management is deferred to Milestone 3.
+Milestone 2 provides the fullscreen tile launcher, keyboard navigation, focus handling, and intent signals. Milestone 3 adds shell-free application launching, process-group supervision, profile selection, replacement confirmation, and return to the launcher after exit.

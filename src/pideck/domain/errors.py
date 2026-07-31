@@ -19,3 +19,7 @@ class ThemeError(PiDeckError):
 
 class ThemeValidationError(ThemeError):
     """Raised when a theme definition or its assets are invalid."""
+
+
+class ProcessError(PiDeckError):
+    """Base class for external process lifecycle errors."""

@@ -10,13 +10,15 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QInputDialog,
+    QMessageBox,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from pideck.application.launcher import LauncherController, NavigationDirection
-from pideck.domain.configuration import ApplicationDefinition, PreferredInput
+from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, PreferredInput
 from pideck.domain.theme import ThemeDefinition
 
 from .theme import apply_theme, configure_tile_effect, icon_for_path
@@ -66,6 +68,9 @@ class LauncherWindow(QMainWindow):
     """Present configurable application tiles with TV-friendly keyboard focus."""
 
     application_requested = Signal(object)
+    session_started = Signal(object, object)
+    session_finished = Signal(object, int)
+    session_failed = Signal(object, str)
     settings_requested = Signal()
     shutdown_requested = Signal()
 
@@ -91,6 +96,9 @@ class LauncherWindow(QMainWindow):
         self._root_layout = QVBoxLayout(self._root)
         self._root_layout.setContentsMargins(48, 36, 48, 28)
         self._root_layout.setSpacing(12)
+        self.session_started.connect(self._handle_session_started)
+        self.session_finished.connect(self._handle_session_finished)
+        self.session_failed.connect(self._handle_session_failed)
         self._build_header()
         self._grid_container = QWidget(self._root)
         self._grid_layout = QGridLayout(self._grid_container)
@@ -133,7 +141,7 @@ class LauncherWindow(QMainWindow):
             event.accept()
             return
         if event.key() == Qt.Key.Key_Escape:
-            self.close()
+            self.shutdown_requested.emit()
             event.accept()
             return
         super().keyPressEvent(event)
@@ -144,8 +152,11 @@ class LauncherWindow(QMainWindow):
         title.setObjectName("launcher_title")
         subtitle = QLabel("Choose an application", self._root)
         subtitle.setObjectName("launcher_subtitle")
+        self._status_label = QLabel("", self._root)
+        self._status_label.setObjectName("launcher_subtitle")
         self._root_layout.addWidget(title)
         self._root_layout.addWidget(subtitle)
+        self._root_layout.addWidget(self._status_label)
 
     def _build_footer(self) -> None:
         """Create intent-only settings and shutdown controls."""
@@ -196,6 +207,73 @@ class LauncherWindow(QMainWindow):
         """Focus the tile selected by the pure launcher controller."""
         if self._tiles:
             self._tiles[self._controller.state.focused_index].setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def notify_session_started(
+        self,
+        application: ApplicationDefinition,
+        profile: ApplicationProfile | None,
+    ) -> None:
+        """Publish a process-start event safely from any supervisor thread."""
+        self.session_started.emit(application, profile)
+
+    def notify_session_finished(self, application: ApplicationDefinition, return_code: int) -> None:
+        """Publish a process-exit event safely from any supervisor thread."""
+        self.session_finished.emit(application, return_code)
+
+    def notify_session_failed(self, application: ApplicationDefinition, message: str) -> None:
+        """Publish a process-error event safely from any supervisor thread."""
+        self.session_failed.emit(application, message)
+
+    def choose_profile(
+        self,
+        profiles: tuple[ApplicationProfile, ...],
+    ) -> ApplicationProfile | None:
+        """Ask the user to choose an application profile."""
+        if not profiles:
+            return None
+        names = [profile.name for profile in profiles]
+        selected_name, accepted = QInputDialog.getItem(
+            self,
+            "Choose profile",
+            "Application profile:",
+            names,
+            0,
+            False,
+        )
+        if not accepted:
+            return None
+        return next(profile for profile in profiles if profile.name == selected_name)
+
+    def confirm_application_replacement(self, application: ApplicationDefinition) -> bool:
+        """Ask whether the running application should be stopped."""
+        answer = QMessageBox.question(
+            self,
+            "Application already running",
+            f"Stop the current application and start {application.name}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _handle_session_started(
+        self,
+        application: ApplicationDefinition,
+        profile: ApplicationProfile | None,
+    ) -> None:
+        """Hide the launcher after a process has started successfully."""
+        del profile
+        self._status_label.setText(f"Running {application.name}")
+        self.hide()
+
+    def _handle_session_finished(self, application: ApplicationDefinition, return_code: int) -> None:
+        """Restore the launcher after an application exits."""
+        self._status_label.setText(f"{application.name} exited ({return_code})")
+        self.show_launcher()
+
+    def _handle_session_failed(self, application: ApplicationDefinition, message: str) -> None:
+        """Keep the launcher visible and show a safe launch error."""
+        self._status_label.setText(f"Could not start {application.name}: {message}")
+        self.show_launcher()
 
 
 def _preferred_input_label(preferred_input: PreferredInput) -> str:
