@@ -276,6 +276,8 @@ class SettingsWindow(QDialog):
 
     def _select_page(self, index: int, focus_first: bool = True) -> None:
         """Select a category and update active styling and content."""
+        if index != self._current_page:
+            self._clear_home_selection()
         self._current_page = index
         self._pages.setCurrentIndex(index)
         self._page_title.setText("Appearance" if index == 0 else "Home screen")
@@ -304,7 +306,15 @@ class SettingsWindow(QDialog):
         """Focus the first usable control on the selected page."""
         controls = self._page_controls.get(self._current_page, [])
         if controls:
+            if self._current_page == 1:
+                self._applications.setCurrentRow(0)
             controls[0].setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _clear_home_selection(self) -> None:
+        """Remove Home screen list selection while keeping its check states."""
+        if hasattr(self, "_applications"):
+            self._applications.clearSelection()
+            self._applications.setCurrentRow(-1)
 
     def _focus_selected_nav(self) -> None:
         """Return focus to the active category button."""
@@ -371,9 +381,11 @@ class SettingsWindow(QDialog):
         if watched is self._applications:
             current_row = self._applications.currentRow()
             if key == Qt.Key.Key_Left:
+                self._clear_home_selection()
                 self._focus_selected_nav()
                 return True
             if key == Qt.Key.Key_Up and current_row == 0:
+                self._clear_home_selection()
                 self._focus_selected_nav()
                 return True
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):

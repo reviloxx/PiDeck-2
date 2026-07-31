@@ -131,3 +131,23 @@ def test_home_application_list_accepts_keyboard_navigation(application: QApplica
     assert [button.property("active") for button in window._nav_buttons] == [False, False]
 
     window.close()
+
+
+def test_home_page_entry_and_exit_control_list_selection(application: QApplication) -> None:
+    """Rail navigation leaves the list empty; Right enters its first item."""
+    window = settings_window(application)
+
+    QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Down)
+    assert window._nav_buttons[1].hasFocus()
+    assert window._applications.currentRow() == -1
+
+    QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Right)
+    assert window._applications.hasFocus()
+    assert window._applications.currentRow() == 0
+
+    QTest.keyClick(window._applications, Qt.Key.Key_Left)
+    assert window._nav_buttons[1].hasFocus()
+    assert window._applications.currentRow() == -1
+    assert window._nav_buttons[1].property("active") is True
+
+    window.close()
