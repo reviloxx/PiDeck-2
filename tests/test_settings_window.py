@@ -123,5 +123,11 @@ def test_home_application_list_accepts_keyboard_navigation(application: QApplica
     assert window._applications.currentRow() == 1
     QTest.keyClick(window._applications, Qt.Key.Key_Up)
     assert window._applications.currentRow() == 0
+    QTest.keyClick(window._applications, Qt.Key.Key_Left)
+    assert window._nav_buttons[1].hasFocus()
+    assert [button.property("active") for button in window._nav_buttons] == [False, True]
+    QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Down)
+    assert window._back_button.hasFocus()
+    assert [button.property("active") for button in window._nav_buttons] == [False, False]
 
     window.close()

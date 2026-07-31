@@ -284,12 +284,16 @@ class SettingsWindow(QDialog):
             if index == 0
             else "Choose which applications are available from the home screen."
         )
-        for button_index, button in enumerate(self._nav_buttons):
-            button.setProperty("active", button_index == index)
-            button.style().unpolish(button)
-            button.style().polish(button)
+        self._set_active_nav(index)
         if focus_first:
             self._focus_first_page_control()
+
+    def _set_active_nav(self, index: int | None) -> None:
+        """Ensure exactly one category, or none, carries the active highlight."""
+        for button_index, button in enumerate(self._nav_buttons):
+            button.setProperty("active", index is not None and button_index == index)
+            button.style().unpolish(button)
+            button.style().polish(button)
 
     def _focus_nav(self, index: int) -> None:
         """Focus and visually select one category in the rail."""
@@ -346,6 +350,7 @@ class SettingsWindow(QDialog):
             nav_index = self._nav_buttons.index(watched)
             if key == Qt.Key.Key_Down:
                 if nav_index == len(self._nav_buttons) - 1:
+                    self._set_active_nav(None)
                     self._back_button.setFocus(Qt.FocusReason.OtherFocusReason)
                     return True
                 self._focus_nav(min(nav_index + 1, len(self._nav_buttons) - 1))
@@ -358,6 +363,7 @@ class SettingsWindow(QDialog):
                 self._focus_first_page_control()
                 return True
         if watched is self._back_button:
+            self._set_active_nav(None)
             if key == Qt.Key.Key_Up:
                 self._focus_nav(len(self._nav_buttons) - 1)
                 return True
