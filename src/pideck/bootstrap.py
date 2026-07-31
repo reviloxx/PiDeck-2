@@ -88,7 +88,12 @@ def build_launcher_window(
 
     controller = LauncherController(dependencies.configuration)
     theme = dependencies.theme_repository.get(dependencies.configuration.home.theme)
-    return LauncherWindow(controller, theme, asset_root)
+    return LauncherWindow(
+        controller,
+        theme,
+        asset_root,
+        dependencies.configuration.settings.reduced_motion,
+    )
 
 
 def main(arguments: Sequence[str] | None = None) -> int:

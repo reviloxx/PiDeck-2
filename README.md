@@ -31,4 +31,6 @@ Validate a configuration without starting Qt:
 pideck --validate-only --config config/pideck.yaml
 ```
 
-Milestone 2 provides the fullscreen tile launcher, keyboard navigation, focus handling, and intent signals. Milestone 3 adds shell-free application launching, process-group supervision, profile selection, replacement confirmation, and return to the launcher after exit.
+Milestone 2 provides the fullscreen tile launcher, keyboard navigation, focus handling, and intent signals. Milestone 3 adds shell-free application launching, process-group supervision, profile selection, replacement confirmation, and return to the launcher after exit. Milestone 4 adds theme-driven wallpaper, bundled SVG icons, animated focus glow, running-tile styling, and reduced-motion support.
+
+Bundled visual assets live under `assets/` and are referenced from `config/pideck.yaml`. Replace those paths with custom assets when creating a theme.

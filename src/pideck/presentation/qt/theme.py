@@ -1,6 +1,6 @@
 """Qt styling derived from immutable PiDeck theme tokens."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QWidget
 
@@ -18,11 +18,19 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
     palette.setColor(QPalette.ColorRole.ButtonText, QColor(colors["text"]))
     widget.setPalette(palette)
     widget.setFont(QFont(theme.fonts.family, theme.fonts.body_size))
+    wallpaper_style = ""
+    if theme.wallpaper is not None:
+        wallpaper_style = (
+            "background-image: url('"
+            f"{theme.wallpaper.as_posix()}"
+            "'); background-position: center; background-repeat: no-repeat;"
+        )
     widget.setStyleSheet(
         """
         QMainWindow, QWidget#launcher_root {
             background-color: %(background)s;
             color: %(text)s;
+            %(wallpaper_style)s
         }
         QLabel#launcher_title {
             color: %(text)s;
@@ -47,6 +55,10 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         QPushButton#launcher_tile:pressed {
             border-color: %(primary)s;
             background-color: %(primary_surface)s;
+        }
+        QPushButton#launcher_tile[running="true"] {
+            border-color: %(running)s;
+            background-color: %(running_surface)s;
         }
         QLabel#tile_name {
             color: %(text)s;
@@ -76,23 +88,39 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             "muted_text": colors["muted_text"],
             "focus": colors["focus"],
             "primary": colors["primary"],
+            "running": colors["running"],
             "heading_size": theme.fonts.heading_size,
             "body_size": theme.fonts.body_size,
             "focus_surface": _blend(colors["surface"], colors["focus"], 0.16),
             "primary_surface": _blend(colors["surface"], colors["primary"], 0.24),
+            "running_surface": _blend(colors["surface"], colors["running"], 0.20),
+            "wallpaper_style": wallpaper_style,
         }
     )
 
 
-def configure_tile_effect(tile: QWidget, theme: ThemeDefinition) -> None:
-    """Add a subtle focus glow using the theme focus color."""
+def configure_tile_effect(
+    tile: QWidget,
+    theme: ThemeDefinition,
+    reduced_motion: bool = False,
+) -> None:
+    """Add an animated focus glow using the theme focus color."""
     effect = QGraphicsDropShadowEffect(tile)
-    effect.setBlurRadius(22)
+    effect.setBlurRadius(8)
     effect.setOffset(0, 0)
     effect.setColor(QColor(theme.colors["focus"]))
     effect.setEnabled(False)
     tile.setGraphicsEffect(effect)
     tile.setProperty("focus_effect", effect)
+    animation = QPropertyAnimation(effect, b"blurRadius", tile)
+    duration = (
+        theme.animation.reduced_motion_duration_ms
+        if reduced_motion
+        else theme.animation.duration_ms
+    )
+    animation.setDuration(duration)
+    animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+    tile.setProperty("focus_animation", animation)
 
 
 def icon_for_path(path: object) -> QIcon:

@@ -1,6 +1,7 @@
 """Qt tests for the fullscreen launcher presentation."""
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -62,6 +63,48 @@ def test_show_launcher_enters_fullscreen(application: QApplication) -> None:
 
     assert window.isFullScreen()
 
+    window.close()
+
+
+def test_theme_animation_and_running_state_are_applied(application: QApplication) -> None:
+    """Theme timing and running state reach the rendered tile."""
+    window = launcher_window(application)
+    window.setStyleSheet(
+        window.styleSheet()
+        + " QWidget#launcher_root { background-image: url('assets/themes/default/wallpaper.svg'); }"
+    )
+
+    window.set_running_application("two")
+    animation = window._tiles[1].property("focus_animation")
+
+    assert window._tiles[1].property("running") is True
+    assert window._tiles[0].property("running") is False
+    assert animation.duration() == 180
+    assert "wallpaper" in window.styleSheet()
+
+    window.close()
+
+
+def test_reduced_motion_disables_focus_animation(application: QApplication) -> None:
+    """Reduced-motion configuration uses the theme's zero-duration timing."""
+    window = launcher_window(application)
+    reduced_theme = replace(
+        DEFAULT_THEME,
+        wallpaper=Path("assets/themes/default/wallpaper.svg"),
+    )
+    reduced_window = LauncherWindow(
+        window._controller,
+        reduced_theme,
+        Path.cwd(),
+        reduced_motion=True,
+    )
+    reduced_window.show()
+    application.processEvents()
+
+    animation = reduced_window._tiles[0].property("focus_animation")
+    assert animation.duration() == 0
+
+    reduced_window.close()
     window.close()
 
 

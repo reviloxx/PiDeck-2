@@ -3,26 +3,32 @@ applications:
   - id: kodi
     name: Kodi
     executable: kodi
+    icon: ../assets/icons/kodi.svg
     preferred_input: cec
   - id: steam-link
     name: Steam Link
     executable: steamlink
+    icon: ../assets/icons/steam-link.svg
     preferred_input: gamepad
   - id: chromium
     name: Chromium
     executable: chromium
+    icon: ../assets/icons/chromium.svg
     preferred_input: mouse
   - id: firefox
     name: Firefox
     executable: firefox
+    icon: ../assets/icons/firefox.svg
     preferred_input: mouse
   - id: nomachine
     name: NoMachine
     executable: nxplayer
+    icon: ../assets/icons/nomachine.svg
     preferred_input: mouse
   - id: retroarch
     name: RetroArch
     executable: retroarch
+    icon: ../assets/icons/retroarch.svg
     preferred_input: gamepad
 themes:
   - id: default
@@ -40,8 +46,10 @@ themes:
       family: "DejaVu Sans"
       heading_size: 28
       body_size: 18
-    icons: {}
-    wallpaper: null
+    icons:
+      settings: ../assets/icons/settings.svg
+      power: ../assets/icons/power.svg
+    wallpaper: ../assets/themes/default/wallpaper.svg
     tile:
       width: 320
       height: 180

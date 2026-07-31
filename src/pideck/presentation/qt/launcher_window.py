@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -34,6 +34,7 @@ class LauncherTile(QPushButton):
         application: ApplicationDefinition,
         theme: ThemeDefinition,
         asset_root: Path,
+        reduced_motion: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         """Create one themed tile for an application definition."""
@@ -44,24 +45,40 @@ class LauncherTile(QPushButton):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(theme.tile.width, theme.tile.height)
         self.setIcon(icon_for_path(_resolve_asset(application.icon, asset_root)))
-        self.setIconSize(self.sizeHint())
+        self.setIconSize(QPixmap(72, 72).size())
         self.setText(f"{application.name}\n{_preferred_input_label(application.preferred_input)}")
         self.clicked.connect(lambda: self.activated.emit(application))
-        configure_tile_effect(self, theme)
+        configure_tile_effect(self, theme, reduced_motion)
 
     def focusInEvent(self, event: object) -> None:
         """Enable the theme glow when the tile receives keyboard focus."""
         super().focusInEvent(event)
         effect = self.property("focus_effect")
-        if effect is not None:
+        animation = self.property("focus_animation")
+        if effect is not None and animation is not None:
             effect.setEnabled(True)
+            animation.stop()
+            animation.setStartValue(effect.blurRadius())
+            animation.setEndValue(26)
+            animation.start()
 
     def focusOutEvent(self, event: object) -> None:
         """Disable the theme glow when the tile loses keyboard focus."""
         super().focusOutEvent(event)
         effect = self.property("focus_effect")
-        if effect is not None:
-            effect.setEnabled(False)
+        animation = self.property("focus_animation")
+        if effect is not None and animation is not None:
+            animation.stop()
+            animation.setStartValue(effect.blurRadius())
+            animation.setEndValue(8)
+            animation.finished.connect(lambda: effect.setEnabled(False), Qt.ConnectionType.SingleShotConnection)
+            animation.start()
+
+    def set_running(self, running: bool) -> None:
+        """Apply the theme's running state to this tile."""
+        self.setProperty("running", running)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
 
 class LauncherWindow(QMainWindow):
@@ -79,6 +96,7 @@ class LauncherWindow(QMainWindow):
         controller: LauncherController,
         theme: ThemeDefinition,
         asset_root: Path,
+        reduced_motion: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         """Build the launcher presentation around injected application state."""
@@ -86,6 +104,8 @@ class LauncherWindow(QMainWindow):
         self._controller = controller
         self._theme = theme
         self._asset_root = asset_root
+        self._reduced_motion = reduced_motion
+        self._running_identifier: str | None = None
         self._tiles: list[LauncherTile] = []
         self.setObjectName("launcher_window")
         self.setWindowTitle("PiDeck")
@@ -165,10 +185,12 @@ class LauncherWindow(QMainWindow):
         settings = QPushButton("Settings", self._root)
         settings.setObjectName("launcher_action")
         settings.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        settings.setIcon(icon_for_path(self._theme.icons.get("settings")))
         settings.clicked.connect(self.settings_requested)
         shutdown = QPushButton("Shutdown", self._root)
         shutdown.setObjectName("launcher_action")
         shutdown.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        shutdown.setIcon(icon_for_path(self._theme.icons.get("power")))
         shutdown.clicked.connect(self.shutdown_requested)
         footer.addWidget(settings)
         footer.addWidget(shutdown)
@@ -192,7 +214,14 @@ class LauncherWindow(QMainWindow):
         columns = self._column_count()
         self._controller.set_columns(columns)
         for index, application in enumerate(applications):
-            tile = LauncherTile(application, self._theme, self._asset_root, self._grid_container)
+            tile = LauncherTile(
+                application,
+                self._theme,
+                self._asset_root,
+                self._reduced_motion,
+                self._grid_container,
+            )
+            tile.set_running(application.identifier == self._running_identifier)
             tile.activated.connect(self.application_requested)
             self._tiles.append(tile)
             self._grid_layout.addWidget(tile, index // columns, index % columns)
@@ -223,6 +252,12 @@ class LauncherWindow(QMainWindow):
     def notify_session_failed(self, application: ApplicationDefinition, message: str) -> None:
         """Publish a process-error event safely from any supervisor thread."""
         self.session_failed.emit(application, message)
+
+    def set_running_application(self, identifier: str | None) -> None:
+        """Mark one tile as running or clear the running tile state."""
+        self._running_identifier = identifier
+        for tile in self._tiles:
+            tile.set_running(tile.application.identifier == identifier)
 
     def choose_profile(
         self,
@@ -262,16 +297,19 @@ class LauncherWindow(QMainWindow):
     ) -> None:
         """Hide the launcher after a process has started successfully."""
         del profile
+        self.set_running_application(application.identifier)
         self._status_label.setText(f"Running {application.name}")
         self.hide()
 
     def _handle_session_finished(self, application: ApplicationDefinition, return_code: int) -> None:
         """Restore the launcher after an application exits."""
+        self.set_running_application(None)
         self._status_label.setText(f"{application.name} exited ({return_code})")
         self.show_launcher()
 
     def _handle_session_failed(self, application: ApplicationDefinition, message: str) -> None:
         """Keep the launcher visible and show a safe launch error."""
+        self.set_running_application(None)
         self._status_label.setText(f"Could not start {application.name}: {message}")
         self.show_launcher()
 
