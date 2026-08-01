@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from pideck.application.settings import SettingsUpdate
+from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
@@ -72,9 +73,15 @@ class UpdateRow(QFrame):
     activation_requested = Signal()
     navigation_requested = Signal(object)
 
-    def __init__(self, application_name: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        application_id: str,
+        application_name: str,
+        parent: QWidget | None = None,
+    ) -> None:
         """Create one update entry for a configured application."""
         super().__init__(parent)
+        self.application_id = application_id
         self.application_name = application_name
         self.setObjectName("update_row")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -99,7 +106,7 @@ class UpdateRow(QFrame):
         self._spinner_timer.timeout.connect(self._advance_spinner)
         self._spinner_frames = ("|", "/", "-", "\\")
         self._spinner_index = 0
-        self.info = UpdateInfo(application_name, application_name, UpdateStatus.CHECKING)
+        self.info = UpdateInfo(application_id, application_name, UpdateStatus.CHECKING)
         self.last_available_info: UpdateInfo | None = None
         self._language = "en"
 
@@ -498,7 +505,7 @@ class SettingsWindow(QDialog):
         layout.setSpacing(10)
         controls: list[QWidget] = []
         for application in self._configuration.applications:
-            row = UpdateRow(application.name, page)
+            row = UpdateRow(application.identifier, application.name, page)
             row.activation_requested.connect(
                 lambda application_id=application.identifier: self._activate_update(application_id)
             )
@@ -613,6 +620,76 @@ class SettingsWindow(QDialog):
                 rows[row_index + 1].setFocus(Qt.FocusReason.OtherFocusReason)
         elif direction == Qt.Key.Key_Left:
             self._focus_selected_nav()
+
+    def handle_input(self, event: InputEvent) -> None:
+        """Handle normalized gamepad actions using the current focus target."""
+        if not event.pressed:
+            return
+        current = self.focusWidget()
+        qt_keys = {
+            InputAction.LEFT: Qt.Key.Key_Left,
+            InputAction.RIGHT: Qt.Key.Key_Right,
+            InputAction.UP: Qt.Key.Key_Up,
+            InputAction.DOWN: Qt.Key.Key_Down,
+        }
+        if event.action in qt_keys:
+            key = qt_keys[event.action]
+            if current in self._nav_buttons:
+                nav_index = self._nav_buttons.index(current)
+                if key == Qt.Key.Key_Left:
+                    return
+                if key == Qt.Key.Key_Down:
+                    if nav_index == len(self._nav_buttons) - 1:
+                        self._set_active_nav(None)
+                        self._back_button.setFocus(Qt.FocusReason.OtherFocusReason)
+                    else:
+                        self._focus_nav(nav_index + 1)
+                elif key == Qt.Key.Key_Up:
+                    self._focus_nav(max(nav_index - 1, 0))
+                elif key == Qt.Key.Key_Right:
+                    self._select_page(nav_index)
+                    self._focus_first_page_control()
+                return
+            if current is self._back_button:
+                if key == Qt.Key.Key_Up:
+                    self._focus_nav(len(self._nav_buttons) - 1)
+                return
+            if current is self._applications:
+                row = self._applications.currentRow()
+                if key == Qt.Key.Key_Left or (key == Qt.Key.Key_Up and row == 0):
+                    self._clear_home_selection()
+                    self._focus_selected_nav()
+                elif key == Qt.Key.Key_Up:
+                    self._applications.setCurrentRow(max(row - 1, 0))
+                elif key == Qt.Key.Key_Down:
+                    self._applications.setCurrentRow(min(row + 1, self._applications.count() - 1))
+                return
+            if current in self._page_controls.get(self._current_page, []):
+                if self._current_page == 2:
+                    self._handle_update_navigation(key)
+                else:
+                    self._handle_row_navigation(key)
+                return
+        if event.action is InputAction.ACTIVATE:
+            if current in self._nav_buttons:
+                self._select_page(self._nav_buttons.index(current))
+                self._focus_first_page_control()
+            elif current is self._back_button:
+                self.reject()
+            elif current is self._applications:
+                item = self._applications.item(self._applications.currentRow())
+                if item is not None:
+                    item.setCheckState(
+                        Qt.CheckState.Unchecked
+                        if item.checkState() is Qt.CheckState.Checked
+                        else Qt.CheckState.Checked
+                    )
+            elif current in self._page_controls.get(0, []):
+                self._handle_row_activation(current)
+            elif current in self._page_controls.get(2, []):
+                self._activate_update(current.application_id)
+        elif event.action is InputAction.BACK:
+            self.reject()
 
     def _handle_row_activation(self, row: SettingsRow) -> None:
         """Adjust a row or open its selector with Enter/Space."""

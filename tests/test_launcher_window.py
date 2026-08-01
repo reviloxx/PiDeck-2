@@ -12,6 +12,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from pideck.application.launcher import LauncherController
+from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.presentation.qt.launcher_window import LauncherWindow, calculate_tile_columns
@@ -193,6 +194,20 @@ def test_arrow_keys_on_tile_use_grid_navigation(application: QApplication) -> No
     assert window._controller.state.focused_index == 2
     assert window._tiles[2].hasFocus()
 
+    window.close()
+
+
+def test_gamepad_dpad_and_activate_navigate_launcher(application: QApplication) -> None:
+    """Normalized gamepad actions move and activate launcher tiles."""
+    window = launcher_window(application)
+    requested: list[str] = []
+    window.application_requested.connect(lambda app: requested.append(app.identifier))
+
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+
+    assert window._controller.state.focused_index == 2
+    assert requested == ["three"]
     window.close()
 
 

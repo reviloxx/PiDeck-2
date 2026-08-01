@@ -10,6 +10,7 @@ from pideck.application.dependencies import ApplicationDependencies
 from pideck.application.session import ApplicationSessionService, LaunchStatus, SessionObserver
 from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.application.updates import ApplicationUpdateService
+from pideck.application.ports.input import InputEvent
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
 from pideck.domain.errors import ConfigurationError
 from pideck.infrastructure.config import FileConfigurationRepository
@@ -17,6 +18,7 @@ from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
 from pideck.infrastructure.platform_updates import NativeUpdateGateway
+from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
 from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
 from pideck.infrastructure.theme import FileThemeRepository
 
@@ -135,6 +137,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return 0
 
     from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import QObject, Qt, Signal
 
     application = QApplication(["pideck"])
     application.setApplicationName("PiDeck")
@@ -143,6 +146,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     current_configuration = dependencies.configuration
     settings_service = SettingsService()
     update_service = ApplicationUpdateService(NativeUpdateGateway())
+    gamepad_adapter = EvdevGamepadAdapter()
     settings_window: SettingsWindow | None = None
     session_observer: SessionObserver = _QtSessionObserver(window)
     visibility_detector = X11WindowVisibilityDetector()
@@ -151,6 +155,31 @@ def main(arguments: Sequence[str] | None = None) -> int:
         session_observer,
         visibility_detector,
     )
+
+    class GamepadBridge(QObject):
+        """Marshal gamepad reader-thread events onto the Qt event loop."""
+
+        event_received = Signal(object)
+
+        def handle_input(self, event: InputEvent) -> None:
+            """Emit one normalized event for queued Qt delivery."""
+            self.event_received.emit(event)
+
+    gamepad_bridge = GamepadBridge()
+
+    def handle_gamepad_event(event: InputEvent) -> None:
+        """Route gamepad input to the active launcher/settings surface."""
+        if settings_window is not None and settings_window.isVisible():
+            settings_window.handle_input(event)
+        else:
+            window.handle_input(event)
+
+    gamepad_bridge.event_received.connect(
+        handle_gamepad_event,
+        Qt.ConnectionType.QueuedConnection,
+    )
+    if "gamepad" in current_configuration.input.enabled_sources:
+        gamepad_adapter.start(gamepad_bridge)
 
     def handle_application_request(application_definition: ApplicationDefinition) -> None:
         """Resolve profile and replacement decisions for a tile activation."""
@@ -188,6 +217,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         """Stop any application session before ending the Qt event loop."""
         session_service.close()
         update_service.close()
+        gamepad_adapter.close()
         application.quit()
 
     def handle_settings_changed(update: SettingsUpdate) -> None:

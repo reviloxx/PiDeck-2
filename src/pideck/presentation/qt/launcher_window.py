@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from pideck.application.launcher import LauncherController, NavigationDirection
+from pideck.application.ports.input import InputAction, InputEvent
 from pideck.domain.configuration import Configuration
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, PreferredInput
 from pideck.domain.theme import ThemeDefinition
@@ -281,6 +282,25 @@ class LauncherWindow(QMainWindow):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def handle_input(self, event: InputEvent) -> None:
+        """Handle normalized gamepad actions on the launcher event loop."""
+        if not event.pressed:
+            return
+        directions = {
+            InputAction.LEFT: NavigationDirection.LEFT,
+            InputAction.RIGHT: NavigationDirection.RIGHT,
+            InputAction.UP: NavigationDirection.UP,
+            InputAction.DOWN: NavigationDirection.DOWN,
+        }
+        direction = directions.get(event.action)
+        if direction is not None:
+            self._controller.move(direction)
+            self._focus_current_tile()
+        elif event.action is InputAction.ACTIVATE:
+            application = self._controller.activate()
+            if application is not None:
+                self.application_requested.emit(application)
 
     def _build_header(self) -> None:
         """Create the launcher title and contextual subtitle."""

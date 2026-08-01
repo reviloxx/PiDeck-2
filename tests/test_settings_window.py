@@ -11,6 +11,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 
 from pideck.application.settings import SettingsUpdate
+from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
@@ -226,6 +227,19 @@ def test_updates_page_renders_status_spinner_and_navigates(application: QApplica
     assert window._update_rows["browser"].hasFocus()
 
     window.close()
+
+
+def test_gamepad_actions_navigate_settings(application: QApplication) -> None:
+    """Normalized gamepad actions follow the same Settings focus rules."""
+    window = settings_window(application)
+
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert window._nav_buttons[1].hasFocus()
+    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
+    assert window._applications.hasFocus()
+    assert window._applications.currentRow() == 0
+    window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
+    assert window.isVisible() is False
 
 
 def test_password_prompt_abort_restores_available_update(application: QApplication, monkeypatch) -> None:

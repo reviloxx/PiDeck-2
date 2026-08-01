@@ -5,6 +5,7 @@ from enum import StrEnum
 import logging
 import threading
 import shlex
+from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
@@ -276,7 +277,12 @@ class ApplicationSessionService:
     ) -> ProcessCommand:
         """Merge application and selected-profile launch parameters."""
         try:
-            executable_parts = tuple(shlex.split(application.executable))
+            executable_path = Path(application.executable)
+            executable_parts = (
+                (application.executable,)
+                if executable_path.is_file()
+                else tuple(shlex.split(application.executable))
+            )
         except ValueError as error:
             raise ProcessError(
                 f"Invalid command syntax for {application.identifier!r}: {error}"

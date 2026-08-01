@@ -32,3 +32,5 @@ Validate a configuration without starting Qt:
 
 ```bash
 pideck --validate-only --config config/pideck.yaml
+
+On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and Start maps to Home. Controllers can be connected or removed while PiDeck is running.
