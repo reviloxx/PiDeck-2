@@ -211,6 +211,17 @@ def test_gamepad_dpad_and_activate_navigate_launcher(application: QApplication) 
     window.close()
 
 
+def test_gamepad_down_from_last_tile_row_focuses_settings(application: QApplication) -> None:
+    """Gamepad Down uses the same footer boundary as tile keyboard navigation."""
+    window = launcher_window(application)
+
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+
+    assert window._settings_button.hasFocus()
+    window.close()
+
+
 def test_arrow_keys_reach_settings_and_shutdown(application: QApplication) -> None:
     """The last tile row leads to Settings, then horizontally to Shutdown."""
     window = launcher_window(application)

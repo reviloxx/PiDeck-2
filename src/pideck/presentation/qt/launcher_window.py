@@ -295,8 +295,7 @@ class LauncherWindow(QMainWindow):
         }
         direction = directions.get(event.action)
         if direction is not None:
-            self._controller.move(direction)
-            self._focus_current_tile()
+            self._handle_tile_navigation(direction)
         elif event.action is InputAction.ACTIVATE:
             application = self._controller.activate()
             if application is not None:
