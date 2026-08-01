@@ -158,7 +158,6 @@ class UpdateRow(QFrame):
     def set_language(self, language: str) -> None:
         """Re-render the current update status in the selected language."""
         self._language = language if language in {"en", "de"} else "en"
-        self.setWindowTitle(tr(self._language, "settings"))
         self.set_info(self.info)
 
     def _advance_spinner(self) -> None:
@@ -472,8 +471,6 @@ class SettingsWindow(QDialog):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 16, 0, 0)
         layout.setSpacing(12)
-        hint = QLabel("Select the applications shown on the home screen.", page)
-        hint.setObjectName("settings_description")
         self._applications = QListWidget(page)
         self._applications.setObjectName("settings_applications")
         self._applications.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -489,9 +486,7 @@ class SettingsWindow(QDialog):
                 if all_visible or application.identifier in visible_ids
                 else Qt.CheckState.Unchecked
             )
-        layout.addWidget(hint)
         layout.addWidget(self._applications, stretch=1)
-        self._home_hint = hint
         self._page_controls[1] = [self._applications]
         return page
 
@@ -501,10 +496,6 @@ class SettingsWindow(QDialog):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 16, 0, 0)
         layout.setSpacing(10)
-        hint = QLabel("Check and install updates for configured applications.", page)
-        hint.setObjectName("settings_description")
-        layout.addWidget(hint)
-        self._updates_hint = hint
         controls: list[QWidget] = []
         for application in self._configuration.applications:
             row = UpdateRow(application.name, page)
@@ -645,6 +636,7 @@ class SettingsWindow(QDialog):
     def apply_language(self, language: str) -> None:
         """Translate all visible SettingsWindow strings."""
         self._language = language if language in {"en", "de"} else "en"
+        self.setWindowTitle(tr(self._language, "settings"))
         self._nav_buttons[0].setText(tr(self._language, "appearance"))
         self._nav_buttons[1].setText(tr(self._language, "home_screen"))
         self._nav_buttons[2].setText(tr(self._language, "updates"))
@@ -661,8 +653,6 @@ class SettingsWindow(QDialog):
         for labels, title_key, hint_key in setting_rows:
             labels[0].setText(tr(self._language, title_key))
             labels[1].setText(tr(self._language, hint_key))
-        self._home_hint.setText(tr(self._language, "home_description"))
-        self._updates_hint.setText(tr(self._language, "updates_description"))
         self._select_page(self._current_page, focus_first=False)
         self._language_combo.setItemText(0, tr(self._language, "english"))
         self._language_combo.setItemText(1, tr(self._language, "german"))
