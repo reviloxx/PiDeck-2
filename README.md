@@ -1,6 +1,9 @@
 # PiDeck
 
-PiDeck is a TV-first launcher for Raspberry Pi OS. Milestone 1 provides the typed configuration, theme, logging, and dependency-injection foundation.
+PiDeck is a TV-first launcher for Raspberry Pi OS.
+
+<img width="2560" height="1440" alt="Bildschirmfoto vom 2026-08-01 18-41-12" src="https://github.com/user-attachments/assets/60937f71-c7ea-4437-a1d3-245540bd1b13" />
+
 
 ## Development
 
@@ -29,12 +32,3 @@ Validate a configuration without starting Qt:
 
 ```bash
 pideck --validate-only --config config/pideck.yaml
-```
-
-Milestone 2 provides the fullscreen tile launcher, keyboard navigation, focus handling, and intent signals. Milestone 3 adds shell-free application launching, process-group supervision, profile selection, replacement confirmation, and return to the launcher after exit. Milestone 4 adds theme-driven wallpaper, bundled SVG icons, animated focus glow, running-tile styling, and reduced-motion support. Milestone 5 adds fullscreen settings, home-screen visibility, theme selection, reduced-motion editing, atomic YAML persistence, application updates, and English/German localization.
-
-Bundled visual assets live under `assets/` and are referenced from `config/pideck.yaml`. Replace those paths with custom assets when creating a theme.
-
-Application commands may be a plain executable or a command prefix such as `/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=kodi tv.kodi.Kodi`. PiDeck splits these arguments safely and never invokes a shell.
-
-When an application starts, PiDeck keeps the launcher fullscreen and displays a tile spinner until its X11 window is visible. The launcher is hidden only after that readiness check succeeds.
