@@ -23,3 +23,13 @@ def test_gamepad_event_is_source_tagged() -> None:
 
     assert event.source == "gamepad"
     assert event.pressed is True
+
+
+def test_gamepad_detection_accepts_integer_capability_codes() -> None:
+    """Real evdev devices may expose capabilities as integer code lists."""
+    device = SimpleNamespace(
+        name="Generic USB Controller",
+        capabilities=lambda: {1: [304, 305], 3: [16, 17]},
+    )
+
+    assert EvdevGamepadAdapter._is_gamepad(device) is True

@@ -90,8 +90,8 @@ class EvdevGamepadAdapter:
         """Identify controllers by joystick/gamepad capabilities."""
         name = (getattr(device, "name", "") or "").casefold()
         capabilities = device.capabilities()
-        absolute_codes = {code for code, _ in capabilities.get(3, [])}
-        button_codes = {code for code, _ in capabilities.get(1, [])}
+        absolute_codes = _capability_codes(capabilities.get(3, []))
+        button_codes = _capability_codes(capabilities.get(1, []))
         return bool(absolute_codes.intersection({16, 17}) or button_codes.intersection({304, 305, 307, 308})) or any(
             word in name for word in ("gamepad", "controller", "joystick")
         )
@@ -163,3 +163,14 @@ class EvdevGamepadAdapter:
                 315: InputAction.HOME,
             }.get(event.code)
         return None
+
+
+def _capability_codes(entries: Any) -> set[int]:
+    """Normalize evdev capability entries across backend representations."""
+    codes: set[int] = set()
+    for entry in entries:
+        if isinstance(entry, int):
+            codes.add(entry)
+        elif isinstance(entry, (tuple, list)) and entry and isinstance(entry[0], int):
+            codes.add(entry[0])
+    return codes
