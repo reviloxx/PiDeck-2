@@ -21,6 +21,8 @@ class RecordingObserver:
     started_applications: list[str] = field(default_factory=list)
     finished_applications: list[tuple[str, int]] = field(default_factory=list)
     failed_applications: list[tuple[str, str]] = field(default_factory=list)
+    visible_applications: list[str] = field(default_factory=list)
+    timed_out_applications: list[str] = field(default_factory=list)
     completion_event: threading.Event = field(default_factory=threading.Event)
 
     def started(self, application: ApplicationDefinition, profile: ApplicationProfile | None) -> None:
@@ -36,6 +38,14 @@ class RecordingObserver:
         """Record a failed launch."""
         self.failed_applications.append((application.identifier, message))
         self.completion_event.set()
+
+    def visible(self, application: ApplicationDefinition) -> None:
+        """Record external-window readiness."""
+        self.visible_applications.append(application.identifier)
+
+    def visibility_timeout(self, application: ApplicationDefinition) -> None:
+        """Record a readiness timeout."""
+        self.timed_out_applications.append(application.identifier)
 
 
 class FakeSupervisor:
@@ -66,6 +76,35 @@ class FakeSupervisor:
         """Publish a fake process exit."""
         callback = self.callbacks[token]
         callback(ProcessExit(self.handles[token], return_code))
+
+
+class FakeVisibilityDetector:
+    """Control readiness callbacks without requiring an X11 display."""
+
+    def __init__(self) -> None:
+        self.watches: dict[str, tuple[object, object]] = {}
+        self.cancelled: list[str] = []
+
+    def wait_until_visible(self, handle: ProcessHandle, on_visible: object, on_timeout: object) -> None:
+        """Store callbacks for a test-controlled process handle."""
+        self.watches[handle.token] = (on_visible, on_timeout)
+
+    def cancel(self, handle: ProcessHandle) -> None:
+        """Record watcher cancellation."""
+        self.cancelled.append(handle.token)
+        self.watches.pop(handle.token, None)
+
+    def close(self) -> None:
+        """Clear all fake watchers."""
+        self.watches.clear()
+
+    def emit_visible(self, handle: ProcessHandle) -> None:
+        """Publish a controlled visible-window event."""
+        self.watches[handle.token][0](handle)
+
+    def emit_timeout(self, handle: ProcessHandle) -> None:
+        """Publish a controlled readiness timeout."""
+        self.watches[handle.token][1](handle)
 
 
 class FailingSupervisor:
@@ -100,6 +139,32 @@ def test_session_starts_and_returns_to_idle() -> None:
     assert observer.completion_event.wait(2)
     assert service.snapshot.state is SessionState.IDLE
     assert observer.finished_applications == [("short-lived", 0)]
+    service.close()
+
+
+def test_session_waits_for_application_visibility() -> None:
+    """A process start stays STARTING until its application window is visible."""
+    supervisor = FakeSupervisor()
+    detector = FakeVisibilityDetector()
+    observer = RecordingObserver()
+    service = ApplicationSessionService(supervisor, observer, detector)
+    application = ApplicationDefinition("visible", "Visible", sys.executable)
+
+    result = service.request_launch(application)
+    handle = next(iter(supervisor.handles.values()))
+
+    assert result.status is LaunchStatus.STARTED
+    assert service.snapshot.state is SessionState.STARTING
+    assert observer.visible_applications == []
+
+    detector.emit_timeout(handle)
+    assert service.snapshot.state is SessionState.STARTING
+    assert observer.timed_out_applications == ["visible"]
+
+    detector.emit_visible(handle)
+    assert service.snapshot.state is SessionState.RUNNING
+    assert observer.visible_applications == ["visible"]
+
     service.close()
 
 
