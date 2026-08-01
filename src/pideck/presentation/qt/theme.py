@@ -39,7 +39,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         }
         QLabel#launcher_clock {
             color: %(muted_text)s;
-            font-size: %(body_size)spx;
+            font-size: %(heading_size)spx;
             font-weight: 700;
             padding-top: 4px;
         }
