@@ -67,6 +67,17 @@ def test_clock_is_visible_and_formatted_by_default(application: QApplication) ->
     window.close()
 
 
+def test_german_launcher_localizes_controls_and_clock(application: QApplication) -> None:
+    """German language changes launcher controls and date presentation."""
+    window = launcher_window(application)
+    window.set_language("de")
+
+    assert window._settings_button.text() == "Einstellungen"
+    assert window._shutdown_button.text() == "Herunterfahren"
+    assert "." in window._clock_label.text()
+    window.close()
+
+
 def test_show_launcher_enters_fullscreen(application: QApplication) -> None:
     """The launcher entry point requests fullscreen presentation."""
     window = launcher_window(application)

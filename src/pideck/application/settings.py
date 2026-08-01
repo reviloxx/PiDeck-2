@@ -15,6 +15,7 @@ class SettingsUpdate:
     reduced_motion: bool
     visible_applications: tuple[str, ...]
     show_clock: bool = True
+    language: str = "en"
 
     def __post_init__(self) -> None:
         """Normalize the selected application identifiers."""
@@ -53,6 +54,7 @@ class SettingsService:
                 configuration.settings,
                 reduced_motion=update.reduced_motion,
                 show_clock=update.show_clock,
+                language=update.language,
             ),
         )
 

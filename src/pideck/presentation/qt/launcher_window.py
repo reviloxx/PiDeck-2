@@ -3,7 +3,7 @@
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QDateTime, QTimer, Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
     QGridLayout,
@@ -25,6 +25,7 @@ from pideck.domain.configuration import ApplicationDefinition, ApplicationProfil
 from pideck.domain.theme import ThemeDefinition
 
 from .theme import apply_theme, configure_tile_effect, icon_for_path
+from .localization import clock_text, tr
 
 
 class LauncherTile(QPushButton):
@@ -198,6 +199,7 @@ class LauncherWindow(QMainWindow):
         asset_root: Path,
         reduced_motion: bool = False,
         show_clock: bool = True,
+        language: str = "en",
         parent: QWidget | None = None,
     ) -> None:
         """Build the launcher presentation around injected application state."""
@@ -207,6 +209,7 @@ class LauncherWindow(QMainWindow):
         self._asset_root = asset_root
         self._reduced_motion = reduced_motion
         self._show_clock = show_clock
+        self._language = language if language in {"en", "de"} else "en"
         self._running_identifier: str | None = None
         self._has_been_shown = False
         self._tiles: list[LauncherTile] = []
@@ -285,7 +288,8 @@ class LauncherWindow(QMainWindow):
         heading = QVBoxLayout()
         title = QLabel("PiDeck", self._root)
         title.setObjectName("launcher_title")
-        subtitle = QLabel("Choose an application", self._root)
+        subtitle = QLabel(tr(self._language, "choose_application"), self._root)
+        self._subtitle_label = subtitle
         subtitle.setObjectName("launcher_subtitle")
         heading.addWidget(title)
         heading.addWidget(subtitle)
@@ -313,13 +317,21 @@ class LauncherWindow(QMainWindow):
 
     def _update_clock(self) -> None:
         """Refresh the date and time using the local system timezone."""
-        self._clock_label.setText(QDateTime.currentDateTime().toString("ddd, dd MMM yyyy  HH:mm"))
+        self._clock_label.setText(clock_text(self._language))
+
+    def set_language(self, language: str) -> None:
+        """Translate launcher controls and switch the clock date format."""
+        self._language = language if language in {"en", "de"} else "en"
+        self._subtitle_label.setText(tr(self._language, "choose_application"))
+        self._settings_button.setText(tr(self._language, "settings"))
+        self._shutdown_button.setText(tr(self._language, "shutdown"))
+        self._update_clock()
 
     def _build_footer(self) -> None:
         """Create intent-only settings and shutdown controls."""
         footer = QHBoxLayout()
         footer.addStretch()
-        settings = LauncherAction("Settings", self._root)
+        settings = LauncherAction(tr(self._language, "settings"), self._root)
         settings.setObjectName("launcher_action")
         settings.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         settings.setIcon(icon_for_path(self._theme.icons.get("settings")))
@@ -327,7 +339,7 @@ class LauncherWindow(QMainWindow):
         settings.navigation_requested.connect(
             lambda direction: self._handle_action_navigation(settings, direction)
         )
-        shutdown = LauncherAction("Shutdown", self._root)
+        shutdown = LauncherAction(tr(self._language, "shutdown"), self._root)
         shutdown.setObjectName("launcher_action")
         shutdown.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         shutdown.setIcon(icon_for_path(self._theme.icons.get("power")))
@@ -350,7 +362,7 @@ class LauncherWindow(QMainWindow):
         self._tiles.clear()
         applications = self._controller.state.applications
         if not applications:
-            empty_state = QLabel("No applications configured", self._grid_container)
+            empty_state = QLabel(tr(self._language, "no_applications"), self._grid_container)
             empty_state.setObjectName("empty_state")
             empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._grid_layout.addWidget(empty_state, 0, 0)
@@ -447,6 +459,7 @@ class LauncherWindow(QMainWindow):
         self._theme = theme
         self._reduced_motion = configuration.settings.reduced_motion
         self.set_clock_visible(configuration.settings.show_clock)
+        self.set_language(configuration.settings.language)
         self._grid_layout.setHorizontalSpacing(theme.tile.gap)
         self._grid_layout.setVerticalSpacing(theme.tile.gap)
         self._settings_button.setIcon(icon_for_path(theme.icons.get("settings")))
@@ -499,8 +512,8 @@ class LauncherWindow(QMainWindow):
         names = [profile.name for profile in profiles]
         selected_name, accepted = QInputDialog.getItem(
             self,
-            "Choose profile",
-            "Application profile:",
+            tr(self._language, "choose_profile"),
+            tr(self._language, "profile_label"),
             names,
             0,
             False,
@@ -513,8 +526,8 @@ class LauncherWindow(QMainWindow):
         """Ask whether the running application should be stopped."""
         answer = QMessageBox.question(
             self,
-            "Application already running",
-            f"Stop the current application and start {application.name}?",
+            tr(self._language, "replacement_title"),
+            tr(self._language, "replacement_message", name=application.name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -529,34 +542,38 @@ class LauncherWindow(QMainWindow):
         del profile
         self.set_loading_application(application.identifier)
         self.set_running_application(None)
-        self._status_label.setText(f"Launching {application.name}...")
+        self._status_label.setText(tr(self._language, "launching", name=application.name))
         self.show_launcher()
 
     def _handle_session_visible(self, application: ApplicationDefinition) -> None:
         """Hide the launcher only after the external application window is visible."""
         self.set_loading_application(None)
         self.set_running_application(application.identifier)
-        self._status_label.setText(f"Running {application.name}")
+        self._status_label.setText(tr(self._language, "running", name=application.name))
         self.hide()
 
     def _handle_visibility_timeout(self, application: ApplicationDefinition) -> None:
         """Keep the launcher visible and spinner active when readiness is unverified."""
         self.set_loading_application(application.identifier)
-        self._status_label.setText(f"Waiting for {application.name}...")
+        self._status_label.setText(tr(self._language, "waiting", name=application.name))
         self.show_launcher()
 
     def _handle_session_finished(self, application: ApplicationDefinition, return_code: int) -> None:
         """Restore the launcher after an application exits."""
         self.set_running_application(None)
         self.set_loading_application(None)
-        self._status_label.setText(f"{application.name} exited ({return_code})")
+        self._status_label.setText(
+            tr(self._language, "exited", name=application.name, code=return_code)
+        )
         self.show_launcher()
 
     def _handle_session_failed(self, application: ApplicationDefinition, message: str) -> None:
         """Keep the launcher visible and show a safe launch error."""
         self.set_running_application(None)
         self.set_loading_application(None)
-        self._status_label.setText(f"Could not start {application.name}: {message}")
+        self._status_label.setText(
+            tr(self._language, "could_not_start", name=application.name, message=message)
+        )
         self.show_launcher()
 
 

@@ -103,6 +103,14 @@ class SettingsConfiguration:
 
     reduced_motion: bool = False
     show_clock: bool = True
+    language: str = "en"
+
+    def __post_init__(self) -> None:
+        """Validate the supported presentation languages."""
+        if self.language not in {"en", "de"}:
+            raise ConfigurationValidationError(
+                f"Unsupported language: {self.language!r}"
+            )
 
 
 @dataclass(frozen=True, slots=True)

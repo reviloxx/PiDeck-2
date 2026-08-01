@@ -108,6 +108,7 @@ def build_launcher_window(
         asset_root,
         dependencies.configuration.settings.reduced_motion,
         dependencies.configuration.settings.show_clock,
+        dependencies.configuration.settings.language,
     )
 
 
@@ -206,6 +207,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return
         window.apply_configuration(current_configuration, theme)
         settings_window.apply_theme_definition(theme)
+        settings_window.apply_language(current_configuration.settings.language)
         dependencies.logger.info("Settings changed theme=%s", current_configuration.home.theme)
 
     def handle_settings_request() -> None:

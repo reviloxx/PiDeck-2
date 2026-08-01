@@ -76,6 +76,21 @@ def test_settings_window_emits_changes_immediately(application: QApplication) ->
     window.close()
 
 
+def test_german_language_updates_settings_labels(application: QApplication) -> None:
+    """Selecting German translates the visible settings navigation and controls."""
+    window = settings_window(application)
+
+    window._language_combo.setCurrentIndex(1)
+    application.processEvents()
+
+    assert window._nav_buttons[0].text() == "Darstellung"
+    assert window._nav_buttons[1].text() == "Startbildschirm"
+    assert window._nav_buttons[2].text() == "Aktualisierungen"
+    assert window._clock_labels[0].text() == "Uhr"
+    assert window._language_labels[0].text() == "Sprache"
+    window.close()
+
+
 def test_application_visibility_change_emits_immediately(application: QApplication) -> None:
     """Toggling a home-screen application emits a persisted settings update."""
     document = configuration_document()

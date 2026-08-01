@@ -27,6 +27,7 @@ from pideck.domain.configuration import Configuration
 from pideck.domain.theme import ThemeDefinition
 
 from .theme import apply_theme, icon_for_path
+from .localization import tr
 
 
 class SettingsRow(QFrame):
@@ -100,6 +101,7 @@ class UpdateRow(QFrame):
         self._spinner_index = 0
         self.info = UpdateInfo(application_name, application_name, UpdateStatus.CHECKING)
         self.last_available_info: UpdateInfo | None = None
+        self._language = "en"
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Activate or cancel this update with Enter or Space."""
@@ -124,21 +126,25 @@ class UpdateRow(QFrame):
         if info.status is UpdateStatus.AVAILABLE:
             self.last_available_info = info
         labels = {
-            UpdateStatus.CHECKING: "Checking...",
-            UpdateStatus.UP_TO_DATE: "Up to date",
-            UpdateStatus.AVAILABLE: "Update available",
-            UpdateStatus.UPDATING: "Updating...",
-            UpdateStatus.UPDATED: "Updated",
-            UpdateStatus.PASSWORD_REQUIRED: "Authentication required",
-            UpdateStatus.UNSUPPORTED: "Not supported",
-            UpdateStatus.FAILED: info.message or "Update failed",
-            UpdateStatus.CANCELLED: "Cancelled",
+            UpdateStatus.CHECKING: tr(self._language, "checking"),
+            UpdateStatus.UP_TO_DATE: tr(self._language, "up_to_date"),
+            UpdateStatus.AVAILABLE: tr(self._language, "update_available"),
+            UpdateStatus.UPDATING: tr(self._language, "updating"),
+            UpdateStatus.UPDATED: tr(self._language, "updated"),
+            UpdateStatus.PASSWORD_REQUIRED: tr(self._language, "authentication_required"),
+            UpdateStatus.UNSUPPORTED: tr(self._language, "not_supported"),
+            UpdateStatus.FAILED: info.message or tr(self._language, "update_failed"),
+            UpdateStatus.CANCELLED: tr(self._language, "cancelled"),
         }
         self.status_label.setText(labels[info.status])
         updating = info.status is UpdateStatus.UPDATING
         self.spinner.setVisible(updating)
         self.action.setText(
-            "Cancel" if updating else "Update" if info.status is UpdateStatus.AVAILABLE else ""
+            tr(self._language, "cancel")
+            if updating
+            else tr(self._language, "update")
+            if info.status is UpdateStatus.AVAILABLE
+            else ""
         )
         actionable = info.status in (UpdateStatus.AVAILABLE, UpdateStatus.UPDATING)
         self.action.setEnabled(actionable)
@@ -149,6 +155,12 @@ class UpdateRow(QFrame):
             self._spinner_timer.stop()
             self.spinner.clear()
 
+    def set_language(self, language: str) -> None:
+        """Re-render the current update status in the selected language."""
+        self._language = language if language in {"en", "de"} else "en"
+        self.setWindowTitle(tr(self._language, "settings"))
+        self.set_info(self.info)
+
     def _advance_spinner(self) -> None:
         """Advance the update row spinner."""
         self.spinner.setText(self._spinner_frames[self._spinner_index])
@@ -158,32 +170,39 @@ class UpdateRow(QFrame):
 class PasswordPrompt(QDialog):
     """Themed, cancellable sudo password prompt for package updates."""
 
-    def __init__(self, application_name: str, theme: ThemeDefinition, parent: QWidget) -> None:
+    def __init__(
+        self,
+        application_name: str,
+        theme: ThemeDefinition,
+        parent: QWidget,
+        language: str = "en",
+    ) -> None:
         """Create a modal password prompt without persisting the secret."""
         super().__init__(parent)
-        self.setWindowTitle("Authentication required")
+        self._language = language
+        self.setWindowTitle(tr(language, "authentication_required"))
         self.setObjectName("password_prompt")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(36, 30, 36, 30)
         layout.setSpacing(16)
-        title = QLabel("System update", self)
+        title = QLabel(tr(language, "system_update"), self)
         title.setObjectName("settings_heading")
-        message = QLabel(f"Enter your password to update {application_name}.", self)
+        message = QLabel(tr(language, "password_message", name=application_name), self)
         message.setObjectName("settings_description")
         message.setWordWrap(True)
         self.password_input = QLineEdit(self)
         self.password_input.setObjectName("password_input")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.setPlaceholderText("Password")
+        self.password_input.setPlaceholderText(tr(language, "password_placeholder"))
         self.password_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.password_input.installEventFilter(self)
         buttons = QHBoxLayout()
         buttons.addStretch()
-        self.cancel_button = QPushButton("Cancel", self)
+        self.cancel_button = QPushButton(tr(language, "cancel"), self)
         self.cancel_button.setObjectName("settings_back")
         self.cancel_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.cancel_button.clicked.connect(self.reject)
-        self.continue_button = QPushButton("Continue", self)
+        self.continue_button = QPushButton(tr(language, "continue"), self)
         self.continue_button.setObjectName("settings_footer")
         self.continue_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.continue_button.clicked.connect(self.accept)
@@ -253,6 +272,7 @@ class SettingsWindow(QDialog):
         super().__init__(parent)
         self._configuration = configuration
         self._theme = theme
+        self._language = configuration.settings.language
         self._asset_root = asset_root
         self._update_service = update_service
         self._update_rows: dict[str, UpdateRow] = {}
@@ -263,7 +283,7 @@ class SettingsWindow(QDialog):
         self._nav_buttons: list[QPushButton] = []
         self._page_controls: dict[int, list[QWidget]] = {}
         self._current_page = 0
-        self.setWindowTitle("PiDeck Settings")
+        self.setWindowTitle(tr(self._language, "settings"))
         self.setObjectName("settings_window")
         self.setModal(True)
         self._build_ui()
@@ -271,6 +291,7 @@ class SettingsWindow(QDialog):
         self._theme_combo.currentIndexChanged.connect(self._emit_current_settings)
         self._reduced_motion.toggled.connect(self._emit_current_settings)
         self._show_clock.toggled.connect(self._emit_current_settings)
+        self._language_combo.currentIndexChanged.connect(self._handle_language_changed)
         self._applications.itemChanged.connect(self._handle_application_item_changed)
         self.update_status.connect(self._handle_update_status)
         if self._update_service is not None:
@@ -289,6 +310,7 @@ class SettingsWindow(QDialog):
                     )
                 )
         self._select_page(0, focus_first=False)
+        self.apply_language(self._language)
         self._nav_buttons[0].setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _build_ui(self) -> None:
@@ -364,6 +386,8 @@ class SettingsWindow(QDialog):
         hint.setObjectName("settings_sidebar_hint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
+        self._sidebar_subtitle = subtitle
+        self._sidebar_hint = hint
         return sidebar
 
     def _add_nav_button(self, layout: QVBoxLayout, label: str, index: int) -> None:
@@ -392,6 +416,7 @@ class SettingsWindow(QDialog):
         )
         self._theme_combo.setObjectName("settings_control")
         self._theme_row = theme_row
+        self._theme_labels = theme_row.findChildren(QLabel)
         for theme in self._configuration.themes:
             self._theme_combo.addItem(theme.name, theme.identifier)
         current_index = self._theme_combo.findData(self._configuration.home.theme)
@@ -405,6 +430,7 @@ class SettingsWindow(QDialog):
         )
         self._reduced_motion.setObjectName("settings_control")
         self._motion_row = motion_row
+        self._motion_labels = motion_row.findChildren(QLabel)
         self._reduced_motion.setText("On")
         self._reduced_motion.setChecked(self._configuration.settings.reduced_motion)
         clock_row, self._show_clock = self._control_row(
@@ -415,13 +441,29 @@ class SettingsWindow(QDialog):
         )
         self._show_clock.setObjectName("settings_control")
         self._clock_row = clock_row
+        self._clock_labels = clock_row.findChildren(QLabel)
         self._show_clock.setText("On")
         self._show_clock.setChecked(self._configuration.settings.show_clock)
+        language_row, self._language_combo = self._control_row(
+            page,
+            "Language",
+            "Choose the language used by PiDeck.",
+            QComboBox(page),
+        )
+        self._language_combo.setObjectName("settings_control")
+        self._language_row = language_row
+        self._language_labels = language_row.findChildren(QLabel)
+        self._language_combo.addItem("English", "en")
+        self._language_combo.addItem("German", "de")
+        language_index = self._language_combo.findData(self._language)
+        if language_index >= 0:
+            self._language_combo.setCurrentIndex(language_index)
         layout.addWidget(theme_row)
         layout.addWidget(motion_row)
         layout.addWidget(clock_row)
+        layout.addWidget(language_row)
         layout.addStretch()
-        self._page_controls[0] = [theme_row, motion_row, clock_row]
+        self._page_controls[0] = [theme_row, motion_row, clock_row, language_row]
         return page
 
     def _build_home_page(self) -> QWidget:
@@ -449,6 +491,7 @@ class SettingsWindow(QDialog):
             )
         layout.addWidget(hint)
         layout.addWidget(self._applications, stretch=1)
+        self._home_hint = hint
         self._page_controls[1] = [self._applications]
         return page
 
@@ -461,6 +504,7 @@ class SettingsWindow(QDialog):
         hint = QLabel("Check and install updates for configured applications.", page)
         hint.setObjectName("settings_description")
         layout.addWidget(hint)
+        self._updates_hint = hint
         controls: list[QWidget] = []
         for application in self._configuration.applications:
             row = UpdateRow(application.name, page)
@@ -513,11 +557,15 @@ class SettingsWindow(QDialog):
             self._clear_home_selection()
         self._current_page = index
         self._pages.setCurrentIndex(index)
-        page_titles = {0: "Appearance", 1: "Home screen", 2: "Updates"}
+        page_titles = {
+            0: tr(self._language, "appearance"),
+            1: tr(self._language, "home_screen"),
+            2: tr(self._language, "updates"),
+        }
         page_descriptions = {
-            0: "Personalize the look and motion of your launcher.",
-            1: "Choose which applications are available from the home screen.",
-            2: "Check and install updates for configured applications.",
+            0: tr(self._language, "appearance_description"),
+            1: tr(self._language, "home_description"),
+            2: tr(self._language, "updates_description"),
         }
         self._page_title.setText(page_titles[index])
         self._page_description.setText(
@@ -583,6 +631,43 @@ class SettingsWindow(QDialog):
             self._reduced_motion.toggle()
         elif row is self._clock_row:
             self._show_clock.toggle()
+        elif row is self._language_row:
+            self._language_combo.showPopup()
+
+    def _handle_language_changed(self, index: int) -> None:
+        """Apply the selected language and emit the persisted settings update."""
+        language = self._language_combo.itemData(index)
+        if language in {"en", "de"}:
+            self._language = language
+            self.apply_language(language)
+            self._emit_current_settings()
+
+    def apply_language(self, language: str) -> None:
+        """Translate all visible SettingsWindow strings."""
+        self._language = language if language in {"en", "de"} else "en"
+        self._nav_buttons[0].setText(tr(self._language, "appearance"))
+        self._nav_buttons[1].setText(tr(self._language, "home_screen"))
+        self._nav_buttons[2].setText(tr(self._language, "updates"))
+        self._back_button.setText(tr(self._language, "back"))
+        self._sidebar_subtitle.setText(tr(self._language, "launcher_settings"))
+        self._sidebar_hint.setText(tr(self._language, "navigation_hint"))
+        self._page_kicker.setText(tr(self._language, "appearance_kicker"))
+        setting_rows = (
+            (self._theme_labels, "theme", "theme_hint"),
+            (self._motion_labels, "reduced_motion", "reduced_motion_hint"),
+            (self._clock_labels, "clock", "clock_hint"),
+            (self._language_labels, "language", "language_hint"),
+        )
+        for labels, title_key, hint_key in setting_rows:
+            labels[0].setText(tr(self._language, title_key))
+            labels[1].setText(tr(self._language, hint_key))
+        self._home_hint.setText(tr(self._language, "home_apps_hint"))
+        self._updates_hint.setText(tr(self._language, "update_hint"))
+        self._select_page(self._current_page, focus_first=False)
+        self._language_combo.setItemText(0, tr(self._language, "english"))
+        self._language_combo.setItemText(1, tr(self._language, "german"))
+        for row in self._update_rows.values():
+            row.set_language(self._language)
 
     def _activate_update(self, application_id: str) -> None:
         """Start or cancel the selected application update."""
@@ -590,7 +675,7 @@ class SettingsWindow(QDialog):
             return
         application = self._update_applications[application_id]
         row = self._update_rows[application_id]
-        if row.status_label.text() == "Updating...":
+        if row.info.status is UpdateStatus.UPDATING:
             self._rechecking_after_cancel.add(application_id)
             self._update_service.cancel(application_id)
             row.set_info(UpdateInfo(application_id, application.name, UpdateStatus.CHECKING))
@@ -617,7 +702,7 @@ class SettingsWindow(QDialog):
         row.set_info(info)
         if info.status is not UpdateStatus.PASSWORD_REQUIRED:
             return
-        prompt = PasswordPrompt(info.application_name, self._theme, self)
+        prompt = PasswordPrompt(info.application_name, self._theme, self, self._language)
         if prompt.exec() != QDialog.DialogCode.Accepted:
             row.set_info(
                 row.last_available_info
@@ -735,7 +820,7 @@ class SettingsWindow(QDialog):
         ):
             with QSignalBlocker(self._applications):
                 item.setCheckState(Qt.CheckState.Checked)
-            self.show_error("At least one application must remain visible.")
+            self.show_error(tr(self._language, "at_least_one"))
             return
         self._error_label.clear()
         self._emit_current_settings()
@@ -748,7 +833,7 @@ class SettingsWindow(QDialog):
             if self._applications.item(index).checkState() is Qt.CheckState.Checked
         )
         if not selected_applications:
-            self.show_error("Select at least one application for the home screen.")
+            self.show_error(tr(self._language, "at_least_one"))
             return None
         self._error_label.clear()
         return SettingsUpdate(
@@ -756,6 +841,7 @@ class SettingsWindow(QDialog):
             reduced_motion=self._reduced_motion.isChecked(),
             visible_applications=selected_applications,
             show_clock=self._show_clock.isChecked(),
+            language=self._language,
         )
 
     def apply_theme_definition(self, theme: ThemeDefinition) -> None:
