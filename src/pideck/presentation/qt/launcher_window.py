@@ -51,6 +51,10 @@ class LauncherTile(QPushButton):
         self.setFixedSize(theme.tile.width, theme.tile.height)
         self.setText("")
         self._build_content(application, asset_root, input_icon)
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.timeout.connect(self._advance_spinner)
+        self._spinner_frames = ("|", "/", "-", "\\")
+        self._spinner_index = 0
         self.clicked.connect(lambda: self.activated.emit(application))
         configure_tile_effect(self, theme, reduced_motion)
 
@@ -100,6 +104,11 @@ class LauncherTile(QPushButton):
         if input_icon is not None:
             input_indicator.setPixmap(icon_for_path(input_icon).pixmap(24, 24))
         content.addWidget(input_indicator)
+        spinner = QLabel(self)
+        spinner.setObjectName("tile_spinner")
+        spinner.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+        spinner.setVisible(False)
+        content.addWidget(spinner)
 
     def focusInEvent(self, event: object) -> None:
         """Enable the theme glow when the tile receives keyboard focus."""
@@ -131,6 +140,25 @@ class LauncherTile(QPushButton):
         self.style().unpolish(self)
         self.style().polish(self)
 
+    def set_loading(self, loading: bool) -> None:
+        """Show or hide the animated loading spinner on this tile."""
+        spinner = self.findChild(QLabel, "tile_spinner")
+        if spinner is None:
+            return
+        spinner.setVisible(loading)
+        if loading:
+            self._spinner_timer.start(120)
+        else:
+            self._spinner_timer.stop()
+
+    def _advance_spinner(self) -> None:
+        """Advance the spinner without changing the tile geometry."""
+        spinner = self.findChild(QLabel, "tile_spinner")
+        if spinner is None:
+            return
+        spinner.setText(self._spinner_frames[self._spinner_index])
+        self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
+
 
 class LauncherAction(QPushButton):
     """Focusable footer action that participates in directional navigation."""
@@ -160,6 +188,8 @@ class LauncherWindow(QMainWindow):
     session_started = Signal(object, object)
     session_finished = Signal(object, int)
     session_failed = Signal(object, str)
+    session_visible = Signal(object)
+    visibility_timed_out = Signal(object)
     settings_requested = Signal()
     shutdown_requested = Signal()
 
@@ -192,6 +222,8 @@ class LauncherWindow(QMainWindow):
         self.session_started.connect(self._handle_session_started)
         self.session_finished.connect(self._handle_session_finished)
         self.session_failed.connect(self._handle_session_failed)
+        self.session_visible.connect(self._handle_session_visible)
+        self.visibility_timed_out.connect(self._handle_visibility_timeout)
         self._build_header()
         self._grid_container = QWidget(self._root)
         self._grid_layout = QGridLayout(self._grid_container)
@@ -411,11 +443,24 @@ class LauncherWindow(QMainWindow):
         """Publish a process-error event safely from any supervisor thread."""
         self.session_failed.emit(application, message)
 
+    def notify_session_visible(self, application: ApplicationDefinition) -> None:
+        """Publish external application-window readiness safely to Qt."""
+        self.session_visible.emit(application)
+
+    def notify_visibility_timeout(self, application: ApplicationDefinition) -> None:
+        """Publish a readiness timeout while keeping the launcher visible."""
+        self.visibility_timed_out.emit(application)
+
     def set_running_application(self, identifier: str | None) -> None:
         """Mark one tile as running or clear the running tile state."""
         self._running_identifier = identifier
         for tile in self._tiles:
             tile.set_running(tile.application.identifier == identifier)
+
+    def set_loading_application(self, identifier: str | None) -> None:
+        """Mark one tile as waiting for its external window."""
+        for tile in self._tiles:
+            tile.set_loading(tile.application.identifier == identifier)
 
     def choose_profile(
         self,
@@ -453,21 +498,37 @@ class LauncherWindow(QMainWindow):
         application: ApplicationDefinition,
         profile: ApplicationProfile | None,
     ) -> None:
-        """Hide the launcher after a process has started successfully."""
+        """Keep the launcher raised and show a spinner until the app is visible."""
         del profile
+        self.set_loading_application(application.identifier)
+        self.set_running_application(None)
+        self._status_label.setText(f"Launching {application.name}...")
+        self.show_launcher()
+
+    def _handle_session_visible(self, application: ApplicationDefinition) -> None:
+        """Hide the launcher only after the external application window is visible."""
+        self.set_loading_application(None)
         self.set_running_application(application.identifier)
         self._status_label.setText(f"Running {application.name}")
         self.hide()
 
+    def _handle_visibility_timeout(self, application: ApplicationDefinition) -> None:
+        """Keep the launcher visible and spinner active when readiness is unverified."""
+        self.set_loading_application(application.identifier)
+        self._status_label.setText(f"Waiting for {application.name}...")
+        self.show_launcher()
+
     def _handle_session_finished(self, application: ApplicationDefinition, return_code: int) -> None:
         """Restore the launcher after an application exits."""
         self.set_running_application(None)
+        self.set_loading_application(None)
         self._status_label.setText(f"{application.name} exited ({return_code})")
         self.show_launcher()
 
     def _handle_session_failed(self, application: ApplicationDefinition, message: str) -> None:
         """Keep the launcher visible and show a safe launch error."""
         self.set_running_application(None)
+        self.set_loading_application(None)
         self._status_label.setText(f"Could not start {application.name}: {message}")
         self.show_launcher()
 

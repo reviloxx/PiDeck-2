@@ -72,6 +72,12 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         QLabel#tile_icon {
             background: transparent;
         }
+        QLabel#tile_spinner {
+            color: %(primary)s;
+            font-size: %(body_size)spx;
+            font-weight: 700;
+            min-width: 20px;
+        }
         QPushButton#launcher_action, QPushButton#settings_footer, QPushButton#settings_back {
             background-color: %(surface)s;
             border: 1px solid %(muted_text)s;

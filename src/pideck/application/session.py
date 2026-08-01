@@ -14,6 +14,7 @@ from pideck.application.ports.process import (
     ProcessHandle,
     ProcessSupervisor,
 )
+from pideck.application.ports.visibility import ProcessVisibilityDetector
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
 from pideck.domain.errors import PiDeckError, ProcessError
 
@@ -24,6 +25,7 @@ class SessionState(StrEnum):
     """Lifecycle states of the currently managed application session."""
 
     IDLE = "idle"
+    STARTING = "starting"
     RUNNING = "running"
     STOPPING = "stopping"
 
@@ -66,6 +68,14 @@ class SessionObserver(Protocol):
         """Handle a successfully started application."""
         ...
 
+    def visible(self, application: ApplicationDefinition) -> None:
+        """Handle the application window becoming visible."""
+        ...
+
+    def visibility_timeout(self, application: ApplicationDefinition) -> None:
+        """Handle an application that started but never exposed a window."""
+        ...
+
     def finished(self, application: ApplicationDefinition, return_code: int) -> None:
         """Handle an application returning control to PiDeck."""
         ...
@@ -78,10 +88,16 @@ class SessionObserver(Protocol):
 class ApplicationSessionService:
     """Coordinate launch requests, process supervision, and launcher return."""
 
-    def __init__(self, supervisor: ProcessSupervisor, observer: SessionObserver) -> None:
+    def __init__(
+        self,
+        supervisor: ProcessSupervisor,
+        observer: SessionObserver,
+        visibility_detector: ProcessVisibilityDetector | None = None,
+    ) -> None:
         """Create a session service with injected process and presentation ports."""
         self._supervisor = supervisor
         self._observer = observer
+        self._visibility_detector = visibility_detector
         self._snapshot = SessionSnapshot(state=SessionState.IDLE)
         self._pending_launch: tuple[ApplicationDefinition, ApplicationProfile | None] | None = None
 
@@ -155,6 +171,8 @@ class ApplicationSessionService:
     def close(self) -> None:
         """Stop the active session and close the injected supervisor."""
         self.stop()
+        if self._visibility_detector is not None:
+            self._visibility_detector.close()
         self._supervisor.close()
 
     def _start(
@@ -165,7 +183,7 @@ class ApplicationSessionService:
         """Build a safe process command and start it under a unique session token."""
         token = f"{application.identifier}-{uuid4().hex}"
         self._snapshot = SessionSnapshot(
-            state=SessionState.RUNNING,
+            state=SessionState.STARTING,
             application=application,
             profile=profile,
             session_token=token,
@@ -190,7 +208,7 @@ class ApplicationSessionService:
             self._observer.failed(application, message)
             return LaunchResult(LaunchStatus.FAILED, application, message=message)
         self._snapshot = SessionSnapshot(
-            state=SessionState.RUNNING,
+            state=SessionState.STARTING,
             application=application,
             profile=profile,
             handle=handle,
@@ -198,7 +216,44 @@ class ApplicationSessionService:
         )
         self._observer.started(application, profile)
         start_ready.set()
+        if self._visibility_detector is None:
+            self._mark_visible(handle)
+        else:
+            self._visibility_detector.wait_until_visible(
+                handle,
+                self._mark_visible,
+                self._visibility_timeout,
+            )
         return LaunchResult(LaunchStatus.STARTED, application)
+
+    def _mark_visible(self, handle: ProcessHandle) -> None:
+        """Transition an active starting session to running."""
+        active = self._snapshot
+        if active.handle is None or active.handle.token != handle.token:
+            return
+        if active.application is None or active.state is not SessionState.STARTING:
+            return
+        self._snapshot = SessionSnapshot(
+            state=SessionState.RUNNING,
+            application=active.application,
+            profile=active.profile,
+            handle=active.handle,
+            session_token=active.session_token,
+        )
+        visible = getattr(self._observer, "visible", None)
+        if visible is not None:
+            visible(active.application)
+
+    def _visibility_timeout(self, handle: ProcessHandle) -> None:
+        """Keep the launcher visible when readiness cannot be verified."""
+        active = self._snapshot
+        if active.handle is None or active.handle.token != handle.token:
+            return
+        if active.application is None or active.state is not SessionState.STARTING:
+            return
+        timeout = getattr(self._observer, "visibility_timeout", None)
+        if timeout is not None:
+            timeout(active.application)
 
     @staticmethod
     def _select_profile(
@@ -249,6 +304,8 @@ class ApplicationSessionService:
             _LOGGER.warning("Ignoring process exit without an active application")
             return
         application = active.application
+        if active.handle is not None and self._visibility_detector is not None:
+            self._visibility_detector.cancel(active.handle)
         pending_launch = self._pending_launch
         self._pending_launch = None
         self._snapshot = SessionSnapshot(state=SessionState.IDLE)

@@ -36,3 +36,5 @@ Milestone 2 provides the fullscreen tile launcher, keyboard navigation, focus ha
 Bundled visual assets live under `assets/` and are referenced from `config/pideck.yaml`. Replace those paths with custom assets when creating a theme.
 
 Application commands may be a plain executable or a command prefix such as `/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=kodi tv.kodi.Kodi`. PiDeck splits these arguments safely and never invokes a shell.
+
+When an application starts, PiDeck keeps the launcher fullscreen and displays a tile spinner until its X11 window is visible. The launcher is hidden only after that readiness check succeeds.

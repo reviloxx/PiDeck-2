@@ -139,6 +139,25 @@ def test_arrow_keys_move_focus_and_enter_emits_application(application: QApplica
     window.close()
 
 
+def test_launcher_waits_for_visibility_before_hiding(application: QApplication) -> None:
+    """Process start shows a spinner; visibility then hides the launcher."""
+    window = launcher_window(application)
+    target = window._tiles[0].application
+
+    window.notify_session_started(target, None)
+    application.processEvents()
+
+    assert window.isVisible()
+    assert window._tiles[0].findChild(type(window._status_label), "tile_spinner").isVisible()
+
+    window.notify_session_visible(target)
+    application.processEvents()
+
+    assert window.isVisible() is False
+    assert window._tiles[0].findChild(type(window._status_label), "tile_spinner").isVisible() is False
+    window.close()
+
+
 def test_arrow_keys_on_tile_use_grid_navigation(application: QApplication) -> None:
     """Arrow keys delivered to a focused tile move by grid coordinates."""
     window = launcher_window(application)

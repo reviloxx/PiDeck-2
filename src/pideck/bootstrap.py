@@ -15,6 +15,7 @@ from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
+from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
 from pideck.infrastructure.theme import FileThemeRepository
 
 if TYPE_CHECKING:
@@ -34,6 +35,14 @@ class _QtSessionObserver:
     def started(self, application: ApplicationDefinition, profile: ApplicationProfile | None) -> None:
         """Forward a successful process start to the window."""
         self._window.notify_session_started(application, profile)
+
+    def visible(self, application: ApplicationDefinition) -> None:
+        """Forward application-window readiness to the launcher."""
+        self._window.notify_session_visible(application)
+
+    def visibility_timeout(self, application: ApplicationDefinition) -> None:
+        """Keep the launcher visible and report readiness timeout."""
+        self._window.notify_visibility_timeout(application)
 
     def finished(self, application: ApplicationDefinition, return_code: int) -> None:
         """Forward process exit and return-to-launcher behavior to the window."""
@@ -131,7 +140,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
     settings_service = SettingsService()
     settings_window: SettingsWindow | None = None
     session_observer: SessionObserver = _QtSessionObserver(window)
-    session_service = ApplicationSessionService(dependencies.process_supervisor, session_observer)
+    visibility_detector = X11WindowVisibilityDetector()
+    session_service = ApplicationSessionService(
+        dependencies.process_supervisor,
+        session_observer,
+        visibility_detector,
+    )
 
     def handle_application_request(application_definition: ApplicationDefinition) -> None:
         """Resolve profile and replacement decisions for a tile activation."""
