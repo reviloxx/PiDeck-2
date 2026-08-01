@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 import logging
 import threading
+import shlex
 from typing import Protocol
 from uuid import uuid4
 
@@ -14,7 +15,7 @@ from pideck.application.ports.process import (
     ProcessSupervisor,
 )
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
-from pideck.domain.errors import PiDeckError
+from pideck.domain.errors import PiDeckError, ProcessError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -219,9 +220,20 @@ class ApplicationSessionService:
         profile: ApplicationProfile | None,
     ) -> ProcessCommand:
         """Merge application and selected-profile launch parameters."""
-        arguments = application.arguments + (profile.arguments if profile else ())
+        try:
+            executable_parts = tuple(shlex.split(application.executable))
+        except ValueError as error:
+            raise ProcessError(
+                f"Invalid command syntax for {application.identifier!r}: {error}"
+            ) from error
+        if not executable_parts:
+            raise ProcessError(f"Empty command for {application.identifier!r}")
+        executable, command_arguments = executable_parts[0], executable_parts[1:]
+        arguments = command_arguments + application.arguments + (
+            profile.arguments if profile else ()
+        )
         return ProcessCommand(
-            executable=application.executable,
+            executable=executable,
             arguments=arguments,
             environment=profile.environment if profile else None,
             working_directory=profile.working_directory if profile else None,

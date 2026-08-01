@@ -45,12 +45,14 @@ class FakeSupervisor:
         self.callbacks: dict[str, object] = {}
         self.handles: dict[str, ProcessHandle] = {}
         self.stopped: list[str] = []
+        self.commands: list[ProcessCommand] = []
 
     def start(self, command: ProcessCommand, token: str, on_exit: object) -> ProcessHandle:
         """Register a fake process handle."""
         handle = ProcessHandle(token=token, pid=len(self.handles) + 1, process_group_id=1)
         self.handles[token] = handle
         self.callbacks[token] = on_exit
+        self.commands.append(command)
         return handle
 
     def stop(self, handle: ProcessHandle, grace_period: float = 3.0) -> None:
