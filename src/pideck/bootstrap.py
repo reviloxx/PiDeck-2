@@ -9,12 +9,14 @@ from typing import TYPE_CHECKING, Sequence
 from pideck.application.dependencies import ApplicationDependencies
 from pideck.application.session import ApplicationSessionService, LaunchStatus, SessionObserver
 from pideck.application.settings import SettingsService, SettingsUpdate
+from pideck.application.updates import ApplicationUpdateService
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
 from pideck.domain.errors import ConfigurationError
 from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
+from pideck.infrastructure.platform_updates import NativeUpdateGateway
 from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
 from pideck.infrastructure.theme import FileThemeRepository
 
@@ -138,6 +140,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     window = build_launcher_window(dependencies, asset_root)
     current_configuration = dependencies.configuration
     settings_service = SettingsService()
+    update_service = ApplicationUpdateService(NativeUpdateGateway())
     settings_window: SettingsWindow | None = None
     session_observer: SessionObserver = _QtSessionObserver(window)
     visibility_detector = X11WindowVisibilityDetector()
@@ -182,6 +185,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     def handle_shutdown_request() -> None:
         """Stop any application session before ending the Qt event loop."""
         session_service.close()
+        update_service.close()
         application.quit()
 
     def handle_settings_changed(update: SettingsUpdate) -> None:
@@ -211,7 +215,13 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if settings_window is not None:
             settings_window.close()
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
-        settings_window = SettingsWindow(current_configuration, theme, asset_root, window)
+        settings_window = SettingsWindow(
+            current_configuration,
+            theme,
+            asset_root,
+            window,
+            update_service=update_service,
+        )
         settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.finished.connect(lambda _: window.show_launcher())
         window.hide()

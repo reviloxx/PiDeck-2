@@ -27,7 +27,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         )
     widget.setStyleSheet(
         """
-        QMainWindow, QDialog#settings_window, QWidget#launcher_root, QWidget#settings_root {
+        QMainWindow, QDialog#settings_window, QDialog#password_prompt, QWidget#launcher_root, QWidget#settings_root {
             background-color: %(background)s;
             color: %(text)s;
             %(wallpaper_style)s
@@ -204,6 +204,47 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         QLabel#settings_error {
             color: %(error)s;
             font-weight: 700;
+        }
+        QLineEdit#password_input {
+            background-color: %(surface)s;
+            border: 1px solid %(muted_text)s;
+            border-radius: 6px;
+            color: %(text)s;
+            min-height: 42px;
+            padding: 0 12px;
+        }
+        QLineEdit#password_input:focus {
+            border: 2px solid %(focus)s;
+        }
+        QFrame#update_row {
+            background-color: %(surface)s;
+            border: 1px solid %(border)s;
+            border-radius: 8px;
+            min-height: 54px;
+        }
+        QFrame#update_row:focus {
+            background-color: %(active_surface)s;
+            border: 2px solid %(focus)s;
+        }
+        QLabel#update_status {
+            color: %(muted_text)s;
+            min-width: 150px;
+        }
+        QLabel#update_spinner {
+            color: %(primary)s;
+            font-weight: 700;
+        }
+        QPushButton#update_action {
+            background-color: transparent;
+            border: 1px solid %(muted_text)s;
+            border-radius: 6px;
+            color: %(text)s;
+            min-height: 34px;
+            min-width: 92px;
+        }
+        QPushButton#update_action:focus, QPushButton#update_action:hover {
+            background-color: %(active_surface)s;
+            border: 2px solid %(focus)s;
         }
         """
         % {

@@ -11,6 +11,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from pideck.application.settings import SettingsUpdate
+from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
@@ -122,6 +123,8 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     assert window._nav_buttons[1].property("active") is True
     assert window._nav_buttons[0].property("active") is False
     QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Down)
+    assert window._nav_buttons[2].hasFocus()
+    QTest.keyClick(window._nav_buttons[2], Qt.Key.Key_Down)
     assert window._back_button.hasFocus()
     QTest.keyClick(window._back_button, Qt.Key.Key_Space)
     assert window.isVisible() is False
@@ -151,10 +154,12 @@ def test_home_application_list_accepts_keyboard_navigation(application: QApplica
     assert window._applications.currentRow() == 0
     QTest.keyClick(window._applications, Qt.Key.Key_Left)
     assert window._nav_buttons[1].hasFocus()
-    assert [button.property("active") for button in window._nav_buttons] == [False, True]
+    assert [button.property("active") for button in window._nav_buttons] == [False, True, False]
     QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Down)
+    assert window._nav_buttons[2].hasFocus()
+    QTest.keyClick(window._nav_buttons[2], Qt.Key.Key_Down)
     assert window._back_button.hasFocus()
-    assert [button.property("active") for button in window._nav_buttons] == [False, False]
+    assert [button.property("active") for button in window._nav_buttons] == [False, False, False]
 
     window.close()
 
@@ -175,5 +180,27 @@ def test_home_page_entry_and_exit_control_list_selection(application: QApplicati
     assert window._nav_buttons[1].hasFocus()
     assert window._applications.currentRow() == -1
     assert window._nav_buttons[1].property("active") is True
+
+    window.close()
+
+
+def test_updates_page_renders_status_spinner_and_navigates(application: QApplication) -> None:
+    """Updates rows show availability, spinner state, and support vertical focus."""
+    window = settings_window(application)
+
+    QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Down)
+    QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Down)
+    QTest.keyClick(window._nav_buttons[2], Qt.Key.Key_Right)
+    row = window._update_rows["browser"]
+    assert row.hasFocus()
+
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE))
+    assert row.action.isEnabled()
+    assert row.action.text() == "Update"
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATING))
+    assert row.spinner.isVisible()
+    assert row.action.text() == "Cancel"
+    QTest.keyClick(row, Qt.Key.Key_Down)
+    assert window._update_rows["browser"].hasFocus()
 
     window.close()

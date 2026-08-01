@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSignalBlocker, Qt, Signal
+from PySide6.QtCore import QEvent, QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -20,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from pideck.application.settings import SettingsUpdate
+from pideck.application.updates import ApplicationUpdateService
+from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
 from pideck.domain.theme import ThemeDefinition
 
@@ -62,11 +65,137 @@ class SettingsRow(QFrame):
         super().mousePressEvent(event)
 
 
+class UpdateRow(QFrame):
+    """Focusable update entry with status, action, and loading spinner."""
+
+    activation_requested = Signal()
+    navigation_requested = Signal(object)
+
+    def __init__(self, application_name: str, parent: QWidget | None = None) -> None:
+        """Create one update entry for a configured application."""
+        super().__init__(parent)
+        self.application_name = application_name
+        self.setObjectName("update_row")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 14, 20, 14)
+        name = QLabel(application_name, self)
+        name.setObjectName("settings_label")
+        self.status_label = QLabel("Checking...", self)
+        self.status_label.setObjectName("update_status")
+        self.spinner = QLabel("", self)
+        self.spinner.setObjectName("update_spinner")
+        self.spinner.setFixedWidth(24)
+        self.action = QPushButton("", self)
+        self.action.setObjectName("update_action")
+        self.action.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.action.clicked.connect(self.activation_requested)
+        layout.addWidget(name, stretch=1)
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.spinner)
+        layout.addWidget(self.action)
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.timeout.connect(self._advance_spinner)
+        self._spinner_frames = ("|", "/", "-", "\\")
+        self._spinner_index = 0
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Activate or cancel this update with Enter or Space."""
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.activation_requested.emit()
+            event.accept()
+            return
+        if event.key() in (
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
+        ):
+            self.navigation_requested.emit(event.key())
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def set_info(self, info: UpdateInfo) -> None:
+        """Render one update status without changing row geometry."""
+        labels = {
+            UpdateStatus.CHECKING: "Checking...",
+            UpdateStatus.UP_TO_DATE: "Up to date",
+            UpdateStatus.AVAILABLE: "Update available",
+            UpdateStatus.UPDATING: "Updating...",
+            UpdateStatus.UPDATED: "Updated",
+            UpdateStatus.PASSWORD_REQUIRED: "Authentication required",
+            UpdateStatus.UNSUPPORTED: "Not supported",
+            UpdateStatus.FAILED: info.message or "Update failed",
+            UpdateStatus.CANCELLED: "Cancelled",
+        }
+        self.status_label.setText(labels[info.status])
+        updating = info.status is UpdateStatus.UPDATING
+        self.spinner.setVisible(updating)
+        self.action.setText(
+            "Cancel" if updating else "Update" if info.status is UpdateStatus.AVAILABLE else ""
+        )
+        self.action.setEnabled(info.status in (UpdateStatus.AVAILABLE, UpdateStatus.UPDATING))
+        if updating:
+            self._spinner_timer.start(120)
+        else:
+            self._spinner_timer.stop()
+            self.spinner.clear()
+
+    def _advance_spinner(self) -> None:
+        """Advance the update row spinner."""
+        self.spinner.setText(self._spinner_frames[self._spinner_index])
+        self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
+
+
+class PasswordPrompt(QDialog):
+    """Themed, cancellable sudo password prompt for package updates."""
+
+    def __init__(self, application_name: str, theme: ThemeDefinition, parent: QWidget) -> None:
+        """Create a modal password prompt without persisting the secret."""
+        super().__init__(parent)
+        self.setWindowTitle("Authentication required")
+        self.setObjectName("password_prompt")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(36, 30, 36, 30)
+        layout.setSpacing(16)
+        title = QLabel("System update", self)
+        title.setObjectName("settings_heading")
+        message = QLabel(f"Enter your password to update {application_name}.", self)
+        message.setObjectName("settings_description")
+        message.setWordWrap(True)
+        self.password_input = QLineEdit(self)
+        self.password_input.setObjectName("password_input")
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password_input.setPlaceholderText("Password")
+        self.password_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        cancel = QPushButton("Cancel", self)
+        cancel.setObjectName("settings_back")
+        cancel.clicked.connect(self.reject)
+        confirm = QPushButton("Continue", self)
+        confirm.setObjectName("settings_footer")
+        confirm.clicked.connect(self.accept)
+        buttons.addWidget(cancel)
+        buttons.addWidget(confirm)
+        layout.addWidget(title)
+        layout.addWidget(message)
+        layout.addWidget(self.password_input)
+        layout.addLayout(buttons)
+        apply_theme(self, theme)
+
+    def password(self) -> str:
+        """Return the entered password for immediate one-shot use."""
+        return self.password_input.text()
+
+
 class SettingsWindow(QDialog):
     """Edit launcher settings in a fullscreen, controller-friendly menu."""
 
     settings_submitted = Signal(object)
     settings_changed = Signal(object)
+    update_status = Signal(object)
 
     def __init__(
         self,
@@ -74,12 +203,18 @@ class SettingsWindow(QDialog):
         theme: ThemeDefinition,
         asset_root: Path,
         parent: QWidget | None = None,
+        update_service: ApplicationUpdateService | None = None,
     ) -> None:
         """Build the settings menu from the current validated configuration."""
         super().__init__(parent)
         self._configuration = configuration
         self._theme = theme
         self._asset_root = asset_root
+        self._update_service = update_service
+        self._update_rows: dict[str, UpdateRow] = {}
+        self._update_applications = {
+            application.identifier: application for application in configuration.applications
+        }
         self._nav_buttons: list[QPushButton] = []
         self._page_controls: dict[int, list[QWidget]] = {}
         self._current_page = 0
@@ -91,6 +226,22 @@ class SettingsWindow(QDialog):
         self._theme_combo.currentIndexChanged.connect(self._emit_current_settings)
         self._reduced_motion.toggled.connect(self._emit_current_settings)
         self._applications.itemChanged.connect(self._handle_application_item_changed)
+        self.update_status.connect(self._handle_update_status)
+        if self._update_service is not None:
+            self._update_service.check_async(
+                tuple(self._configuration.applications),
+                lambda info: self.update_status.emit(info),
+            )
+        else:
+            for application_id in self._update_rows:
+                self._update_rows[application_id].set_info(
+                    UpdateInfo(
+                        application_id,
+                        self._update_applications[application_id].name,
+                        UpdateStatus.UNSUPPORTED,
+                        message="Update service unavailable",
+                    )
+                )
         self._select_page(0, focus_first=False)
         self._nav_buttons[0].setFocus(Qt.FocusReason.OtherFocusReason)
 
@@ -129,6 +280,7 @@ class SettingsWindow(QDialog):
         self._pages.setObjectName("settings_pages")
         self._pages.addWidget(self._build_appearance_page())
         self._pages.addWidget(self._build_home_page())
+        self._pages.addWidget(self._build_updates_page())
         content_layout.addWidget(self._pages, stretch=1)
 
         self._error_label = QLabel("", content)
@@ -154,6 +306,7 @@ class SettingsWindow(QDialog):
         layout.addSpacing(28)
         self._add_nav_button(layout, "Appearance", 0)
         self._add_nav_button(layout, "Home screen", 1)
+        self._add_nav_button(layout, "Updates", 2)
         layout.addStretch()
         self._back_button = QPushButton("Back", sidebar)
         self._back_button.setObjectName("settings_back")
@@ -242,6 +395,29 @@ class SettingsWindow(QDialog):
         self._page_controls[1] = [self._applications]
         return page
 
+    def _build_updates_page(self) -> QWidget:
+        """Create one update entry for every configured application."""
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 16, 0, 0)
+        layout.setSpacing(10)
+        hint = QLabel("Check and install updates for configured applications.", page)
+        hint.setObjectName("settings_description")
+        layout.addWidget(hint)
+        controls: list[QWidget] = []
+        for application in self._configuration.applications:
+            row = UpdateRow(application.name, page)
+            row.activation_requested.connect(
+                lambda application_id=application.identifier: self._activate_update(application_id)
+            )
+            row.navigation_requested.connect(self._handle_update_navigation)
+            self._update_rows[application.identifier] = row
+            controls.append(row)
+            layout.addWidget(row)
+        layout.addStretch()
+        self._page_controls[2] = controls
+        return page
+
     def _control_row(
         self,
         parent: QWidget,
@@ -280,11 +456,15 @@ class SettingsWindow(QDialog):
             self._clear_home_selection()
         self._current_page = index
         self._pages.setCurrentIndex(index)
-        self._page_title.setText("Appearance" if index == 0 else "Home screen")
+        page_titles = {0: "Appearance", 1: "Home screen", 2: "Updates"}
+        page_descriptions = {
+            0: "Personalize the look and motion of your launcher.",
+            1: "Choose which applications are available from the home screen.",
+            2: "Check and install updates for configured applications.",
+        }
+        self._page_title.setText(page_titles[index])
         self._page_description.setText(
-            "Personalize the look and motion of your launcher."
-            if index == 0
-            else "Choose which applications are available from the home screen."
+            page_descriptions[index]
         )
         self._set_active_nav(index)
         if focus_first:
@@ -344,6 +524,60 @@ class SettingsWindow(QDialog):
             self._theme_combo.showPopup()
         elif row is self._motion_row:
             self._reduced_motion.toggle()
+
+    def _activate_update(self, application_id: str) -> None:
+        """Start or cancel the selected application update."""
+        if self._update_service is None:
+            return
+        application = self._update_applications[application_id]
+        row = self._update_rows[application_id]
+        if row.status_label.text() == "Updating...":
+            self._update_service.cancel(application_id)
+            row.set_info(UpdateInfo(application_id, application.name, UpdateStatus.CANCELLED))
+            return
+        self._update_service.start_async(
+            application,
+            None,
+            lambda info: self.update_status.emit(info),
+        )
+
+    def _handle_update_status(self, info: UpdateInfo) -> None:
+        """Render update status and request a password only when required."""
+        row = self._update_rows.get(info.application_id)
+        if row is None:
+            return
+        row.set_info(info)
+        if info.status is not UpdateStatus.PASSWORD_REQUIRED:
+            return
+        prompt = PasswordPrompt(info.application_name, self._theme, self)
+        if prompt.exec() != QDialog.DialogCode.Accepted:
+            row.set_info(UpdateInfo(info.application_id, info.application_name, UpdateStatus.CANCELLED))
+            return
+        password = prompt.password()
+        prompt.deleteLater()
+        if self._update_service is not None:
+            self._update_service.start_async(
+                self._update_applications[info.application_id],
+                password,
+                lambda result: self.update_status.emit(result),
+            )
+
+    def _handle_update_navigation(self, key: int) -> None:
+        """Move through update rows or return to the active settings category."""
+        rows = self._page_controls.get(2, [])
+        current = self.focusWidget()
+        if current not in rows:
+            return
+        index = rows.index(current)
+        if key == Qt.Key.Key_Up:
+            if index == 0:
+                self._focus_selected_nav()
+            else:
+                rows[index - 1].setFocus(Qt.FocusReason.OtherFocusReason)
+        elif key == Qt.Key.Key_Down and index < len(rows) - 1:
+            rows[index + 1].setFocus(Qt.FocusReason.OtherFocusReason)
+        elif key == Qt.Key.Key_Left:
+            self._focus_selected_nav()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         """Implement deterministic D-pad navigation across the settings surface."""
