@@ -270,6 +270,7 @@ class SettingsWindow(QDialog):
         apply_theme(self, theme)
         self._theme_combo.currentIndexChanged.connect(self._emit_current_settings)
         self._reduced_motion.toggled.connect(self._emit_current_settings)
+        self._show_clock.toggled.connect(self._emit_current_settings)
         self._applications.itemChanged.connect(self._handle_application_item_changed)
         self.update_status.connect(self._handle_update_status)
         if self._update_service is not None:
@@ -406,10 +407,21 @@ class SettingsWindow(QDialog):
         self._motion_row = motion_row
         self._reduced_motion.setText("On")
         self._reduced_motion.setChecked(self._configuration.settings.reduced_motion)
+        clock_row, self._show_clock = self._control_row(
+            page,
+            "Clock",
+            "Show the current date and time on the home screen.",
+            QCheckBox(page),
+        )
+        self._show_clock.setObjectName("settings_control")
+        self._clock_row = clock_row
+        self._show_clock.setText("On")
+        self._show_clock.setChecked(self._configuration.settings.show_clock)
         layout.addWidget(theme_row)
         layout.addWidget(motion_row)
+        layout.addWidget(clock_row)
         layout.addStretch()
-        self._page_controls[0] = [theme_row, motion_row]
+        self._page_controls[0] = [theme_row, motion_row, clock_row]
         return page
 
     def _build_home_page(self) -> QWidget:
@@ -569,6 +581,8 @@ class SettingsWindow(QDialog):
             self._theme_combo.showPopup()
         elif row is self._motion_row:
             self._reduced_motion.toggle()
+        elif row is self._clock_row:
+            self._show_clock.toggle()
 
     def _activate_update(self, application_id: str) -> None:
         """Start or cancel the selected application update."""
@@ -741,6 +755,7 @@ class SettingsWindow(QDialog):
             theme=self._theme_combo.currentData(),
             reduced_motion=self._reduced_motion.isChecked(),
             visible_applications=selected_applications,
+            show_clock=self._show_clock.isChecked(),
         )
 
     def apply_theme_definition(self, theme: ThemeDefinition) -> None:

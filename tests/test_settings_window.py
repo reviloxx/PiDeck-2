@@ -115,6 +115,11 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     assert window._reduced_motion.isChecked() is True
     QTest.keyClick(window._motion_row, Qt.Key.Key_Return)
     assert window._reduced_motion.isChecked() is False
+    QTest.keyClick(window._motion_row, Qt.Key.Key_Down)
+    assert window._clock_row.hasFocus()
+    QTest.keyClick(window._clock_row, Qt.Key.Key_Space)
+    assert window._show_clock.isChecked() is False
+    QTest.keyClick(window._clock_row, Qt.Key.Key_Up)
     QTest.keyClick(window._motion_row, Qt.Key.Key_Up)
     QTest.keyClick(window._theme_row, Qt.Key.Key_Up)
     assert window._nav_buttons[0].hasFocus()

@@ -3,7 +3,7 @@
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QDateTime, QTimer, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
     QGridLayout,
@@ -197,6 +197,7 @@ class LauncherWindow(QMainWindow):
         theme: ThemeDefinition,
         asset_root: Path,
         reduced_motion: bool = False,
+        show_clock: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         """Build the launcher presentation around injected application state."""
@@ -205,6 +206,7 @@ class LauncherWindow(QMainWindow):
         self._theme = theme
         self._asset_root = asset_root
         self._reduced_motion = reduced_motion
+        self._show_clock = show_clock
         self._running_identifier: str | None = None
         self._has_been_shown = False
         self._tiles: list[LauncherTile] = []
@@ -217,6 +219,8 @@ class LauncherWindow(QMainWindow):
         self._root_layout = QVBoxLayout(self._root)
         self._root_layout.setContentsMargins(48, 36, 48, 28)
         self._root_layout.setSpacing(12)
+        self._clock_timer = QTimer(self)
+        self._clock_timer.timeout.connect(self._update_clock)
         self.session_started.connect(self._handle_session_started)
         self.session_finished.connect(self._handle_session_finished)
         self.session_failed.connect(self._handle_session_failed)
@@ -277,15 +281,39 @@ class LauncherWindow(QMainWindow):
 
     def _build_header(self) -> None:
         """Create the launcher title and contextual subtitle."""
+        header = QHBoxLayout()
+        heading = QVBoxLayout()
         title = QLabel("PiDeck", self._root)
         title.setObjectName("launcher_title")
         subtitle = QLabel("Choose an application", self._root)
         subtitle.setObjectName("launcher_subtitle")
+        heading.addWidget(title)
+        heading.addWidget(subtitle)
+        header.addLayout(heading)
+        header.addStretch()
+        self._clock_label = QLabel(self._root)
+        self._clock_label.setObjectName("launcher_clock")
+        self._clock_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        header.addWidget(self._clock_label)
         self._status_label = QLabel("", self._root)
         self._status_label.setObjectName("launcher_subtitle")
-        self._root_layout.addWidget(title)
-        self._root_layout.addWidget(subtitle)
+        self._root_layout.addLayout(header)
         self._root_layout.addWidget(self._status_label)
+        self.set_clock_visible(self._show_clock)
+
+    def set_clock_visible(self, visible: bool) -> None:
+        """Show or hide the live home-screen clock."""
+        self._show_clock = visible
+        self._clock_label.setVisible(visible)
+        if visible:
+            self._update_clock()
+            self._clock_timer.start(1000)
+        else:
+            self._clock_timer.stop()
+
+    def _update_clock(self) -> None:
+        """Refresh the date and time using the local system timezone."""
+        self._clock_label.setText(QDateTime.currentDateTime().toString("ddd, dd MMM yyyy  HH:mm"))
 
     def _build_footer(self) -> None:
         """Create intent-only settings and shutdown controls."""
@@ -418,6 +446,7 @@ class LauncherWindow(QMainWindow):
         self._controller.update_configuration(configuration)
         self._theme = theme
         self._reduced_motion = configuration.settings.reduced_motion
+        self.set_clock_visible(configuration.settings.show_clock)
         self._grid_layout.setHorizontalSpacing(theme.tile.gap)
         self._grid_layout.setVerticalSpacing(theme.tile.gap)
         self._settings_button.setIcon(icon_for_path(theme.icons.get("settings")))

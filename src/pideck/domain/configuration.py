@@ -102,6 +102,7 @@ class SettingsConfiguration:
     """Store launcher-wide settings persisted in YAML."""
 
     reduced_motion: bool = False
+    show_clock: bool = True
 
 
 @dataclass(frozen=True, slots=True)

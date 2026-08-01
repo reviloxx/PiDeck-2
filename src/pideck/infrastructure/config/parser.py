@@ -201,11 +201,14 @@ class YamlConfigurationParser:
     def _parse_settings(self, raw_data: Any) -> SettingsConfiguration:
         """Parse launcher settings."""
         data = _mapping(raw_data, "settings")
-        _require_keys(data, set(), "settings", optional={"reduced_motion"})
+        _require_keys(data, set(), "settings", optional={"reduced_motion", "show_clock"})
         reduced_motion = data.get("reduced_motion", False)
+        show_clock = data.get("show_clock", True)
         if not isinstance(reduced_motion, bool):
             raise ConfigurationValidationError("settings.reduced_motion must be a boolean")
-        return SettingsConfiguration(reduced_motion=reduced_motion)
+        if not isinstance(show_clock, bool):
+            raise ConfigurationValidationError("settings.show_clock must be a boolean")
+        return SettingsConfiguration(reduced_motion=reduced_motion, show_clock=show_clock)
 
 
 def _mapping(value: Any, context: str) -> Mapping[str, Any]:

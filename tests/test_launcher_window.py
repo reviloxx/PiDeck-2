@@ -55,6 +55,18 @@ def test_launcher_renders_tiles_and_focuses_first(application: QApplication) -> 
     window.close()
 
 
+def test_clock_is_visible_and_formatted_by_default(application: QApplication) -> None:
+    """The launcher shows a live date/time label by default."""
+    window = launcher_window(application)
+
+    assert window._clock_label.isVisible()
+    assert len(window._clock_label.text()) >= 16
+
+    window.set_clock_visible(False)
+    assert window._clock_label.isVisible() is False
+    window.close()
+
+
 def test_show_launcher_enters_fullscreen(application: QApplication) -> None:
     """The launcher entry point requests fullscreen presentation."""
     window = launcher_window(application)

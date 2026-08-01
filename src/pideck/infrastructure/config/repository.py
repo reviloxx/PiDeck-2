@@ -147,5 +147,8 @@ def _serialize_configuration(configuration: Configuration) -> dict[str, Any]:
             "enabled_sources": list(configuration.input.enabled_sources),
             "bindings": dict(configuration.input.bindings),
         },
-        "settings": {"reduced_motion": configuration.settings.reduced_motion},
+        "settings": {
+            "reduced_motion": configuration.settings.reduced_motion,
+            "show_clock": configuration.settings.show_clock,
+        },
     }

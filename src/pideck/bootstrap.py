@@ -107,6 +107,7 @@ def build_launcher_window(
         theme,
         asset_root,
         dependencies.configuration.settings.reduced_motion,
+        dependencies.configuration.settings.show_clock,
     )
 
 
