@@ -51,6 +51,11 @@ class LauncherTile(QPushButton):
         self.setFixedSize(theme.tile.width, theme.tile.height)
         self.setText("")
         self._build_content(application, asset_root, input_icon)
+        self._spinner = QLabel(self)
+        self._spinner.setObjectName("tile_spinner")
+        self._spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._spinner.setGeometry(self.width() - 32, 8, 20, 20)
+        self._spinner.setVisible(False)
         self._spinner_timer = QTimer(self)
         self._spinner_timer.timeout.connect(self._advance_spinner)
         self._spinner_frames = ("|", "/", "-", "\\")
@@ -104,11 +109,10 @@ class LauncherTile(QPushButton):
         if input_icon is not None:
             input_indicator.setPixmap(icon_for_path(input_icon).pixmap(24, 24))
         content.addWidget(input_indicator)
-        spinner = QLabel(self)
-        spinner.setObjectName("tile_spinner")
-        spinner.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
-        spinner.setVisible(False)
-        content.addWidget(spinner)
+    def resizeEvent(self, event: object) -> None:
+        """Keep the spinner anchored to the tile's top-right corner."""
+        super().resizeEvent(event)
+        self._spinner.setGeometry(self.width() - 32, 8, 20, 20)
 
     def focusInEvent(self, event: object) -> None:
         """Enable the theme glow when the tile receives keyboard focus."""
@@ -142,10 +146,7 @@ class LauncherTile(QPushButton):
 
     def set_loading(self, loading: bool) -> None:
         """Show or hide the animated loading spinner on this tile."""
-        spinner = self.findChild(QLabel, "tile_spinner")
-        if spinner is None:
-            return
-        spinner.setVisible(loading)
+        self._spinner.setVisible(loading)
         if loading:
             self._spinner_timer.start(120)
         else:
@@ -153,10 +154,7 @@ class LauncherTile(QPushButton):
 
     def _advance_spinner(self) -> None:
         """Advance the spinner without changing the tile geometry."""
-        spinner = self.findChild(QLabel, "tile_spinner")
-        if spinner is None:
-            return
-        spinner.setText(self._spinner_frames[self._spinner_index])
+        self._spinner.setText(self._spinner_frames[self._spinner_index])
         self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
 
 

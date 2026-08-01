@@ -148,13 +148,16 @@ def test_launcher_waits_for_visibility_before_hiding(application: QApplication) 
     application.processEvents()
 
     assert window.isVisible()
-    assert window._tiles[0].findChild(type(window._status_label), "tile_spinner").isVisible()
+    spinner = window._tiles[0].findChild(type(window._status_label), "tile_spinner")
+    assert spinner.isVisible()
+    assert spinner.geometry().left() == window._tiles[0].width() - 32
+    assert spinner.geometry().top() == 8
 
     window.notify_session_visible(target)
     application.processEvents()
 
     assert window.isVisible() is False
-    assert window._tiles[0].findChild(type(window._status_label), "tile_spinner").isVisible() is False
+    assert spinner.isVisible() is False
     window.close()
 
 
