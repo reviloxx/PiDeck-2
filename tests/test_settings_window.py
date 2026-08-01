@@ -15,7 +15,7 @@ from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
-from pideck.presentation.qt.settings_window import SettingsWindow
+from pideck.presentation.qt.settings_window import PasswordPrompt, SettingsWindow
 from tests.test_configuration import configuration_document
 
 
@@ -227,3 +227,61 @@ def test_password_prompt_abort_restores_available_update(application: QApplicati
     assert row.action.text() == "Update"
     assert row.action.isHidden() is False
     window.close()
+
+
+def test_cancelled_update_is_rechecked(application: QApplication) -> None:
+    """Cancelling an update rechecks and restores its actual availability."""
+    class FakeUpdateService:
+        """Minimal update service double for cancellation behavior."""
+
+        def __init__(self) -> None:
+            self.cancelled: list[str] = []
+            self.check_callback = None
+
+        def check_async(self, applications, callback) -> None:
+            """Capture the recheck callback."""
+            self.check_callback = callback
+
+        def start_async(self, application, password, callback) -> None:
+            """Provide the service protocol method."""
+
+        def cancel(self, application_id: str) -> None:
+            """Record cancellation."""
+            self.cancelled.append(application_id)
+
+    service = FakeUpdateService()
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), update_service=service)
+    window.show()
+    application.processEvents()
+    row = window._update_rows["browser"]
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATING))
+
+    window._activate_update("browser")
+    assert service.cancelled == ["browser"]
+    assert row.status_label.text() == "Checking..."
+
+    service.check_callback(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE))
+    application.processEvents()
+    assert row.status_label.text() == "Update available"
+    assert row.action.text() == "Update"
+    window.close()
+
+
+def test_password_prompt_supports_keyboard_navigation(application: QApplication) -> None:
+    """Password entry and both prompt actions are reachable with arrows."""
+    prompt = PasswordPrompt("Firefox", DEFAULT_THEME, None)
+    prompt.show()
+    application.processEvents()
+
+    assert prompt.password_input.hasFocus()
+    QTest.keyClick(prompt.password_input, Qt.Key.Key_Down)
+    assert prompt.continue_button.hasFocus()
+    QTest.keyClick(prompt.continue_button, Qt.Key.Key_Left)
+    assert prompt.cancel_button.hasFocus()
+    QTest.keyClick(prompt.cancel_button, Qt.Key.Key_Right)
+    assert prompt.continue_button.hasFocus()
+    QTest.keyClick(prompt.continue_button, Qt.Key.Key_Up)
+    assert prompt.password_input.hasFocus()
+    QTest.keyClick(prompt.password_input, Qt.Key.Key_Escape)
+    assert prompt.isVisible() is False

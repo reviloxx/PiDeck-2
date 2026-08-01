@@ -176,21 +176,58 @@ class PasswordPrompt(QDialog):
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setPlaceholderText("Password")
         self.password_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.password_input.installEventFilter(self)
         buttons = QHBoxLayout()
         buttons.addStretch()
-        cancel = QPushButton("Cancel", self)
-        cancel.setObjectName("settings_back")
-        cancel.clicked.connect(self.reject)
-        confirm = QPushButton("Continue", self)
-        confirm.setObjectName("settings_footer")
-        confirm.clicked.connect(self.accept)
-        buttons.addWidget(cancel)
-        buttons.addWidget(confirm)
+        self.cancel_button = QPushButton("Cancel", self)
+        self.cancel_button.setObjectName("settings_back")
+        self.cancel_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.cancel_button.clicked.connect(self.reject)
+        self.continue_button = QPushButton("Continue", self)
+        self.continue_button.setObjectName("settings_footer")
+        self.continue_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.continue_button.clicked.connect(self.accept)
+        self.cancel_button.installEventFilter(self)
+        self.continue_button.installEventFilter(self)
+        buttons.addWidget(self.cancel_button)
+        buttons.addWidget(self.continue_button)
         layout.addWidget(title)
         layout.addWidget(message)
         layout.addWidget(self.password_input)
         layout.addLayout(buttons)
         apply_theme(self, theme)
+        self.password_input.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:
+        """Provide predictable D-pad navigation for password entry."""
+        if event.type() != QEvent.Type.KeyPress:
+            return super().eventFilter(watched, event)
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self.reject()
+            return True
+        if watched is self.password_input:
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.accept()
+                return True
+            if key == Qt.Key.Key_Down:
+                self.continue_button.setFocus(Qt.FocusReason.OtherFocusReason)
+                return True
+        elif watched is self.cancel_button:
+            if key == Qt.Key.Key_Right:
+                self.continue_button.setFocus(Qt.FocusReason.OtherFocusReason)
+                return True
+            if key == Qt.Key.Key_Up:
+                self.password_input.setFocus(Qt.FocusReason.OtherFocusReason)
+                return True
+        elif watched is self.continue_button:
+            if key == Qt.Key.Key_Left:
+                self.cancel_button.setFocus(Qt.FocusReason.OtherFocusReason)
+                return True
+            if key == Qt.Key.Key_Up:
+                self.password_input.setFocus(Qt.FocusReason.OtherFocusReason)
+                return True
+        return super().eventFilter(watched, event)
 
     def password(self) -> str:
         """Return the entered password for immediate one-shot use."""
@@ -219,6 +256,7 @@ class SettingsWindow(QDialog):
         self._asset_root = asset_root
         self._update_service = update_service
         self._update_rows: dict[str, UpdateRow] = {}
+        self._rechecking_after_cancel: set[str] = set()
         self._update_applications = {
             application.identifier: application for application in configuration.applications
         }
@@ -539,8 +577,13 @@ class SettingsWindow(QDialog):
         application = self._update_applications[application_id]
         row = self._update_rows[application_id]
         if row.status_label.text() == "Updating...":
+            self._rechecking_after_cancel.add(application_id)
             self._update_service.cancel(application_id)
-            row.set_info(UpdateInfo(application_id, application.name, UpdateStatus.CANCELLED))
+            row.set_info(UpdateInfo(application_id, application.name, UpdateStatus.CHECKING))
+            self._update_service.check_async(
+                (application,),
+                lambda info: self.update_status.emit(info),
+            )
             return
         self._update_service.start_async(
             application,
@@ -553,6 +596,10 @@ class SettingsWindow(QDialog):
         row = self._update_rows.get(info.application_id)
         if row is None:
             return
+        if info.status is UpdateStatus.CANCELLED and info.application_id in self._rechecking_after_cancel:
+            return
+        if info.application_id in self._rechecking_after_cancel and info.status is not UpdateStatus.CANCELLED:
+            self._rechecking_after_cancel.discard(info.application_id)
         row.set_info(info)
         if info.status is not UpdateStatus.PASSWORD_REQUIRED:
             return
