@@ -661,8 +661,8 @@ class SettingsWindow(QDialog):
         for labels, title_key, hint_key in setting_rows:
             labels[0].setText(tr(self._language, title_key))
             labels[1].setText(tr(self._language, hint_key))
-        self._home_hint.setText(tr(self._language, "home_apps_hint"))
-        self._updates_hint.setText(tr(self._language, "update_hint"))
+        self._home_hint.setText(tr(self._language, "home_description"))
+        self._updates_hint.setText(tr(self._language, "updates_description"))
         self._select_page(self._current_page, focus_first=False)
         self._language_combo.setItemText(0, tr(self._language, "english"))
         self._language_combo.setItemText(1, tr(self._language, "german"))
