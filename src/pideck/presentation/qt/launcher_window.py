@@ -295,11 +295,21 @@ class LauncherWindow(QMainWindow):
         }
         direction = directions.get(event.action)
         if direction is not None:
-            self._handle_tile_navigation(direction)
+            if self._settings_button.hasFocus():
+                self._handle_action_navigation(self._settings_button, direction)
+            elif self._shutdown_button.hasFocus():
+                self._handle_action_navigation(self._shutdown_button, direction)
+            else:
+                self._handle_tile_navigation(direction)
         elif event.action is InputAction.ACTIVATE:
-            application = self._controller.activate()
-            if application is not None:
-                self.application_requested.emit(application)
+            if self._settings_button.hasFocus():
+                self.settings_requested.emit()
+            elif self._shutdown_button.hasFocus():
+                self.shutdown_requested.emit()
+            else:
+                application = self._controller.activate()
+                if application is not None:
+                    self.application_requested.emit(application)
 
     def _build_header(self) -> None:
         """Create the launcher title and contextual subtitle."""

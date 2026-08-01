@@ -219,6 +219,12 @@ def test_gamepad_down_from_last_tile_row_focuses_settings(application: QApplicat
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
 
     assert window._settings_button.hasFocus()
+    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
+    assert window._shutdown_button.hasFocus()
+    activated: list[bool] = []
+    window.shutdown_requested.connect(lambda: activated.append(True))
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert activated == [True]
     window.close()
 
 

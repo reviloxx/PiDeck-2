@@ -242,6 +242,23 @@ def test_gamepad_actions_navigate_settings(application: QApplication) -> None:
     assert window.isVisible() is False
 
 
+def test_gamepad_arrows_navigate_open_language_dropdown(application: QApplication) -> None:
+    """Gamepad arrows change and close an expanded language combo popup."""
+    window = settings_window(application)
+    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert window._language_row.hasFocus()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert window._language_combo.view().isVisible()
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert window._language_combo.currentData() == "de"
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert window._language_combo.view().isVisible() is False
+    window.close()
+
+
 def test_password_prompt_abort_restores_available_update(application: QApplication, monkeypatch) -> None:
     """Cancelling authentication leaves the update available and actionable."""
     window = settings_window(application)

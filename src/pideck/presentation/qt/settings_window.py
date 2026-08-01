@@ -625,6 +625,20 @@ class SettingsWindow(QDialog):
         """Handle normalized gamepad actions using the current focus target."""
         if not event.pressed:
             return
+        dropdown = self._open_dropdown()
+        if dropdown is not None:
+            if event.action in (InputAction.UP, InputAction.DOWN):
+                step = -1 if event.action is InputAction.UP else 1
+                dropdown.setCurrentIndex(
+                    max(0, min(dropdown.count() - 1, dropdown.currentIndex() + step))
+                )
+                return
+            if event.action is InputAction.ACTIVATE:
+                dropdown.hidePopup()
+                return
+            if event.action is InputAction.BACK:
+                dropdown.hidePopup()
+                return
         current = self.focusWidget()
         qt_keys = {
             InputAction.LEFT: Qt.Key.Key_Left,
@@ -690,6 +704,13 @@ class SettingsWindow(QDialog):
                 self._activate_update(current.application_id)
         elif event.action is InputAction.BACK:
             self.reject()
+
+    def _open_dropdown(self) -> QComboBox | None:
+        """Return the currently open Appearance combo box, if any."""
+        for combo in (self._theme_combo, self._language_combo):
+            if combo.view().isVisible():
+                return combo
+        return None
 
     def _handle_row_activation(self, row: SettingsRow) -> None:
         """Adjust a row or open its selector with Enter/Space."""
