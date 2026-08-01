@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog
 
 from pideck.application.settings import SettingsUpdate
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
@@ -200,7 +200,30 @@ def test_updates_page_renders_status_spinner_and_navigates(application: QApplica
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATING))
     assert row.spinner.isVisible()
     assert row.action.text() == "Cancel"
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE))
+    assert row.action.isHidden() is True
     QTest.keyClick(row, Qt.Key.Key_Down)
     assert window._update_rows["browser"].hasFocus()
 
+    window.close()
+
+
+def test_password_prompt_abort_restores_available_update(application: QApplication, monkeypatch) -> None:
+    """Cancelling authentication leaves the update available and actionable."""
+    window = settings_window(application)
+    row = window._update_rows["browser"]
+    available = UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE)
+    row.set_info(available)
+    monkeypatch.setattr(
+        "pideck.presentation.qt.settings_window.PasswordPrompt.exec",
+        lambda self: QDialog.DialogCode.Rejected,
+    )
+
+    window._handle_update_status(
+        UpdateInfo("browser", "Browser", UpdateStatus.PASSWORD_REQUIRED)
+    )
+
+    assert row.status_label.text() == "Update available"
+    assert row.action.text() == "Update"
+    assert row.action.isHidden() is False
     window.close()

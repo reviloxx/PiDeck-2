@@ -140,19 +140,16 @@ class NativeUpdateGateway(UpdateGateway):
         installed = _run_lines(["flatpak", "info", "--show-commit", app_id])
         if installed is None:
             return UpdateInfo(application.identifier, application.name, UpdateStatus.UNSUPPORTED, message="Flatpak application is not installed")
-        result = subprocess.run(
-            ["flatpak", "update", "--app", "--noninteractive", "--no-pull", app_id],
-            capture_output=True,
-            text=True,
-            check=False,
-            env={**os.environ, "LANG": "C", "LC_ALL": "C"},
+        remote_lines = _run_lines(
+            ["flatpak", "remote-ls", "--updates", "--app", "--columns=application,version,commit"]
         )
-        if result.returncode != 0:
+        if remote_lines is None:
             return UpdateInfo(application.identifier, application.name, UpdateStatus.UNSUPPORTED, message="Flatpak update metadata is unavailable")
-        output = result.stdout + result.stderr
-        if "Nothing to do" in output or "No updates" in output:
-            return UpdateInfo(application.identifier, application.name, UpdateStatus.UP_TO_DATE, installed[0])
-        return UpdateInfo(application.identifier, application.name, UpdateStatus.AVAILABLE, installed[0])
+        for line in remote_lines:
+            fields = line.split()
+            if len(fields) >= 3 and fields[0] == app_id and fields[2] != installed[0]:
+                return UpdateInfo(application.identifier, application.name, UpdateStatus.AVAILABLE, installed[0], fields[1])
+        return UpdateInfo(application.identifier, application.name, UpdateStatus.UP_TO_DATE, installed[0])
 
     def _check_apt(self, application, executable) -> UpdateInfo:
         """Compare installed and candidate apt package versions."""

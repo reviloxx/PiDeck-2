@@ -11,8 +11,8 @@ def test_flatpak_update_check_reports_available_update(monkeypatch) -> None:
     """Flatpak availability is detected without downloading packages."""
     responses = {
         ("flatpak", "info", "--show-commit", "tv.kodi.Kodi"): (0, "installed-commit\n"),
-        ("flatpak", "update", "--app", "--noninteractive", "--no-pull", "tv.kodi.Kodi"):
-            (0, "Would update tv.kodi.Kodi\n"),
+        ("flatpak", "remote-ls", "--updates", "--app", "--columns=application,version,commit"):
+            (0, "tv.kodi.Kodi 21.4 remote-commit\n"),
     }
 
     def fake_run(command, **kwargs):
@@ -32,7 +32,7 @@ def test_flatpak_update_check_reports_available_update(monkeypatch) -> None:
     info = NativeUpdateGateway().check(application)
 
     assert info.status is UpdateStatus.AVAILABLE
-    assert info.available_version is None
+    assert info.available_version == "21.4"
 
 
 def test_apt_update_check_reports_candidate_version(monkeypatch) -> None:

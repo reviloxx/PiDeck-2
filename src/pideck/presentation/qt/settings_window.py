@@ -98,6 +98,8 @@ class UpdateRow(QFrame):
         self._spinner_timer.timeout.connect(self._advance_spinner)
         self._spinner_frames = ("|", "/", "-", "\\")
         self._spinner_index = 0
+        self.info = UpdateInfo(application_name, application_name, UpdateStatus.CHECKING)
+        self.last_available_info: UpdateInfo | None = None
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Activate or cancel this update with Enter or Space."""
@@ -118,6 +120,9 @@ class UpdateRow(QFrame):
 
     def set_info(self, info: UpdateInfo) -> None:
         """Render one update status without changing row geometry."""
+        self.info = info
+        if info.status is UpdateStatus.AVAILABLE:
+            self.last_available_info = info
         labels = {
             UpdateStatus.CHECKING: "Checking...",
             UpdateStatus.UP_TO_DATE: "Up to date",
@@ -135,7 +140,9 @@ class UpdateRow(QFrame):
         self.action.setText(
             "Cancel" if updating else "Update" if info.status is UpdateStatus.AVAILABLE else ""
         )
-        self.action.setEnabled(info.status in (UpdateStatus.AVAILABLE, UpdateStatus.UPDATING))
+        actionable = info.status in (UpdateStatus.AVAILABLE, UpdateStatus.UPDATING)
+        self.action.setEnabled(actionable)
+        self.action.setVisible(actionable)
         if updating:
             self._spinner_timer.start(120)
         else:
@@ -551,7 +558,10 @@ class SettingsWindow(QDialog):
             return
         prompt = PasswordPrompt(info.application_name, self._theme, self)
         if prompt.exec() != QDialog.DialogCode.Accepted:
-            row.set_info(UpdateInfo(info.application_id, info.application_name, UpdateStatus.CANCELLED))
+            row.set_info(
+                row.last_available_info
+                or UpdateInfo(info.application_id, info.application_name, UpdateStatus.AVAILABLE)
+            )
             return
         password = prompt.password()
         prompt.deleteLater()
