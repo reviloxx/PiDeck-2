@@ -7,12 +7,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
 from pideck.application.dependencies import ApplicationDependencies
-from pideck.application.session import ApplicationSessionService, LaunchStatus, SessionObserver
+from pideck.application.power import shutdown
+from pideck.application.session import (
+    ApplicationSessionService,
+    LaunchStatus,
+    SessionObserver,
+    SessionState,
+)
 from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.ports.input import InputEvent
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
-from pideck.domain.errors import ConfigurationError
+from pideck.domain.errors import ConfigurationError, PowerError
 from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.logging import configure_logging
@@ -20,6 +26,7 @@ from pideck.infrastructure.process import SubprocessSupervisor
 from pideck.infrastructure.platform_updates import NativeUpdateGateway
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
 from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
+from pideck.infrastructure.system_power import SystemPower
 from pideck.infrastructure.theme import FileThemeRepository
 
 if TYPE_CHECKING:
@@ -122,6 +129,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser.add_argument("--log-file", type=Path, default=None)
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument(
+        "--power-off-on-shutdown",
+        action="store_true",
+        help="Power off the host when the shutdown button is activated",
+    )
+    parser.add_argument(
         "--validate-only",
         action="store_true",
         help="Load and validate configuration without starting the Qt launcher",
@@ -147,6 +159,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     settings_service = SettingsService()
     update_service = ApplicationUpdateService(NativeUpdateGateway())
     gamepad_adapter = EvdevGamepadAdapter()
+    power = SystemPower() if parsed_arguments.power_off_on_shutdown else None
     settings_window: SettingsWindow | None = None
     session_observer: SessionObserver = _QtSessionObserver(window)
     visibility_detector = X11WindowVisibilityDetector()
@@ -171,7 +184,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         """Route gamepad input to the active launcher/settings surface."""
         if settings_window is not None and settings_window.isVisible():
             settings_window.handle_input(event)
-        else:
+        elif session_service.snapshot.state is SessionState.IDLE and window.isVisible():
             window.handle_input(event)
 
     gamepad_bridge.event_received.connect(
@@ -213,12 +226,20 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 result.status,
             )
 
-    def handle_shutdown_request() -> None:
-        """Stop any application session before ending the Qt event loop."""
+    def cleanup_session() -> None:
+        """Stop active services before ending the Qt event loop."""
         session_service.close()
         update_service.close()
         gamepad_adapter.close()
         application.quit()
+
+    def handle_shutdown_request() -> None:
+        """Power off when configured, otherwise close the launcher."""
+        try:
+            shutdown(power, cleanup_session)
+        except PowerError as error:
+            dependencies.logger.error("System power-off failed: %s", error)
+            window.show_power_error(str(error))
 
     def handle_settings_changed(update: SettingsUpdate) -> None:
         """Persist each valid settings change and refresh both views."""

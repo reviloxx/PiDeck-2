@@ -1,0 +1,72 @@
+version: 1
+applications:
+  - id: kodi
+    name: Kodi
+    executable: kodi
+    arguments: []
+    profiles: []
+    icon: ../assets/icons/kodi.svg
+    preferred_input: cec
+  - id: chromium
+    name: Chromium
+    executable: chromium
+    arguments: []
+    profiles: []
+    icon: ../assets/icons/chromium.svg
+    preferred_input: mouse
+  - id: firefox
+    name: Firefox
+    executable: firefox-esr
+    arguments: []
+    profiles: []
+    icon: ../assets/icons/firefox.svg
+    preferred_input: mouse
+  - id: retroarch
+    name: RetroArch
+    executable: retroarch
+    arguments: []
+    profiles: []
+    icon: ../assets/icons/retroarch.svg
+    preferred_input: gamepad
+themes:
+  - id: default
+    name: Midnight
+    colors:
+      background: '#101214'
+      surface: '#1b1f24'
+      primary: '#63d6c5'
+      text: '#f4f7f7'
+      muted_text: '#9ca8aa'
+      focus: '#63d6c5'
+      running: '#f2b880'
+      error: '#ed7777'
+    fonts:
+      family: DejaVu Sans
+      heading_size: 28
+      body_size: 18
+    icons:
+      settings: ../assets/icons/settings.svg
+      power: ../assets/icons/power.svg
+      input_cec: ../assets/icons/input-cec.svg
+      input_gamepad: ../assets/icons/input-gamepad.svg
+      input_keyboard: ../assets/icons/input-keyboard.svg
+      input_mouse: ../assets/icons/input-mouse.svg
+    wallpaper: ../assets/themes/default/wallpaper.svg
+    tile:
+      width: 240
+      height: 135
+      gap: 32
+    animation:
+      duration_ms: 180
+      reduced_motion_duration_ms: 0
+home:
+  visible_applications: [kodi, chromium, firefox, retroarch]
+  theme: default
+input:
+  enabled_sources: [gamepad, keyboard, mouse]
+  bindings:
+    home: Ctrl+Alt+H
+settings:
+  reduced_motion: true
+  show_clock: true
+  language: en

@@ -91,6 +91,7 @@ class UpdateRow(QFrame):
         name.setObjectName("settings_label")
         self.status_label = QLabel("Checking...", self)
         self.status_label.setObjectName("update_status")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.spinner = QLabel("", self)
         self.spinner.setObjectName("update_spinner")
         self.spinner.setFixedWidth(24)
@@ -99,7 +100,7 @@ class UpdateRow(QFrame):
         self.action.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.action.clicked.connect(self.activation_requested)
         layout.addWidget(name, stretch=1)
-        layout.addWidget(self.status_label)
+        layout.addWidget(self.status_label, stretch=1)
         layout.addWidget(self.spinner)
         layout.addWidget(self.action)
         self._spinner_timer = QTimer(self)
@@ -135,7 +136,11 @@ class UpdateRow(QFrame):
         labels = {
             UpdateStatus.CHECKING: tr(self._language, "checking"),
             UpdateStatus.UP_TO_DATE: tr(self._language, "up_to_date"),
-            UpdateStatus.AVAILABLE: tr(self._language, "update_available"),
+            UpdateStatus.AVAILABLE: (
+                tr(self._language, "update_available_version", version=info.available_version)
+                if info.available_version
+                else tr(self._language, "update_available")
+            ),
             UpdateStatus.UPDATING: tr(self._language, "updating"),
             UpdateStatus.UPDATED: tr(self._language, "updated"),
             UpdateStatus.PASSWORD_REQUIRED: tr(self._language, "authentication_required"),

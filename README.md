@@ -4,6 +4,10 @@ PiDeck is a TV-first launcher for Raspberry Pi OS.
 
 <img width="2560" height="1440" alt="Bildschirmfoto vom 2026-08-01 18-41-12" src="https://github.com/user-attachments/assets/60937f71-c7ea-4437-a1d3-245540bd1b13" />
 
+For the Raspberry Pi 5 image builder, app inventory and validation status, see
+[image preparation](docs/raspberry-pi-image.md). The image has not yet been
+built or tested on a Raspberry Pi.
+
 
 ## Development
 
@@ -27,6 +31,12 @@ Start the fullscreen launcher:
 ```bash
 pideck --config config/pideck.yaml
 ```
+
+By default, the shutdown button exits PiDeck without powering off the host.
+For an appliance session, add `--power-off-on-shutdown` to request a
+noninteractive systemd power-off instead. The active user must be authorized
+to power off the system; if the request fails, PiDeck remains open and shows
+the error.
 
 Validate a configuration without starting Qt:
 

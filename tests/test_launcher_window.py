@@ -79,6 +79,18 @@ def test_german_launcher_localizes_controls_and_clock(application: QApplication)
     window.close()
 
 
+def test_power_error_is_visible_and_localized(application: QApplication) -> None:
+    """A rejected power-off keeps the launcher open with a localized error."""
+    window = launcher_window(application)
+    window.set_language("de")
+
+    window.show_power_error("Not authorized")
+
+    assert window.isVisible()
+    assert window._status_label.text() == "Herunterfahren fehlgeschlagen: Not authorized"
+    window.close()
+
+
 def test_show_launcher_enters_fullscreen(application: QApplication) -> None:
     """The launcher entry point requests fullscreen presentation."""
     window = launcher_window(application)

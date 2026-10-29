@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}"
+config_dir="$config_root/pideck"
+mkdir -p "$config_dir"
+if [ ! -e "$config_dir/pideck.yaml" ]; then
+    install -m 600 /usr/share/pideck/config/pideck.yaml "$config_dir/pideck.yaml"
+fi
+
+export PIDECK_CONFIG="$config_dir/pideck.yaml"
+export PYTHONPATH=/usr/lib/pideck/python
+export QT_QPA_PLATFORM=xcb
+
+if dbus-run-session -- startx /usr/lib/pideck/pideck-xsession -- :0 vt1 -nolisten tcp; then
+    echo "PiDeck session ended. Log in on another console for recovery." >&2
+else
+    echo "PiDeck session failed. Inspect the system journal on another console." >&2
+fi
+
+# Do not create an unbounded autologin/restart loop after a failed session.
+exec sleep infinity

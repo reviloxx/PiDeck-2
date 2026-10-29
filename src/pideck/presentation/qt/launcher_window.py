@@ -512,6 +512,11 @@ class LauncherWindow(QMainWindow):
         """Publish a process-error event safely from any supervisor thread."""
         self.session_failed.emit(application, message)
 
+    def show_power_error(self, message: str) -> None:
+        """Keep the launcher usable when system power-off fails."""
+        self._status_label.setText(tr(self._language, "power_off_failed", message=message))
+        self.show_launcher()
+
     def notify_session_visible(self, application: ApplicationDefinition) -> None:
         """Publish external application-window readiness safely to Qt."""
         self.session_visible.emit(application)

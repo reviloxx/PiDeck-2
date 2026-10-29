@@ -103,7 +103,6 @@ class EvdevGamepadAdapter:
                 return
         try:
             device = evdev.InputDevice(str(path))
-            device.grab()
         except (OSError, PermissionError) as error:
             _LOGGER.warning("Unable to open gamepad path=%s error=%s", path, error)
             return
@@ -125,7 +124,6 @@ class EvdevGamepadAdapter:
         if managed is not None:
             managed.stop.set()
             try:
-                managed.device.ungrab()
                 managed.device.close()
             except OSError:
                 pass

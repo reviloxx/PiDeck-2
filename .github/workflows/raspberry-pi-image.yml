@@ -1,0 +1,55 @@
+name: Build Raspberry Pi image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pi-gen dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            coreutils quilt parted qemu-user-binfmt debootstrap zerofree zip \
+            dosfstools e2fsprogs libcap2-bin grep rsync xz-utils file git curl bc \
+            gpg pigz xxd arch-test bmap-tools kmod
+          df -h "$RUNNER_TEMP"
+
+      - name: Build image
+        run: sudo python3 image/build.py --work-dir "$RUNNER_TEMP/pideck-build"
+
+      - name: Prepare downloadable files
+        run: |
+          deploy="$RUNNER_TEMP/pideck-build/pi-gen/deploy"
+          sudo install -m 644 "$RUNNER_TEMP/pideck-build/source-manifest.json" "$deploy/source-manifest.json"
+          sudo install -m 644 image/imager_repo.py "$deploy/imager_repo.py"
+          sudo chmod -R a+rX "$deploy"
+          df -h "$RUNNER_TEMP"
+
+      - name: Upload image and manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: pideck-raspberry-pi-image
+          path: ${{ runner.temp }}/pideck-build/pi-gen/deploy/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Upload pi-gen log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pideck-build-log
+          path: ${{ runner.temp }}/pideck-build/pi-gen/work/pideck/build.log
+          if-no-files-found: warn
+          retention-days: 7

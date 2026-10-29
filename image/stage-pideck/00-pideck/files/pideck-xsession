@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+if ! xset s off -dpms; then
+    echo "Unable to disable X11 screen blanking or DPMS." >&2
+fi
+openbox &
+window_manager=$!
+attempt=0
+while ! wmctrl -m >/dev/null 2>&1; do
+    if ! kill -0 "$window_manager" 2>/dev/null; then
+        echo "Openbox failed to start." >&2
+        exit 1
+    fi
+    if [ "$attempt" -ge 100 ]; then
+        echo "Openbox did not become ready." >&2
+        kill "$window_manager"
+        exit 1
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.1
+done
+
+exec /usr/bin/python3 -m pideck.bootstrap \
+    --config "$PIDECK_CONFIG" \
+    --asset-root /usr/share/pideck/config \
+    --power-off-on-shutdown

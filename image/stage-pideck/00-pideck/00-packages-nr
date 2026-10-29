@@ -1,0 +1,6 @@
+chromium firefox-esr kodi retroarch libretro-mgba
+python3-pyside6.qtwidgets python3-yaml python3-evdev
+qt6-qpa-plugins qt6-svg-plugins fonts-dejavu-core
+xserver-xorg-core xserver-xorg-input-libinput xinit xauth
+openbox wmctrl x11-xserver-utils dbus-x11
+pulseaudio network-manager

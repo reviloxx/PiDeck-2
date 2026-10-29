@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+tty_name="$1"
+account="$(getent passwd 1000 || true)"
+if [ -n "$account" ]; then
+    username="${account%%:*}"
+    status="$(passwd -S "$username")"
+    set -- $status
+    if [ "${2:-}" = P ]; then
+        exec /sbin/agetty --autologin "$username" --noclear "$tty_name" "$TERM"
+    fi
+fi
+
+echo "PiDeck requires a user configured with Raspberry Pi Imager." >&2
+exec /sbin/agetty --noclear "$tty_name" "$TERM"

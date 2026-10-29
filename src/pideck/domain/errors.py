@@ -23,3 +23,7 @@ class ThemeValidationError(ThemeError):
 
 class ProcessError(PiDeckError):
     """Base class for external process lifecycle errors."""
+
+
+class PowerError(PiDeckError):
+    """Raised when a system power request cannot be completed."""

@@ -1,6 +1,7 @@
 """Tests for normalized Linux gamepad input."""
 
 from types import SimpleNamespace
+from pathlib import Path
 
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
@@ -33,3 +34,31 @@ def test_gamepad_detection_accepts_integer_capability_codes() -> None:
     )
 
     assert EvdevGamepadAdapter._is_gamepad(device) is True
+
+
+def test_opening_gamepad_does_not_take_exclusive_control() -> None:
+    """PiDeck reads controller events without preventing launched apps from reading them."""
+    class FakeDevice:
+        name = "Generic USB Controller"
+
+        def __init__(self) -> None:
+            self.grab_calls = 0
+            self.closed = False
+
+        def grab(self) -> None:
+            self.grab_calls += 1
+
+        def read_loop(self) -> list[object]:
+            return []
+
+        def close(self) -> None:
+            self.closed = True
+
+    device = FakeDevice()
+    adapter = EvdevGamepadAdapter()
+    evdev = SimpleNamespace(InputDevice=lambda path: device)
+
+    adapter._open_device(evdev, Path("/dev/input/event0"))
+
+    adapter.close()
+    assert device.grab_calls == 0

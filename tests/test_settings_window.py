@@ -215,9 +215,17 @@ def test_updates_page_renders_status_spinner_and_navigates(application: QApplica
     row = window._update_rows["browser"]
     assert row.hasFocus()
 
-    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE))
+    row.set_info(
+        UpdateInfo(
+            "browser",
+            "Browser",
+            UpdateStatus.AVAILABLE,
+            available_version="21.3-Omega",
+        )
+    )
     assert row.action.isEnabled()
     assert row.action.text() == "Update"
+    assert row.status_label.text() == "Update available: 21.3-Omega"
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATING))
     assert row.spinner.isVisible()
     assert row.action.text() == "Cancel"
