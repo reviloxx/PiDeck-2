@@ -189,6 +189,7 @@ def test_build_stages_inputs_and_checksums_output(
         commands.append(command)
         assert check
         assert env["HOME"] == str(tmp_path / "build")
+        assert env["TMPDIR"] == "/tmp"
         assert "WORK_DIR" not in env
         assert "DEPLOY_DIR" not in env
         if command[:2] == ["git", "clone"]:

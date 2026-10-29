@@ -141,7 +141,7 @@ def build(work_dir: Path, project_root: Path = PROJECT_ROOT) -> Path:
     build_env = {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": str(work_dir),
-        "TMPDIR": str(work_dir),
+        "TMPDIR": "/tmp",
         "LANG": "C.UTF-8",
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": "/dev/null",
