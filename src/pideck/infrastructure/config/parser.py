@@ -205,11 +205,12 @@ class YamlConfigurationParser:
             data,
             set(),
             "settings",
-            optional={"reduced_motion", "show_clock", "language"},
+            optional={"reduced_motion", "show_clock", "language", "update_check_interval_hours"},
         )
         reduced_motion = data.get("reduced_motion", False)
         show_clock = data.get("show_clock", True)
         language = data.get("language", "en")
+        update_interval = data.get("update_check_interval_hours", 6)
         if not isinstance(reduced_motion, bool):
             raise ConfigurationValidationError("settings.reduced_motion must be a boolean")
         if not isinstance(show_clock, bool):
@@ -221,6 +222,7 @@ class YamlConfigurationParser:
                 reduced_motion=reduced_motion,
                 show_clock=show_clock,
                 language=language,
+                update_check_interval_hours=update_interval,
             )
         except ConfigurationValidationError:
             raise

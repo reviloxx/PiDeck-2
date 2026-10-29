@@ -2,9 +2,9 @@
 
 The local image builder targets Raspberry Pi OS Lite 64-bit. It adds a minimal
 X11 session that starts PiDeck after Raspberry Pi Imager provisions the user.
-**The builder has not yet been run on a native ARM64 host, and no resulting
-image has been tested on a Raspberry Pi 5.** Treat this as an experimental
-build until the hardware acceptance checklist below passes.
+The image has been built successfully on a GitHub-hosted ARM64 runner, but
+has not yet been tested on a Raspberry Pi 5. Treat it as experimental until
+the hardware acceptance checklist below passes.
 
 ## Build
 
@@ -25,10 +25,10 @@ Artifacts expire after seven days. If the build fails, check the Actions log and
 the `pideck-build-log` artifact when available; no image artifact is published
 unless the build succeeds.
 
-The standard ARM64 runner has limited disk space, and the build has not yet
-been verified there. A space or timeout failure may require a larger runner or
-a separate native ARM64 build host. Private repositories may incur Actions
-usage charges; see [GitHub's runner specifications and pricing information](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+The standard ARM64 runner has limited disk space. Although one build has
+succeeded, future space or timeout failures may require a larger runner or a
+separate native ARM64 build host. Private repositories may incur Actions usage
+charges; see [GitHub's runner specifications and pricing information](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
 On the machine running Imager, verify and prepare the extracted artifact:
 
@@ -75,6 +75,60 @@ bit-for-bit identical or to resolve the same package versions. The Lite base
 still contains Raspberry Pi OS utilities beyond the explicitly added
 application dependencies. Failures leave the dedicated working directory in
 place for investigation; choose another new directory for the next build.
+
+## Signed application release artifacts
+
+The `Publish signed PiDeck update` workflow creates application update
+artifacts for stable tags of the form `vMAJOR.MINOR.PATCH`. The tag must match
+both version declarations in `pyproject.toml` and `src/pideck/__init__.py`.
+Provision an Ed25519 PEM private key as the GitHub Actions secret
+`PIDECK_RELEASE_SIGNING_KEY` and its matching PEM public key as the repository
+variable `PIDECK_RELEASE_PUBLIC_KEY`. Protect the private key outside the
+repository and never commit it. The workflow verifies the signature against the
+configured public key before publishing.
+
+To build an update-enabled image, select the matching release tag when starting
+the image workflow. A branch build is a development image and cannot
+self-update. For a native build, use a clean checkout of the matching tag and
+pass the same public key used by the release workflow:
+
+```bash
+sudo python3 image/build.py --work-dir /var/tmp/pideck-release-build \
+  --release-tag v0.1.0 --public-key /path/to/release-public.pem
+```
+
+Replace the example tag with the actual release tag. The builder requires the
+tag, both project version declarations and the checked-out commit to agree.
+Release inputs must have no local modifications. Existing images do not contain
+the updater; reflash them with an update-enabled release image.
+
+On a release image, PiDeck checks for stable releases at startup and every six
+hours while running. The check interval can be set with
+`settings.update_check_interval_hours` in the user YAML (a whole number from
+1 to 596). In **Settings > Updates**, select the PiDeck row to download and
+verify an available update. The update is activated at the next boot; user
+configuration and data are not replaced. If the new launcher does not reach
+readiness, the previous release is restored on the following boot and the
+failure is shown in Settings. Failures after readiness are not automatically
+rolled back. For recovery, use a second console or an explicitly enabled SSH
+connection and inspect `journalctl -u pideck-updater -u pideck-activate`.
+
+The image includes a root-owned update service. It accepts requests only from
+the Imager-provisioned UID 1000 account and verifies PiDeck release signatures
+against the public key embedded in the image. PiDeck and supported third-party
+application updates need no password. For apt, the service permits upgrading
+any installed package, including required dependencies, without allowing
+arbitrary sudo commands. Package maintainer scripts run as root, so anyone with
+access to the appliance account can initiate privileged package upgrades. User
+Flatpak updates run as that user; system Flatpak updates use the service.
+Package-manager failures are reported in Settings and the journal.
+
+Keep the signing private key offline or in the protected GitHub Actions secret.
+The installed public key and updater protocol are not themselves self-updated.
+If the key is lost or compromised, or an incompatible updater protocol is
+needed, provision a new trusted key and reflash a new release image; changing
+the GitHub variable alone does not rotate existing devices. These application
+updates do not update the operating system or image bootstrap components.
 
 ## Flash and first boot
 
@@ -148,8 +202,8 @@ minimum storage capacity. On a Pi 5, verify:
   navigation and hot-plug behavior.
 - Kodi, Chromium, Firefox ESR and RetroArch including mGBA core loading, with
   external-window detection, closing the app and returning to PiDeck.
-- Settings persistence, app updates with authorized credentials, shutdown,
-  reboot, error handling and console recovery.
+- Settings persistence, passwordless application and signed PiDeck updates,
+  reboot activation and rollback, shutdown, error handling and console recovery.
 
 No Pi 5 hardware acceptance has yet been performed. PiDeck's application
 readiness detector currently uses X11 and `wmctrl`; compatibility with each

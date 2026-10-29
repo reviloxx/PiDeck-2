@@ -23,5 +23,5 @@ done
 
 exec /usr/bin/python3 -m pideck.bootstrap \
     --config "$PIDECK_CONFIG" \
-    --asset-root /usr/share/pideck/config \
+    --asset-root "$PIDECK_ASSET_ROOT" \
     --power-off-on-shutdown

@@ -8,6 +8,7 @@ import re
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 from uuid import uuid4
 
@@ -29,11 +30,12 @@ class _RunningUpdate:
 class NativeUpdateGateway(UpdateGateway):
     """Check and update Flatpak or apt applications without shell execution."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, image_mode: bool = False) -> None:
         """Create an empty update operation registry."""
         self._lock = threading.RLock()
         self._running: dict[str, _RunningUpdate] = {}
         self._closed = False
+        self._image_mode = image_mode
 
     def check(self, application: ApplicationDefinition) -> UpdateInfo:
         """Check one configured application using its detected package manager."""
@@ -54,11 +56,19 @@ class NativeUpdateGateway(UpdateGateway):
         executable, arguments = _command_parts(application)
         flatpak_id = _flatpak_target(application, executable, arguments)
         if flatpak_id is not None:
-            command = ["flatpak", "update", "--noninteractive", "--assumeyes", flatpak_id]
+            user_flatpak = self._image_mode and _flatpak_uses_user_scope(executable, arguments, flatpak_id)
+            if self._image_mode and not user_flatpak:
+                command = [sys.executable, "-m", "pideck.infrastructure.image_update_client", "flatpak", flatpak_id]
+            else:
+                scope = ["--user"] if self._image_mode else []
+                command = ["flatpak", "update", *scope, "--noninteractive", "--assumeyes", flatpak_id]
             stdin_text = None
         else:
             package = _apt_package(executable)
-            if os.geteuid() != 0:
+            if self._image_mode:
+                command = [sys.executable, "-m", "pideck.infrastructure.image_update_client", "apt", package]
+                stdin_text = None
+            elif os.geteuid() != 0:
                 if password is None and not _sudo_is_cached():
                     raise PermissionError("sudo password required")
                 command = ["sudo", "-S", "-p", "", "apt-get", "install", "--only-upgrade", "-y", package]
@@ -191,14 +201,19 @@ def _flatpak_target(
     """Resolve an explicit or name-matched installed Flatpak application."""
     if Path(executable).name == "flatpak":
         return _flatpak_id(arguments)
-    result = subprocess.run(
-        ["flatpak", "list", "--app", "--columns=application,name"],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={**os.environ, "LANG": "C", "LC_ALL": "C"},
-    )
+    try:
+        result = subprocess.run(
+            ["flatpak", "list", "--app", "--columns=application,name"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "LANG": "C", "LC_ALL": "C"},
+        )
+    except FileNotFoundError:
+        _LOGGER.debug("Flatpak is not installed; checking the native package instead")
+        return None
     if result.returncode != 0:
+        _LOGGER.warning("Unable to list Flatpak applications: %s", result.stderr.strip())
         return None
     expected_name = " ".join(application.name.casefold().split())
     for line in result.stdout.splitlines():
@@ -206,6 +221,24 @@ def _flatpak_target(
         if len(fields) == 2 and " ".join(fields[1].casefold().split()) == expected_name:
             return fields[0]
     return None
+
+
+def _flatpak_uses_user_scope(executable: str, arguments: tuple[str, ...], application_id: str) -> bool:
+    """Honor explicit Flatpak scope, otherwise prefer an installed user application."""
+    if Path(executable).name == "flatpak" and application_id in arguments:
+        launcher_arguments = arguments[:arguments.index(application_id)]
+        if "--system" in launcher_arguments:
+            return False
+        if "--user" in launcher_arguments:
+            return True
+    result = subprocess.run(
+        ["flatpak", "info", "--user", "--show-ref", application_id],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "LANG": "C", "LC_ALL": "C"},
+    )
+    return result.returncode == 0
 
 
 def _apt_package(executable: str) -> str:

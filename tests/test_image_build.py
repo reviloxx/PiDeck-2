@@ -269,6 +269,70 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     assert (rootfs / "etc/systemd/system/userconfig.service.d/pideck.conf").is_file()
     assert "After=userconfig.service" in (FILES / "getty-override.conf").read_text()
     assert "systemctl enable NetworkManager" in (tmp_path / "chroot-commands").read_text()
+    assert (rootfs / "usr/lib/pideck-updater/python/pideck/infrastructure/image_update_daemon.py").is_file()
+    assert (rootfs / "etc/systemd/system/pideck-updater.service").is_file()
+    assert (rootfs / "etc/systemd/system/pideck-activate.service").is_file()
+
+
+def test_release_image_installs_versioned_tree_and_trusted_key(tmp_path: Path) -> None:
+    """Release image inputs install a pinned key and one atomic release tree."""
+    import tomllib
+
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        version = tomllib.load(stream)["project"]["version"]
+    private = tmp_path / "private.pem"
+    public = tmp_path / "public.pem"
+    subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private)], check=True)
+    subprocess.run(["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)], check=True)
+    pi_gen = tmp_path / "pi-gen"
+    make_fake_pi_gen(pi_gen)
+    stage = image_build.prepare_stage(ROOT, pi_gen, f"v{version}", public) / "00-pideck"
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    stub = commands / "on_chroot"
+    stub.write_text("#!/bin/sh\ncat > /dev/null\n")
+    stub.chmod(0o755)
+    subprocess.run(
+        ["bash", "01-run.sh"], cwd=stage, check=True,
+        env={**os.environ, "ROOTFS_DIR": str(rootfs), "PATH": f"{commands}:{os.environ['PATH']}"},
+    )
+    root = rootfs / "usr/lib/pideck"
+    assert os.readlink(root / "current") == f"releases/{version}"
+    assert (root / "current/python/pideck/bootstrap.py").is_file()
+    assert (root / "current/assets/icons/settings.svg").is_file()
+    assert (root / "current/config").is_dir()
+    assert (rootfs / "usr/share/pideck/update-public.pem").read_bytes() == public.read_bytes()
+
+
+def test_release_image_requires_both_tag_and_key(tmp_path: Path) -> None:
+    """A partial release configuration must not silently build an untrusted image."""
+    pi_gen = tmp_path / "pi-gen"
+    make_fake_pi_gen(pi_gen)
+    with pytest.raises(ValueError, match="supplied together"):
+        image_build.prepare_stage(ROOT, pi_gen, release_tag="v0.1.0")
+
+
+def test_release_image_requires_clean_matching_tag(tmp_path: Path) -> None:
+    """Release image sources must exactly match their tagged checkout."""
+    project = tmp_path / "project"
+    (project / "src/pideck").mkdir(parents=True)
+    (project / "pyproject.toml").write_text('[project]\nversion = "1.0.0"\n')
+    (project / "src/pideck/__init__.py").write_text('__version__ = "1.0.0"\n')
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("add", "pyproject.toml", "src")
+    git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-q",
+        "-m", "Test release\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>")
+    git("tag", "v1.0.0")
+    image_build._validate_release_checkout(project, "v1.0.0")
+    (project / "src/pideck/__init__.py").write_text('__version__ = "1.0.0"\n# modified\n')
+    with pytest.raises(ValueError, match="clean tagged checkout"):
+        image_build._validate_release_checkout(project, "v1.0.0")
 
 
 @pytest.mark.parametrize(

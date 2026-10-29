@@ -1,0 +1,9 @@
+[Unit]
+Description=Activate a staged PiDeck release before login
+After=local-fs.target
+Before=getty@tty1.service
+
+[Service]
+Type=oneshot
+Environment=PYTHONPATH=/usr/lib/pideck-updater/python
+ExecStart=/usr/bin/python3 -m pideck.infrastructure.image_update_daemon activate

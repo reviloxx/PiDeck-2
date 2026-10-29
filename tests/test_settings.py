@@ -11,7 +11,9 @@ from tests.test_configuration import configuration_document
 
 def test_settings_service_applies_and_persists_updates(tmp_path: Path) -> None:
     """Settings changes update the immutable model and survive a reload."""
-    configuration = YamlConfigurationParser().parse(configuration_document())
+    document = configuration_document()
+    document["settings"]["update_check_interval_hours"] = 12
+    configuration = YamlConfigurationParser().parse(document)
     repository = FileConfigurationRepository(tmp_path / "pideck.yaml")
     service = SettingsService()
     update = SettingsUpdate(
@@ -24,6 +26,7 @@ def test_settings_service_applies_and_persists_updates(tmp_path: Path) -> None:
     restored = repository.load()
 
     assert updated.settings.reduced_motion is True
+    assert updated.settings.update_check_interval_hours == 12
     assert updated.home.visible_applications == ("browser",)
     assert restored == updated
 

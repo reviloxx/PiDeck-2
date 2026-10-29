@@ -151,5 +151,6 @@ def _serialize_configuration(configuration: Configuration) -> dict[str, Any]:
             "reduced_motion": configuration.settings.reduced_motion,
             "show_clock": configuration.settings.show_clock,
             "language": configuration.settings.language,
+            "update_check_interval_hours": configuration.settings.update_check_interval_hours,
         },
     }

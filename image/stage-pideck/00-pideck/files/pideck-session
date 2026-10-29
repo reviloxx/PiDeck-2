@@ -9,7 +9,16 @@ if [ ! -e "$config_dir/pideck.yaml" ]; then
 fi
 
 export PIDECK_CONFIG="$config_dir/pideck.yaml"
-export PYTHONPATH=/usr/lib/pideck/python
+export PIDECK_IMAGE=1
+if [ -L /usr/lib/pideck/current ]; then
+    export PYTHONPATH=/usr/lib/pideck/current/python
+    export PIDECK_ASSET_ROOT=/usr/lib/pideck/current/config
+    release_path="$(readlink /usr/lib/pideck/current)"
+    export PIDECK_RELEASE_VERSION="${release_path##*/}"
+else
+    export PYTHONPATH=/usr/lib/pideck/python
+    export PIDECK_ASSET_ROOT=/usr/share/pideck/config
+fi
 export QT_QPA_PLATFORM=xcb
 
 if dbus-run-session -- startx /usr/lib/pideck/pideck-xsession -- :0 vt1 -nolisten tcp; then

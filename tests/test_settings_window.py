@@ -11,6 +11,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 
 from pideck.application.settings import SettingsUpdate
+from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
@@ -33,6 +34,35 @@ def settings_window(application: QApplication) -> SettingsWindow:
     window.show()
     application.processEvents()
     return window
+
+
+def test_pideck_update_row_supports_controller_and_localization(application: QApplication) -> None:
+    """PiDeck's row is independent of configured IDs and exposes update progress."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(
+        configuration, DEFAULT_THEME, Path.cwd(),
+        pideck_update_info=PiDeckUpdateInfo(PiDeckUpdateStatus.AVAILABLE, "1.0.0", "1.1.0"),
+    )
+    requests = []
+    window.pideck_update_requested.connect(lambda: requests.append(True))
+    window.show()
+    application.processEvents()
+    window._select_page(2)
+    row = window._pideck_row
+    assert row is not None
+    assert row.hasFocus()
+    assert "1.0.0" in row.status_label.text()
+    assert "1.1.0" in row.status_label.text()
+    QTest.keyClick(row, Qt.Key.Key_Return)
+    assert requests == [True]
+    window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.PREPARING, "1.0.0", "1.1.0"))
+    assert not row.action.isVisible()
+    window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.PENDING, "1.0.0", "1.1.0"))
+    window.apply_language("de")
+    assert "neu starten" in row.status_label.text()
+    QTest.keyClick(row, Qt.Key.Key_Down)
+    assert window._update_rows["browser"].hasFocus()
+    window.close()
 
 
 def test_settings_window_loads_current_values(application: QApplication) -> None:

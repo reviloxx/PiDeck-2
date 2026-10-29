@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from pideck.application.settings import SettingsUpdate
+from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
@@ -142,6 +143,8 @@ class UpdateRow(QFrame):
                 else tr(self._language, "update_available")
             ),
             UpdateStatus.UPDATING: tr(self._language, "updating"),
+            UpdateStatus.PREPARING: tr(self._language, "preparing_update"),
+            UpdateStatus.RESTART_REQUIRED: tr(self._language, "restart_required"),
             UpdateStatus.UPDATED: tr(self._language, "updated"),
             UpdateStatus.PASSWORD_REQUIRED: tr(self._language, "authentication_required"),
             UpdateStatus.UNSUPPORTED: tr(self._language, "not_supported"),
@@ -150,7 +153,8 @@ class UpdateRow(QFrame):
         }
         self.status_label.setText(labels[info.status])
         updating = info.status is UpdateStatus.UPDATING
-        self.spinner.setVisible(updating)
+        busy = updating or info.status is UpdateStatus.PREPARING
+        self.spinner.setVisible(busy)
         self.action.setText(
             tr(self._language, "cancel")
             if updating
@@ -161,7 +165,7 @@ class UpdateRow(QFrame):
         actionable = info.status in (UpdateStatus.AVAILABLE, UpdateStatus.UPDATING)
         self.action.setEnabled(actionable)
         self.action.setVisible(actionable)
-        if updating:
+        if busy:
             self._spinner_timer.start(120)
         else:
             self._spinner_timer.stop()
@@ -176,6 +180,43 @@ class UpdateRow(QFrame):
         """Advance the update row spinner."""
         self.spinner.setText(self._spinner_frames[self._spinner_index])
         self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
+
+
+class PiDeckUpdateRow(UpdateRow):
+    """Render the image's own update state separately from configured applications."""
+
+    def __init__(self, info: PiDeckUpdateInfo, parent: QWidget) -> None:
+        """Create a dedicated row for PiDeck's installed release."""
+        self._pideck_info = info
+        super().__init__("", "PiDeck", parent)
+        self.set_pideck_info(info)
+
+    def set_pideck_info(self, info: PiDeckUpdateInfo) -> None:
+        """Display release status and retain failure details for the user."""
+        self._pideck_info = info
+        statuses = {
+            PiDeckUpdateStatus.UNSUPPORTED: UpdateStatus.UNSUPPORTED,
+            PiDeckUpdateStatus.CHECKING: UpdateStatus.CHECKING,
+            PiDeckUpdateStatus.UP_TO_DATE: UpdateStatus.UP_TO_DATE,
+            PiDeckUpdateStatus.AVAILABLE: UpdateStatus.AVAILABLE,
+            PiDeckUpdateStatus.PREPARING: UpdateStatus.PREPARING,
+            PiDeckUpdateStatus.PENDING: UpdateStatus.RESTART_REQUIRED,
+            PiDeckUpdateStatus.FAILED: UpdateStatus.FAILED,
+        }
+        self.set_info(UpdateInfo("", "PiDeck", statuses[info.status], info.current_version, info.available_version, info.message))
+        if info.status is PiDeckUpdateStatus.AVAILABLE and info.message:
+            self.status_label.setText(f"{self.status_label.text()} - {info.message}")
+        if info.current_version:
+            self.status_label.setText(tr(self._language, "pideck_version_status", version=info.current_version, status=self.status_label.text()))
+        if info.status is PiDeckUpdateStatus.FAILED:
+            self.action.setText(tr(self._language, "retry"))
+            self.action.setEnabled(True)
+            self.action.setVisible(True)
+
+    def set_language(self, language: str) -> None:
+        """Re-render PiDeck update state when the language changes."""
+        self._language = language if language in {"en", "de"} else "en"
+        self.set_pideck_info(self._pideck_info)
 
 
 class PasswordPrompt(QDialog):
@@ -270,6 +311,7 @@ class SettingsWindow(QDialog):
     settings_submitted = Signal(object)
     settings_changed = Signal(object)
     update_status = Signal(object)
+    pideck_update_requested = Signal()
 
     def __init__(
         self,
@@ -278,6 +320,7 @@ class SettingsWindow(QDialog):
         asset_root: Path,
         parent: QWidget | None = None,
         update_service: ApplicationUpdateService | None = None,
+        pideck_update_info: PiDeckUpdateInfo | None = None,
     ) -> None:
         """Build the settings menu from the current validated configuration."""
         super().__init__(parent)
@@ -286,6 +329,8 @@ class SettingsWindow(QDialog):
         self._language = configuration.settings.language
         self._asset_root = asset_root
         self._update_service = update_service
+        self._pideck_info = pideck_update_info
+        self._pideck_row: PiDeckUpdateRow | None = None
         self._update_rows: dict[str, UpdateRow] = {}
         self._rechecking_after_cancel: set[str] = set()
         self._update_applications = {
@@ -509,6 +554,12 @@ class SettingsWindow(QDialog):
         layout.setContentsMargins(0, 16, 0, 0)
         layout.setSpacing(10)
         controls: list[QWidget] = []
+        if self._pideck_info is not None:
+            self._pideck_row = PiDeckUpdateRow(self._pideck_info, page)
+            self._pideck_row.activation_requested.connect(self.pideck_update_requested)
+            self._pideck_row.navigation_requested.connect(self._handle_update_navigation)
+            controls.append(self._pideck_row)
+            layout.addWidget(self._pideck_row)
         for application in self._configuration.applications:
             row = UpdateRow(application.identifier, application.name, page)
             row.activation_requested.connect(
@@ -706,7 +757,10 @@ class SettingsWindow(QDialog):
             elif current in self._page_controls.get(0, []):
                 self._handle_row_activation(current)
             elif current in self._page_controls.get(2, []):
-                self._activate_update(current.application_id)
+                if current is self._pideck_row:
+                    self.pideck_update_requested.emit()
+                else:
+                    self._activate_update(current.application_id)
         elif event.action is InputAction.BACK:
             self.reject()
 
@@ -761,6 +815,14 @@ class SettingsWindow(QDialog):
         self._language_combo.setItemText(1, tr(self._language, "german"))
         for row in self._update_rows.values():
             row.set_language(self._language)
+        if self._pideck_row is not None:
+            self._pideck_row.set_language(self._language)
+
+    def set_pideck_update_info(self, info: PiDeckUpdateInfo) -> None:
+        """Display the latest application-independent PiDeck update state."""
+        self._pideck_info = info
+        if self._pideck_row is not None:
+            self._pideck_row.set_pideck_info(info)
 
     def _activate_update(self, application_id: str) -> None:
         """Start or cancel the selected application update."""

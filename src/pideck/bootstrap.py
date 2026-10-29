@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 from pathlib import Path
+import time
 from typing import TYPE_CHECKING, Sequence
 
 from pideck.application.dependencies import ApplicationDependencies
@@ -16,6 +17,7 @@ from pideck.application.session import (
 )
 from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.application.updates import ApplicationUpdateService
+from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
 from pideck.application.ports.input import InputEvent
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
 from pideck.domain.errors import ConfigurationError, PowerError
@@ -24,6 +26,8 @@ from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
 from pideck.infrastructure.platform_updates import NativeUpdateGateway
+from pideck.infrastructure.image_update_client import ImageUpdateError, request as image_update_request
+from pideck.infrastructure.pideck_releases import find_latest_release, version_key
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
 from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
 from pideck.infrastructure.system_power import SystemPower
@@ -149,7 +153,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return 0
 
     from PySide6.QtWidgets import QApplication
-    from PySide6.QtCore import QObject, Qt, Signal
+    from PySide6.QtCore import QObject, QTimer, Qt, Signal
 
     application = QApplication(["pideck"])
     application.setApplicationName("PiDeck")
@@ -157,10 +161,63 @@ def main(arguments: Sequence[str] | None = None) -> int:
     window = build_launcher_window(dependencies, asset_root)
     current_configuration = dependencies.configuration
     settings_service = SettingsService()
-    update_service = ApplicationUpdateService(NativeUpdateGateway())
+    image_mode = os.environ.get("PIDECK_IMAGE") == "1"
+    update_service = ApplicationUpdateService(
+        NativeUpdateGateway(image_mode=image_mode), allow_password_prompt=not image_mode
+    )
     gamepad_adapter = EvdevGamepadAdapter()
     power = SystemPower() if parsed_arguments.power_off_on_shutdown else None
     settings_window: SettingsWindow | None = None
+
+    class PiDeckUpdateBridge(QObject):
+        """Forward release worker results to the Qt thread."""
+
+        status_received = Signal(object)
+
+    update_bridge = PiDeckUpdateBridge()
+    release_version = os.environ.get("PIDECK_RELEASE_VERSION") if image_mode else None
+
+    def inspect_image_update() -> dict[str, str]:
+        result = image_update_request("status")
+        if not all(isinstance(key, str) and isinstance(value, str) for key, value in result.items()):
+            raise ImageUpdateError("Invalid image updater status")
+        return result
+
+    def prepare_image_update(version: str) -> None:
+        image_update_request("stage", timeout=1800, version=version)
+
+    def confirm_image_ready() -> None:
+        if release_version is None:
+            return
+        for attempt in range(3):
+            try:
+                image_update_request("ready", timeout=5, version=release_version)
+                return
+            except ImageUpdateError:
+                if attempt == 2:
+                    raise
+                time.sleep(2)
+
+    pideck_update_service = PiDeckUpdateService(
+        release_version,
+        find_latest_release,
+        version_key,
+        update_bridge.status_received.emit,
+        inspect=inspect_image_update,
+        prepare=prepare_image_update,
+        ready=confirm_image_ready,
+    )
+
+    def display_pideck_update(info: PiDeckUpdateInfo) -> None:
+        if settings_window is not None:
+            settings_window.set_pideck_update_info(info)
+
+    update_bridge.status_received.connect(display_pideck_update, Qt.ConnectionType.QueuedConnection)
+    application.aboutToQuit.connect(pideck_update_service.close)
+    release_timer = QTimer(application)
+    release_timer.setInterval(current_configuration.settings.update_check_interval_hours * 60 * 60 * 1000)
+    release_timer.timeout.connect(pideck_update_service.check_async)
+    release_timer.start()
     session_observer: SessionObserver = _QtSessionObserver(window)
     visibility_detector = X11WindowVisibilityDetector()
     session_service = ApplicationSessionService(
@@ -275,7 +332,15 @@ def main(arguments: Sequence[str] | None = None) -> int:
             asset_root,
             window,
             update_service=update_service,
+            pideck_update_info=pideck_update_service.state,
         )
+        def handle_pideck_update_request() -> None:
+            if pideck_update_service.state.status is PiDeckUpdateStatus.FAILED:
+                pideck_update_service.check_async()
+            else:
+                pideck_update_service.prepare_async()
+
+        settings_window.pideck_update_requested.connect(handle_pideck_update_request)
         settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.finished.connect(lambda _: window.show_launcher())
         window.hide()
@@ -285,6 +350,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
     window.settings_requested.connect(handle_settings_request)
     window.shutdown_requested.connect(handle_shutdown_request)
     window.show_launcher()
+
+    QTimer.singleShot(0, pideck_update_service.check_async)
     return application.exec()
 
 

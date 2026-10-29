@@ -15,6 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Install pi-gen dependencies
         run: |
@@ -26,7 +27,20 @@ jobs:
           df -h "$RUNNER_TEMP"
 
       - name: Build image
-        run: sudo python3 image/build.py --work-dir "$RUNNER_TEMP/pideck-build"
+        env:
+          PUBLIC_KEY: ${{ vars.PIDECK_RELEASE_PUBLIC_KEY }}
+        run: |
+          set -eu
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            test -n "$PUBLIC_KEY" || { echo "Missing PIDECK_RELEASE_PUBLIC_KEY variable" >&2; exit 1; }
+            key="$(mktemp)"
+            trap 'rm -f "$key"' EXIT
+            printf '%s\n' "$PUBLIC_KEY" > "$key"
+            sudo python3 image/build.py --work-dir "$RUNNER_TEMP/pideck-build" \
+              --release-tag "$GITHUB_REF_NAME" --public-key "$key"
+          else
+            sudo python3 image/build.py --work-dir "$RUNNER_TEMP/pideck-build"
+          fi
 
       - name: Prepare downloadable files
         run: |

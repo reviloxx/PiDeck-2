@@ -104,6 +104,23 @@ def test_parser_applies_defaults_to_optional_application_fields() -> None:
     assert configuration.settings.reduced_motion is False
 
 
+@pytest.mark.parametrize("value", [0, -1, 597, True, "6", 1.5])
+def test_invalid_update_check_interval_is_rejected(value: object) -> None:
+    """Release-check intervals must be valid QTimer-compatible whole hours."""
+    document = configuration_document()
+    document["settings"]["update_check_interval_hours"] = value
+    with pytest.raises(ConfigurationValidationError, match="interval"):
+        YamlConfigurationParser().parse(document)
+
+
+def test_update_check_interval_can_be_configured() -> None:
+    """Existing YAML defaults to six hours while an explicit value is retained."""
+    document = configuration_document()
+    assert YamlConfigurationParser().parse(document).settings.update_check_interval_hours == 6
+    document["settings"]["update_check_interval_hours"] = 12
+    assert YamlConfigurationParser().parse(document).settings.update_check_interval_hours == 12
+
+
 def test_repository_recovers_from_invalid_configuration(tmp_path: Path) -> None:
     """A malformed configuration returns the safe default model."""
     path = tmp_path / "pideck.yaml"

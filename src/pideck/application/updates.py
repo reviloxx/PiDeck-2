@@ -17,9 +17,10 @@ _LOGGER = logging.getLogger(__name__)
 class ApplicationUpdateService:
     """Run update checks and operations without blocking the Qt event loop."""
 
-    def __init__(self, gateway: UpdateGateway) -> None:
+    def __init__(self, gateway: UpdateGateway, *, allow_password_prompt: bool = True) -> None:
         """Create an update service around an injected package-manager gateway."""
         self._gateway = gateway
+        self._allow_password_prompt = allow_password_prompt
 
     def check_async(
         self,
@@ -50,12 +51,15 @@ class ApplicationUpdateService:
         )
         try:
             self._gateway.start(application, password, callback)
-        except PermissionError:
+        except PermissionError as error:
+            if not self._allow_password_prompt:
+                _LOGGER.exception("Unable to start passwordless update id=%s", application.identifier)
             callback(
                 UpdateInfo(
                     application.identifier,
                     application.name,
-                    UpdateStatus.PASSWORD_REQUIRED,
+                    UpdateStatus.PASSWORD_REQUIRED if self._allow_password_prompt else UpdateStatus.FAILED,
+                    message=None if self._allow_password_prompt else str(error),
                 )
             )
         except Exception as error:

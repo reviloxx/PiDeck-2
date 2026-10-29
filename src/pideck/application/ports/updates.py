@@ -14,6 +14,8 @@ class UpdateStatus(StrEnum):
     UP_TO_DATE = "up_to_date"
     AVAILABLE = "available"
     UPDATING = "updating"
+    PREPARING = "preparing"
+    RESTART_REQUIRED = "restart_required"
     UPDATED = "updated"
     PASSWORD_REQUIRED = "password_required"
     UNSUPPORTED = "unsupported"

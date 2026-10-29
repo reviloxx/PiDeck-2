@@ -104,6 +104,7 @@ class SettingsConfiguration:
     reduced_motion: bool = False
     show_clock: bool = True
     language: str = "en"
+    update_check_interval_hours: int = 6
 
     def __post_init__(self) -> None:
         """Validate the supported presentation languages."""
@@ -111,6 +112,8 @@ class SettingsConfiguration:
             raise ConfigurationValidationError(
                 f"Unsupported language: {self.language!r}"
             )
+        if type(self.update_check_interval_hours) is not int or not 1 <= self.update_check_interval_hours <= 596:
+            raise ConfigurationValidationError("Update check interval must be between 1 and 596 hours")
 
 
 @dataclass(frozen=True, slots=True)
