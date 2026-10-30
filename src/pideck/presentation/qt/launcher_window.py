@@ -166,7 +166,11 @@ class LauncherAction(QPushButton):
     navigation_requested = Signal(object)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Forward directional keys to the launcher footer navigation."""
+        """Handle activation and forward directions to footer navigation."""
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.click()
+            event.accept()
+            return
         direction_by_key = {
             Qt.Key.Key_Left: NavigationDirection.LEFT,
             Qt.Key.Key_Right: NavigationDirection.RIGHT,

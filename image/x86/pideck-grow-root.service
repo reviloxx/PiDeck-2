@@ -1,0 +1,11 @@
+[Unit]
+Description=Expand the PiDeck root filesystem
+After=local-fs.target
+Before=getty@tty1.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/pideck/pideck-grow-root
+
+[Install]
+WantedBy=multi-user.target

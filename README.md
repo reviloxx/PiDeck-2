@@ -1,12 +1,16 @@
 # PiDeck
 
-PiDeck is a TV-first launcher for Raspberry Pi OS.
+PiDeck is a TV-first launcher for Raspberry Pi and x86-64 Linux appliances.
 
 <img width="2560" height="1440" alt="Bildschirmfoto vom 2026-08-01 18-41-12" src="https://github.com/user-attachments/assets/60937f71-c7ea-4437-a1d3-245540bd1b13" />
 
 For the Raspberry Pi 5 image builder, app inventory and validation status, see
 [image preparation](docs/raspberry-pi-image.md). An image has been built, but
 has not yet been tested on a Raspberry Pi.
+
+For the experimental private x86-64 image builder, see
+[x86 image preparation](docs/x86-image.md). It has not yet been built or
+boot-tested.
 
 
 ## Development

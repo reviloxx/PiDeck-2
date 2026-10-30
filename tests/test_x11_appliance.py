@@ -15,9 +15,10 @@ from collections.abc import Iterator
 import pytest
 
 from pideck.application.session import ApplicationSessionService, LaunchStatus, SessionState
+from pideck.application.ports.process import ProcessHandle
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
 from pideck.infrastructure.process import SubprocessSupervisor
-from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
+from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector, _window_client_pid
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("PIDECK_RUN_X11_TESTS") != "1",
@@ -157,6 +158,44 @@ def test_real_x11_window_is_detected_and_returns_to_launcher(window_manager: Non
         session.close()
 
 
+def test_xres_identifies_window_with_incorrect_client_pid(window_manager: None) -> None:
+    """Resolve the real host PID even when a client publishes a misleading PID."""
+    child = (
+        "from PySide6.QtCore import QTimer; "
+        "from PySide6.QtWidgets import QApplication, QWidget; "
+        "app=QApplication([]); window=QWidget(); window.setWindowTitle('XRes test child'); "
+        "window.resize(300,200); window.show(); QTimer.singleShot(10000, app.quit); app.exec()"
+    )
+    process = subprocess.Popen([sys.executable, "-c", child], start_new_session=True)
+    try:
+        deadline = time.monotonic() + 8
+        window_id = ""
+        while time.monotonic() < deadline:
+            output = subprocess.run(["wmctrl", "-lGpx"], capture_output=True, text=True, check=True).stdout
+            for line in output.splitlines():
+                if "XRes test child" in line:
+                    window_id = line.split()[0]
+                    break
+            if window_id:
+                break
+            time.sleep(0.1)
+        assert window_id, "The XRes test window did not appear"
+        subprocess.run(
+            ["xprop", "-id", window_id, "-f", "_NET_WM_PID", "32c", "-set", "_NET_WM_PID", "0"],
+            check=True,
+        )
+        assert _window_client_pid(window_id) == process.pid
+        handle = ProcessHandle(token="xres", pid=process.pid, process_group_id=process.pid)
+        assert X11WindowVisibilityDetector._has_visible_window(handle)
+        assert _window_client_pid("0xdeadbeef") is None
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+
+
 def test_image_xsession_starts_the_launcher(tmp_path: Path) -> None:
     """Start the actual X session script and find the fullscreen PiDeck window."""
     source = ROOT / "image/stage-pideck/00-pideck/files/pideck-xsession"
@@ -169,6 +208,7 @@ def test_image_xsession_starts_the_launcher(tmp_path: Path) -> None:
     env = {
         **os.environ,
         "PIDECK_CONFIG": str(ROOT / "image/stage-pideck/00-pideck/files/pideck.yaml"),
+        "PIDECK_ASSET_ROOT": str(ROOT / "config"),
         "PYTHONPATH": str(ROOT / "src"),
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
     }

@@ -99,6 +99,18 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
         }
+        QPushButton#network_key {
+            background-color: %(surface)s;
+            border: 1px solid %(muted_text)s;
+            border-radius: 6px;
+            color: %(text)s;
+            min-height: 36px;
+            min-width: 36px;
+        }
+        QPushButton#network_key:focus, QPushButton#network_key:hover {
+            background-color: %(active_surface)s;
+            border: 2px solid %(focus)s;
+        }
         QFrame#settings_sidebar {
             background-color: %(surface)s;
             border: 1px solid %(border)s;

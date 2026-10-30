@@ -260,6 +260,26 @@ def test_arrow_keys_reach_settings_and_shutdown(application: QApplication) -> No
     window.close()
 
 
+def test_enter_activates_focused_footer_without_launching_an_application(
+    application: QApplication,
+) -> None:
+    """Return and keypad Enter activate the selected footer action only."""
+    window = launcher_window(application)
+    requested: list[str] = []
+    window.settings_requested.connect(lambda: requested.append("settings"))
+    window.shutdown_requested.connect(lambda: requested.append("shutdown"))
+    window.application_requested.connect(lambda app: requested.append(app.identifier))
+
+    QTest.keyClick(window._tiles[0], Qt.Key.Key_Down)
+    QTest.keyClick(window._tiles[2], Qt.Key.Key_Down)
+    QTest.keyClick(window._settings_button, Qt.Key.Key_Return)
+    QTest.keyClick(window._settings_button, Qt.Key.Key_Right)
+    QTest.keyClick(window._shutdown_button, Qt.Key.Key_Enter)
+
+    assert requested == ["settings", "shutdown"]
+    window.close()
+
+
 def test_grid_shape_balances_application_count_and_screen_space() -> None:
     """The grid uses multiple rows for six apps and narrows on small screens."""
     assert calculate_tile_columns(6, 1886, 935, 240, 135, 16) == 3

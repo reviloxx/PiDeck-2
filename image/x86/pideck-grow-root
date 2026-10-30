@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+root="$(findmnt -n -o SOURCE /)"
+if [ "$(lsblk -dnro TYPE "$root")" != "part" ] \
+    || [ "$(lsblk -dnro PARTLABEL "$root")" != "pideck-root" ] \
+    || [ "$(lsblk -dnro PARTN "$root")" != "3" ]; then
+    echo "PiDeck root expansion refused: unexpected root partition." >&2
+    exit 1
+fi
+parent="$(lsblk -dnro PKNAME "$root")"
+if [ -z "$parent" ] || [ "$(lsblk -dnro TYPE "/dev/$parent")" != "disk" ]; then
+    echo "PiDeck root expansion refused: root disk not found." >&2
+    exit 1
+fi
+disk="/dev/$parent"
+if [ "$(lsblk -dnro PTTYPE "$disk")" != "gpt" ]; then
+    echo "PiDeck root expansion refused: root disk is not GPT." >&2
+    exit 1
+fi
+
+# NOCHANGE means the partition already fills the disk.
+if output="$(growpart "$disk" 3 2>&1)"; then
+    echo "$output"
+elif printf '%s\n' "$output" | grep -q '^NOCHANGE:'; then
+    echo "$output"
+else
+    echo "PiDeck root expansion failed: $output" >&2
+    exit 1
+fi
+resize2fs "$root"

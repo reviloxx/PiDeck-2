@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 from pathlib import Path
+import threading
 import time
 from typing import TYPE_CHECKING, Sequence
 
@@ -29,6 +30,8 @@ from pideck.infrastructure.platform_updates import NativeUpdateGateway
 from pideck.infrastructure.image_update_client import ImageUpdateError, request as image_update_request
 from pideck.infrastructure.pideck_releases import find_latest_release, version_key
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
+from pideck.infrastructure.network_manager import NetworkManagerGateway
+from pideck.application.ports.network import NetworkError
 from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
 from pideck.infrastructure.system_power import SystemPower
 from pideck.infrastructure.theme import FileThemeRepository
@@ -36,6 +39,7 @@ from pideck.infrastructure.theme import FileThemeRepository
 if TYPE_CHECKING:
     from pideck.presentation.qt.launcher_window import LauncherWindow
     from pideck.presentation.qt.settings_window import SettingsWindow
+    from pideck.presentation.qt.network_window import NetworkWindow
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -162,12 +166,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
     current_configuration = dependencies.configuration
     settings_service = SettingsService()
     image_mode = os.environ.get("PIDECK_IMAGE") == "1"
+    network_gateway = NetworkManagerGateway() if os.environ.get("PIDECK_NETWORK") == "1" else None
     update_service = ApplicationUpdateService(
         NativeUpdateGateway(image_mode=image_mode), allow_password_prompt=not image_mode
     )
     gamepad_adapter = EvdevGamepadAdapter()
     power = SystemPower() if parsed_arguments.power_off_on_shutdown else None
     settings_window: SettingsWindow | None = None
+    network_window: NetworkWindow | None = None
 
     class PiDeckUpdateBridge(QObject):
         """Forward release worker results to the Qt thread."""
@@ -239,7 +245,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     def handle_gamepad_event(event: InputEvent) -> None:
         """Route gamepad input to the active launcher/settings surface."""
-        if settings_window is not None and settings_window.isVisible():
+        if network_window is not None and network_window.isVisible():
+            network_window.handle_input(event)
+        elif settings_window is not None and settings_window.isVisible():
             settings_window.handle_input(event)
         elif session_service.snapshot.state is SessionState.IDLE and window.isVisible():
             window.handle_input(event)
@@ -333,6 +341,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             window,
             update_service=update_service,
             pideck_update_info=pideck_update_service.state,
+            network_enabled=network_gateway is not None,
         )
         def handle_pideck_update_request() -> None:
             if pideck_update_service.state.status is PiDeckUpdateStatus.FAILED:
@@ -341,10 +350,58 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 pideck_update_service.prepare_async()
 
         settings_window.pideck_update_requested.connect(handle_pideck_update_request)
+        settings_window.network_requested.connect(open_network_window)
         settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.finished.connect(lambda _: window.show_launcher())
         window.hide()
         settings_window.show_fullscreen()
+
+    def open_network_window() -> None:
+        """Open wireless setup without giving presentation code system privileges."""
+        nonlocal network_window
+        if network_gateway is None or (network_window is not None and network_window.isVisible()):
+            return
+        from pideck.presentation.qt.network_window import NetworkWindow
+
+        parent = settings_window if settings_window is not None and settings_window.isVisible() else window
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        network_window = NetworkWindow(
+            network_gateway, theme, current_configuration.settings.language, parent,
+        )
+        network_window.showFullScreen()
+
+    class NetworkBridge(QObject):
+        """Forward initial network detection to the Qt thread."""
+
+        status_received = Signal(bool)
+
+    network_bridge = NetworkBridge()
+
+    def offer_initial_network_setup(connected: bool) -> None:
+        if connected or session_service.snapshot.state is not SessionState.IDLE:
+            return
+        marker = parsed_arguments.config.parent / "network-setup-offered"
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch(exist_ok=True)
+        except OSError as error:
+            dependencies.logger.warning("Could not save network setup state: %s", error)
+        open_network_window()
+
+    network_bridge.status_received.connect(offer_initial_network_setup, Qt.ConnectionType.QueuedConnection)
+
+    def check_initial_network() -> None:
+        if network_gateway is None:
+            return
+        marker = parsed_arguments.config.parent / "network-setup-offered"
+        if marker.exists():
+            return
+        try:
+            connected = network_gateway.connected()
+        except NetworkError as error:
+            dependencies.logger.warning("Unable to check network status: %s", error)
+            return
+        network_bridge.status_received.emit(connected)
 
     window.application_requested.connect(handle_application_request)
     window.settings_requested.connect(handle_settings_request)
@@ -352,6 +409,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
     window.show_launcher()
 
     QTimer.singleShot(0, pideck_update_service.check_async)
+    if network_gateway is not None:
+        threading.Thread(target=check_initial_network, name="pideck-network-check", daemon=True).start()
     return application.exec()
 
 

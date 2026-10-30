@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import subprocess
+import sys
 import threading
 import time
 
@@ -129,7 +130,29 @@ class X11WindowVisibilityDetector:
                 continue
             if pid in process_ids and width > 1 and height > 1:
                 return True
+            if width > 1 and height > 1 and _window_client_pid(fields[0]) in process_ids:
+                return True
         return False
+
+
+def _window_client_pid(window_id: str) -> int | None:
+    """Query XRes in a subprocess so X11 protocol errors cannot exit PiDeck."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pideck.infrastructure.process.x11_client_pid", window_id],
+            check=False, capture_output=True, text=True, timeout=0.5,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _LOGGER.debug("Unable to inspect X11 client PID: %s", error)
+        return None
+    if result.returncode != 0:
+        _LOGGER.debug("Unable to inspect X11 client PID: %s", result.stderr.strip())
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        _LOGGER.debug("X11 client PID helper returned invalid output")
+        return None
 
 
 def _process_group_ids(process_group_id: int) -> set[int]:

@@ -1,0 +1,16 @@
+always:
+  - id: steam-link
+    name: Steam Link
+    executable: flatpak
+    arguments: [run, --system, --arch=x86_64, com.valvesoftware.SteamLink]
+    profiles: []
+    icon: ../assets/icons/steam-link.svg
+    preferred_input: gamepad
+nomachine:
+  - id: nomachine
+    name: NoMachine
+    executable: /usr/NX/bin/nxplayer
+    arguments: []
+    profiles: []
+    icon: ../assets/icons/nomachine.svg
+    preferred_input: mouse

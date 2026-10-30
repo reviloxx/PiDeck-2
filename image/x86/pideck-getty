@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+exec /sbin/agetty --autologin pideck --noclear "$1" "$TERM"

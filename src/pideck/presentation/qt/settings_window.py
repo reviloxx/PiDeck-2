@@ -312,6 +312,7 @@ class SettingsWindow(QDialog):
     settings_changed = Signal(object)
     update_status = Signal(object)
     pideck_update_requested = Signal()
+    network_requested = Signal()
 
     def __init__(
         self,
@@ -321,6 +322,7 @@ class SettingsWindow(QDialog):
         parent: QWidget | None = None,
         update_service: ApplicationUpdateService | None = None,
         pideck_update_info: PiDeckUpdateInfo | None = None,
+        network_enabled: bool = False,
     ) -> None:
         """Build the settings menu from the current validated configuration."""
         super().__init__(parent)
@@ -330,6 +332,7 @@ class SettingsWindow(QDialog):
         self._asset_root = asset_root
         self._update_service = update_service
         self._pideck_info = pideck_update_info
+        self._network_enabled = network_enabled
         self._pideck_row: PiDeckUpdateRow | None = None
         self._update_rows: dict[str, UpdateRow] = {}
         self._rechecking_after_cancel: set[str] = set()
@@ -405,6 +408,8 @@ class SettingsWindow(QDialog):
         self._pages.addWidget(self._build_appearance_page())
         self._pages.addWidget(self._build_home_page())
         self._pages.addWidget(self._build_updates_page())
+        if self._network_enabled:
+            self._pages.addWidget(self._build_network_page())
         content_layout.addWidget(self._pages, stretch=1)
 
         self._error_label = QLabel("", content)
@@ -431,6 +436,8 @@ class SettingsWindow(QDialog):
         self._add_nav_button(layout, "Appearance", 0)
         self._add_nav_button(layout, "Home screen", 1)
         self._add_nav_button(layout, "Updates", 2)
+        if self._network_enabled:
+            self._add_nav_button(layout, "Network", 3)
         layout.addStretch()
         self._back_button = QPushButton("Back", sidebar)
         self._back_button.setObjectName("settings_back")
@@ -573,6 +580,23 @@ class SettingsWindow(QDialog):
         self._page_controls[2] = controls
         return page
 
+    def _build_network_page(self) -> QWidget:
+        """Create the entry point to appliance wireless setup."""
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        button = QPushButton(tr(self._language, "wifi_open"), page)
+        row, _ = self._control_row(
+            page, tr(self._language, "wifi_open"), tr(self._language, "network_description"), button,
+        )
+        self._network_row = row
+        self._network_labels = row.findChildren(QLabel)
+        self._network_button = button
+        button.clicked.connect(self.network_requested)
+        layout.addWidget(row)
+        layout.addStretch()
+        self._page_controls[3] = [row]
+        return page
+
     def _control_row(
         self,
         parent: QWidget,
@@ -615,11 +639,13 @@ class SettingsWindow(QDialog):
             0: tr(self._language, "appearance"),
             1: tr(self._language, "home_screen"),
             2: tr(self._language, "updates"),
+            3: tr(self._language, "network"),
         }
         page_descriptions = {
             0: tr(self._language, "appearance_description"),
             1: tr(self._language, "home_description"),
             2: tr(self._language, "updates_description"),
+            3: tr(self._language, "network_description"),
         }
         self._page_title.setText(page_titles[index])
         self._page_description.setText(
@@ -761,6 +787,8 @@ class SettingsWindow(QDialog):
                     self.pideck_update_requested.emit()
                 else:
                     self._activate_update(current.application_id)
+            elif self._network_enabled and current is self._network_row:
+                self.network_requested.emit()
         elif event.action is InputAction.BACK:
             self.reject()
 
@@ -781,6 +809,8 @@ class SettingsWindow(QDialog):
             self._show_clock.toggle()
         elif row is self._language_row:
             self._language_combo.showPopup()
+        elif self._network_enabled and row is self._network_row:
+            self.network_requested.emit()
 
     def _handle_language_changed(self, index: int) -> None:
         """Apply the selected language and emit the persisted settings update."""
@@ -797,6 +827,11 @@ class SettingsWindow(QDialog):
         self._nav_buttons[0].setText(tr(self._language, "appearance"))
         self._nav_buttons[1].setText(tr(self._language, "home_screen"))
         self._nav_buttons[2].setText(tr(self._language, "updates"))
+        if self._network_enabled:
+            self._nav_buttons[3].setText(tr(self._language, "network"))
+            self._network_labels[0].setText(tr(self._language, "wifi_open"))
+            self._network_labels[1].setText(tr(self._language, "network_description"))
+            self._network_button.setText(tr(self._language, "wifi_open"))
         self._back_button.setText(tr(self._language, "back"))
         self._sidebar_subtitle.setText(tr(self._language, "launcher_settings"))
         self._sidebar_hint.setText(tr(self._language, "navigation_hint"))
