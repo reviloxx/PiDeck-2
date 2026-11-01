@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSignalBlocker, QTimer, Qt, Signal
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -27,10 +28,12 @@ from pideck.application.updates import ApplicationUpdateService
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
 from pideck.domain.theme import ThemeDefinition
+from pideck import __version__
 
 from .theme import apply_theme, icon_for_path
 from .wallpaper import WallpaperDialog, WallpaperWidget
 from .localization import tr
+from .power_dialog import PowerDialog
 
 
 class SettingsRow(QFrame):
@@ -63,10 +66,30 @@ class SettingsRow(QFrame):
             return
         super().keyPressEvent(event)
 
-    def mousePressEvent(self, event: object) -> None:
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         """Focus the complete row when it is clicked."""
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         super().mousePressEvent(event)
+
+
+class ActionSettingsRow(SettingsRow):
+    """Activate a complete settings row when clicked with the primary mouse button."""
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Focus the row and capture a primary-button press."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """Activate only when the primary button is released inside the row."""
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.activation_requested.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class UpdateRow(QFrame):
@@ -91,9 +114,17 @@ class UpdateRow(QFrame):
         layout.setContentsMargins(20, 14, 20, 14)
         name = QLabel(application_name, self)
         name.setObjectName("settings_label")
+        name.setWordWrap(True)
         self.status_label = QLabel("Checking...", self)
         self.status_label.setObjectName("update_status")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setWordWrap(True)
+        self.version_label = QLabel("", self)
+        self.version_label.setObjectName("settings_hint")
+        self.version_label.setWordWrap(True)
+        self.build_label = QLabel("", self)
+        self.build_label.setObjectName("settings_hint")
+        self.build_label.setWordWrap(True)
         self.spinner = QLabel("", self)
         self.spinner.setObjectName("update_spinner")
         self.spinner.setFixedWidth(24)
@@ -102,6 +133,10 @@ class UpdateRow(QFrame):
         self.action.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.action.clicked.connect(self.activation_requested)
         layout.addWidget(name, stretch=1)
+        version_layout = QVBoxLayout()
+        version_layout.addWidget(self.version_label)
+        version_layout.addWidget(self.build_label)
+        layout.addLayout(version_layout)
         layout.addWidget(self.status_label, stretch=1)
         layout.addWidget(self.spinner)
         layout.addWidget(self.action)
@@ -111,6 +146,8 @@ class UpdateRow(QFrame):
         self._spinner_index = 0
         self.info = UpdateInfo(application_id, application_name, UpdateStatus.CHECKING)
         self.last_available_info: UpdateInfo | None = None
+        self._current_version: str | None = None
+        self._current_build_date: str | None = None
         self._language = "en"
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -133,6 +170,12 @@ class UpdateRow(QFrame):
     def set_info(self, info: UpdateInfo) -> None:
         """Render one update status without changing row geometry."""
         self.info = info
+        if info.current_version:
+            self._current_version = info.current_version
+            self._current_build_date = info.build_date
+        elif info.status is UpdateStatus.UPDATED:
+            self._current_version = None
+            self._current_build_date = None
         if info.status is UpdateStatus.AVAILABLE:
             self.last_available_info = info
         labels = {
@@ -153,6 +196,14 @@ class UpdateRow(QFrame):
             UpdateStatus.CANCELLED: tr(self._language, "cancelled"),
         }
         self.status_label.setText(labels[info.status])
+        self.version_label.setText(tr(
+            self._language, "installed_version",
+            version=self._current_version or tr(self._language, "unknown"),
+        ))
+        self.build_label.setText(tr(
+            self._language, "build_date",
+            date=self._current_build_date or tr(self._language, "unknown"),
+        ))
         updating = info.status is UpdateStatus.UPDATING
         busy = updating or info.status is UpdateStatus.PREPARING
         self.spinner.setVisible(busy)
@@ -190,6 +241,7 @@ class PiDeckUpdateRow(UpdateRow):
         """Create a dedicated row for PiDeck's installed release."""
         self._pideck_info = info
         super().__init__("", "PiDeck", parent)
+        self.build_label.hide()
         self.set_pideck_info(info)
 
     def set_pideck_info(self, info: PiDeckUpdateInfo) -> None:
@@ -204,7 +256,10 @@ class PiDeckUpdateRow(UpdateRow):
             PiDeckUpdateStatus.PENDING: UpdateStatus.RESTART_REQUIRED,
             PiDeckUpdateStatus.FAILED: UpdateStatus.FAILED,
         }
-        self.set_info(UpdateInfo("", "PiDeck", statuses[info.status], info.current_version, info.available_version, info.message))
+        self.set_info(UpdateInfo(
+            "", "PiDeck", statuses[info.status],
+            info.current_version or __version__, info.available_version, info.message,
+        ))
         if info.status is PiDeckUpdateStatus.AVAILABLE and info.message:
             self.status_label.setText(f"{self.status_label.text()} - {info.message}")
         if info.current_version:
@@ -314,6 +369,10 @@ class SettingsWindow(QDialog):
     update_status = Signal(object)
     pideck_update_requested = Signal()
     network_requested = Signal()
+    audio_requested = Signal()
+    display_requested = Signal()
+    bluetooth_requested = Signal()
+    power_requested = Signal(str)
 
     def __init__(
         self,
@@ -324,6 +383,8 @@ class SettingsWindow(QDialog):
         update_service: ApplicationUpdateService | None = None,
         pideck_update_info: PiDeckUpdateInfo | None = None,
         network_enabled: bool = False,
+        system_enabled: bool = False,
+        build_date: str | None = None,
     ) -> None:
         """Build the settings menu from the current validated configuration."""
         super().__init__(parent)
@@ -333,8 +394,18 @@ class SettingsWindow(QDialog):
         self._asset_root = asset_root
         self._update_service = update_service
         self._pideck_info = pideck_update_info
+        self._build_date = build_date
         self._network_enabled = network_enabled
+        self._pideck_page = 3 if pideck_update_info is not None else None
+        self._network_page = (
+            3 + int(self._pideck_page is not None)
+            if network_enabled and not system_enabled else None
+        )
+        self._system_page = (
+            3 + int(self._pideck_page is not None) + int(self._network_page is not None) if system_enabled else None
+        )
         self._pideck_row: PiDeckUpdateRow | None = None
+        self._power_dialog: PowerDialog | None = None
         self._update_rows: dict[str, UpdateRow] = {}
         self._rechecking_after_cancel: set[str] = set()
         self._update_applications = {
@@ -378,12 +449,12 @@ class SettingsWindow(QDialog):
         root = WallpaperWidget(self)
         root.setObjectName("settings_root")
         self.setLayout(QHBoxLayout())
-        self.layout().setContentsMargins(56, 44, 56, 44)
+        self.layout().setContentsMargins(0, 0, 0, 0)
         self.layout().setSpacing(32)
         self.layout().addWidget(root)
 
         root_layout = QHBoxLayout(root)
-        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setContentsMargins(56, 44, 56, 44)
         root_layout.setSpacing(32)
         sidebar = self._build_sidebar(root)
         root_layout.addWidget(sidebar)
@@ -409,8 +480,12 @@ class SettingsWindow(QDialog):
         self._pages.addWidget(self._build_appearance_page())
         self._pages.addWidget(self._build_home_page())
         self._pages.addWidget(self._build_updates_page())
-        if self._network_enabled:
+        if self._pideck_page is not None:
+            self._pages.addWidget(self._build_pideck_update_page())
+        if self._network_page is not None:
             self._pages.addWidget(self._build_network_page())
+        if self._system_page is not None:
+            self._pages.addWidget(self._build_system_page())
         content_layout.addWidget(self._pages, stretch=1)
 
         self._error_label = QLabel("", content)
@@ -437,8 +512,12 @@ class SettingsWindow(QDialog):
         self._add_nav_button(layout, "Appearance", 0)
         self._add_nav_button(layout, "Home screen", 1)
         self._add_nav_button(layout, "Updates", 2)
-        if self._network_enabled:
-            self._add_nav_button(layout, "Network", 3)
+        if self._pideck_page is not None:
+            self._add_nav_button(layout, "PiDeck", self._pideck_page)
+        if self._network_page is not None:
+            self._add_nav_button(layout, "Network", self._network_page)
+        if self._system_page is not None:
+            self._add_nav_button(layout, "System", self._system_page)
         layout.addStretch()
         self._back_button = QPushButton("Back", sidebar)
         self._back_button.setObjectName("settings_back")
@@ -466,9 +545,20 @@ class SettingsWindow(QDialog):
         self._nav_buttons.append(button)
         layout.addWidget(button)
 
+    def _scroll_page(self) -> tuple[QScrollArea, QWidget]:
+        """Create a themed page that can reveal focused rows on small screens."""
+        scroll = QScrollArea(self)
+        scroll.setObjectName("settings_scroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        page = QWidget(scroll)
+        scroll.setWidget(page)
+        return scroll, page
+
     def _build_appearance_page(self) -> QWidget:
         """Create theme and motion controls."""
-        page = QWidget(self)
+        self._appearance_scroll, page = self._scroll_page()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 16, 0, 0)
         layout.setSpacing(12)
@@ -528,7 +618,7 @@ class SettingsWindow(QDialog):
         layout.addWidget(language_row)
         layout.addStretch()
         self._page_controls[0] = [theme_row, motion_row, clock_row, language_row]
-        return page
+        return self._appearance_scroll
 
     def _build_home_page(self) -> QWidget:
         """Create the home-screen application visibility list."""
@@ -557,46 +647,119 @@ class SettingsWindow(QDialog):
 
     def _build_updates_page(self) -> QWidget:
         """Create one update entry for every configured application."""
-        page = QWidget(self)
+        self._update_scroll, page = self._scroll_page()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 16, 0, 0)
         layout.setSpacing(10)
         controls: list[QWidget] = []
-        if self._pideck_info is not None:
-            self._pideck_row = PiDeckUpdateRow(self._pideck_info, page)
-            self._pideck_row.activation_requested.connect(self.pideck_update_requested)
-            self._pideck_row.navigation_requested.connect(self._handle_update_navigation)
-            controls.append(self._pideck_row)
-            layout.addWidget(self._pideck_row)
         for application in self._configuration.applications:
             row = UpdateRow(application.identifier, application.name, page)
             row.activation_requested.connect(
                 lambda application_id=application.identifier: self._activate_update(application_id)
             )
             row.navigation_requested.connect(self._handle_update_navigation)
+            row.installEventFilter(self)
             self._update_rows[application.identifier] = row
             controls.append(row)
             layout.addWidget(row)
         layout.addStretch()
         self._page_controls[2] = controls
+        return self._update_scroll
+
+    def _build_pideck_update_page(self) -> QWidget:
+        """Create the PiDeck release page independently of application updates."""
+        assert self._pideck_info is not None
+        assert self._pideck_page is not None
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 16, 0, 0)
+        self._pideck_row = PiDeckUpdateRow(self._pideck_info, page)
+        self._pideck_row.activation_requested.connect(self._activate_pideck_update)
+        self._pideck_row.navigation_requested.connect(self._handle_update_navigation)
+        layout.addWidget(self._pideck_row)
+        self._build_date_label = QLabel(page)
+        self._build_date_label.setObjectName("settings_hint")
+        layout.addWidget(self._build_date_label)
+        layout.addStretch()
+        self._page_controls[self._pideck_page] = [self._pideck_row]
         return page
 
     def _build_network_page(self) -> QWidget:
         """Create the entry point to appliance wireless setup."""
         page = QWidget(self)
         layout = QVBoxLayout(page)
-        button = QPushButton(tr(self._language, "wifi_open"), page)
-        row, _ = self._control_row(
-            page, tr(self._language, "wifi_open"), tr(self._language, "network_description"), button,
+        row = self._action_row(
+            page, tr(self._language, "wifi_open"), tr(self._language, "network_description"),
         )
         self._network_row = row
         self._network_labels = row.findChildren(QLabel)
-        self._network_button = button
-        button.clicked.connect(self.network_requested)
         layout.addWidget(row)
         layout.addStretch()
-        self._page_controls[3] = [row]
+        assert self._network_page is not None
+        self._page_controls[self._network_page] = [row]
         return page
+
+    def _build_system_page(self) -> QWidget:
+        """Create entry points for host system settings."""
+        assert self._system_page is not None
+        self._system_scroll, page = self._scroll_page()
+        layout = QVBoxLayout(page)
+        display_row = self._action_row(
+            page, tr(self._language, "display"), tr(self._language, "display_description"),
+        )
+        self._display_row = display_row
+        self._display_labels = display_row.findChildren(QLabel)
+        layout.addWidget(display_row)
+        row = self._action_row(
+            page, tr(self._language, "audio"), tr(self._language, "audio_description"),
+        )
+        self._audio_row = row
+        self._audio_labels = row.findChildren(QLabel)
+        layout.addWidget(row)
+        bluetooth_row = self._action_row(
+            page, tr(self._language, "bluetooth"), tr(self._language, "bluetooth_description"),
+        )
+        self._bluetooth_row = bluetooth_row
+        self._bluetooth_labels = bluetooth_row.findChildren(QLabel)
+        layout.addWidget(bluetooth_row)
+        system_rows = [display_row, row, bluetooth_row]
+        if self._network_enabled:
+            network_row = self._action_row(
+                page, tr(self._language, "network"), tr(self._language, "network_description"),
+            )
+            self._network_row = network_row
+            self._network_labels = network_row.findChildren(QLabel)
+            layout.addWidget(network_row)
+            system_rows.append(network_row)
+        self._power_rows: dict[str, QFrame] = {}
+        self._power_labels: dict[str, list[QLabel]] = {}
+        for action in ("restart", "shutdown"):
+            power_row = self._action_row(
+                page, tr(self._language, action),
+                tr(self._language, f"power_{action}_description"),
+            )
+            self._power_rows[action] = power_row
+            self._power_labels[action] = power_row.findChildren(QLabel)
+            layout.addWidget(power_row)
+        layout.addStretch()
+        self._page_controls[self._system_page] = [*system_rows, *self._power_rows.values()]
+        return self._system_scroll
+
+    def _confirm_power(self, action: str) -> None:
+        """Ask for explicit confirmation before emitting a host power request."""
+        if self._power_dialog is not None:
+            return
+        dialog = PowerDialog(action, self._theme, self._language, self)
+        self._power_dialog = dialog
+
+        def finish(result: int) -> None:
+            self._power_dialog = None
+            if result == QDialog.DialogCode.Accepted:
+                self.power_requested.emit(action)
+            dialog.deleteLater()
+
+        dialog.finished.connect(finish)
+        dialog.open()
 
     def _control_row(
         self,
@@ -604,11 +767,14 @@ class SettingsWindow(QDialog):
         title: str,
         description: str,
         control: QWidget,
-    ) -> tuple[QFrame, QWidget]:
+        *,
+        action: bool = False,
+    ) -> tuple[SettingsRow, QWidget]:
         """Create a consistent labelled settings row."""
-        row = SettingsRow(parent)
+        row = ActionSettingsRow(parent) if action else SettingsRow(parent)
         row.setObjectName("settings_row")
         row.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        row.installEventFilter(self)
         row.navigation_requested.connect(self._handle_row_navigation)
         row.activation_requested.connect(
             lambda settings_row=row: self._handle_row_activation(settings_row)
@@ -622,13 +788,29 @@ class SettingsWindow(QDialog):
         description_label = QLabel(description, row)
         description_label.setObjectName("settings_hint")
         description_label.setWordWrap(True)
+        if action:
+            row.setCursor(Qt.CursorShape.PointingHandCursor)
+            row.setAccessibleName(title)
+            row.setAccessibleDescription(description)
+            for label in (title_label, description_label, control):
+                label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         text.addWidget(title_label)
         text.addWidget(description_label)
         layout.addLayout(text, stretch=1)
-        control.setMinimumWidth(220)
+        if not action:
+            control.setMinimumWidth(220)
         control.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(control)
         return row, control
+
+    def _action_row(self, parent: QWidget, title: str, description: str) -> SettingsRow:
+        """Create a single clickable row with a themed navigation indicator."""
+        indicator = QLabel("›", parent)
+        indicator.setObjectName("settings_chevron")
+        indicator.setFixedWidth(32)
+        indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row, _ = self._control_row(parent, title, description, indicator, action=True)
+        return row
 
     def _select_page(self, index: int, focus_first: bool = True) -> None:
         """Select a category and update active styling and content."""
@@ -640,14 +822,21 @@ class SettingsWindow(QDialog):
             0: tr(self._language, "appearance"),
             1: tr(self._language, "home_screen"),
             2: tr(self._language, "updates"),
-            3: tr(self._language, "network"),
         }
         page_descriptions = {
             0: tr(self._language, "appearance_description"),
             1: tr(self._language, "home_description"),
             2: tr(self._language, "updates_description"),
-            3: tr(self._language, "network_description"),
         }
+        if self._pideck_page is not None:
+            page_titles[self._pideck_page] = tr(self._language, "pideck_updates")
+            page_descriptions[self._pideck_page] = tr(self._language, "pideck_updates_description")
+        if self._network_page is not None:
+            page_titles[self._network_page] = tr(self._language, "network")
+            page_descriptions[self._network_page] = tr(self._language, "network_description")
+        if self._system_page is not None:
+            page_titles[self._system_page] = tr(self._language, "system")
+            page_descriptions[self._system_page] = tr(self._language, "system_description")
         self._page_title.setText(page_titles[index])
         self._page_description.setText(
             page_descriptions[index]
@@ -708,6 +897,9 @@ class SettingsWindow(QDialog):
         """Handle normalized gamepad actions using the current focus target."""
         if not event.pressed:
             return
+        if self._power_dialog is not None:
+            self._power_dialog.handle_input(event)
+            return
         dropdown = self._open_dropdown()
         if dropdown is not None:
             if event.action in (InputAction.UP, InputAction.DOWN):
@@ -762,7 +954,7 @@ class SettingsWindow(QDialog):
                     self._applications.setCurrentRow(min(row + 1, self._applications.count() - 1))
                 return
             if current in self._page_controls.get(self._current_page, []):
-                if self._current_page == 2:
+                if self._current_page == 2 or self._current_page == self._pideck_page:
                     self._handle_update_navigation(key)
                 else:
                     self._handle_row_navigation(key)
@@ -783,13 +975,14 @@ class SettingsWindow(QDialog):
                     )
             elif current in self._page_controls.get(0, []):
                 self._handle_row_activation(current)
+            elif current is self._pideck_row and self._pideck_row is not None:
+                self._activate_pideck_update()
             elif current in self._page_controls.get(2, []):
-                if current is self._pideck_row:
-                    self.pideck_update_requested.emit()
-                else:
-                    self._activate_update(current.application_id)
+                self._activate_update(current.application_id)
             elif self._network_enabled and current is self._network_row:
                 self.network_requested.emit()
+            elif self._system_page is not None and isinstance(current, SettingsRow) and current in self._page_controls[self._system_page]:
+                self._handle_row_activation(current)
         elif event.action is InputAction.BACK:
             self.reject()
 
@@ -812,6 +1005,17 @@ class SettingsWindow(QDialog):
             self._language_combo.showPopup()
         elif self._network_enabled and row is self._network_row:
             self.network_requested.emit()
+        elif self._system_page is not None and row is self._audio_row:
+            self.audio_requested.emit()
+        elif self._system_page is not None and row is self._display_row:
+            self.display_requested.emit()
+        elif self._system_page is not None and row is self._bluetooth_row:
+            self.bluetooth_requested.emit()
+        elif self._system_page is not None:
+            for action, power_row in self._power_rows.items():
+                if row is power_row:
+                    self._confirm_power(action)
+                    break
 
     def _handle_language_changed(self, index: int) -> None:
         """Apply the selected language and emit the persisted settings update."""
@@ -828,11 +1032,35 @@ class SettingsWindow(QDialog):
         self._nav_buttons[0].setText(tr(self._language, "appearance"))
         self._nav_buttons[1].setText(tr(self._language, "home_screen"))
         self._nav_buttons[2].setText(tr(self._language, "updates"))
+        if self._pideck_page is not None:
+            self._nav_buttons[self._pideck_page].setText(tr(self._language, "pideck_updates"))
+        if self._network_page is not None:
+            self._nav_buttons[self._network_page].setText(tr(self._language, "network"))
         if self._network_enabled:
-            self._nav_buttons[3].setText(tr(self._language, "network"))
-            self._network_labels[0].setText(tr(self._language, "wifi_open"))
+            self._network_labels[0].setText(tr(self._language, "network" if self._system_page is not None else "wifi_open"))
             self._network_labels[1].setText(tr(self._language, "network_description"))
-            self._network_button.setText(tr(self._language, "wifi_open"))
+            self._network_row.setAccessibleName(self._network_labels[0].text())
+            self._network_row.setAccessibleDescription(self._network_labels[1].text())
+        if self._system_page is not None:
+            self._nav_buttons[self._system_page].setText(tr(self._language, "system"))
+            self._display_labels[0].setText(tr(self._language, "display"))
+            self._display_labels[1].setText(tr(self._language, "display_description"))
+            self._audio_labels[0].setText(tr(self._language, "audio"))
+            self._audio_labels[1].setText(tr(self._language, "audio_description"))
+            self._bluetooth_labels[0].setText(tr(self._language, "bluetooth"))
+            self._bluetooth_labels[1].setText(tr(self._language, "bluetooth_description"))
+            for row, labels in (
+                (self._display_row, self._display_labels),
+                (self._audio_row, self._audio_labels),
+                (self._bluetooth_row, self._bluetooth_labels),
+            ):
+                row.setAccessibleName(labels[0].text())
+                row.setAccessibleDescription(labels[1].text())
+            for action in ("restart", "shutdown"):
+                self._power_labels[action][0].setText(tr(self._language, action))
+                self._power_labels[action][1].setText(tr(self._language, f"power_{action}_description"))
+                self._power_rows[action].setAccessibleName(self._power_labels[action][0].text())
+                self._power_rows[action].setAccessibleDescription(self._power_labels[action][1].text())
         self._back_button.setText(tr(self._language, "back"))
         self._sidebar_subtitle.setText(tr(self._language, "launcher_settings"))
         self._sidebar_hint.setText(tr(self._language, "navigation_hint"))
@@ -853,12 +1081,28 @@ class SettingsWindow(QDialog):
             row.set_language(self._language)
         if self._pideck_row is not None:
             self._pideck_row.set_language(self._language)
+            self._build_date_label.setText(tr(
+                self._language, "build_date",
+                date=self._build_date or tr(self._language, "unknown"),
+            ))
 
     def set_pideck_update_info(self, info: PiDeckUpdateInfo) -> None:
         """Display the latest application-independent PiDeck update state."""
         self._pideck_info = info
         if self._pideck_row is not None:
             self._pideck_row.set_pideck_info(info)
+
+    def show_power_error(self, message: str) -> None:
+        """Display a failed host power request in the active settings view."""
+        self.show_error(tr(self._language, "power_action_failed", message=message))
+
+    def _activate_pideck_update(self) -> None:
+        """Request a PiDeck update or retry only when the state permits it."""
+        if self._pideck_info is not None and self._pideck_info.status in (
+            PiDeckUpdateStatus.AVAILABLE,
+            PiDeckUpdateStatus.FAILED,
+        ):
+            self.pideck_update_requested.emit()
 
     def _activate_update(self, application_id: str) -> None:
         """Start or cancel the selected application update."""
@@ -875,6 +1119,9 @@ class SettingsWindow(QDialog):
                 lambda info: self.update_status.emit(info),
             )
             return
+        if row.info.status is not UpdateStatus.AVAILABLE:
+            return
+        row.set_info(UpdateInfo(application_id, application.name, UpdateStatus.UPDATING))
         self._update_service.start_async(
             application,
             None,
@@ -891,6 +1138,11 @@ class SettingsWindow(QDialog):
         if info.application_id in self._rechecking_after_cancel and info.status is not UpdateStatus.CANCELLED:
             self._rechecking_after_cancel.discard(info.application_id)
         row.set_info(info)
+        if info.status is UpdateStatus.UPDATED and self._update_service is not None:
+            self._update_service.check_async(
+                (self._update_applications[info.application_id],),
+                lambda result: self.update_status.emit(result),
+            )
         if info.status is not UpdateStatus.PASSWORD_REQUIRED:
             return
         prompt = PasswordPrompt(info.application_name, self._theme, self, self._language)
@@ -911,7 +1163,7 @@ class SettingsWindow(QDialog):
 
     def _handle_update_navigation(self, key: int) -> None:
         """Move through update rows or return to the active settings category."""
-        rows = self._page_controls.get(2, [])
+        rows = self._page_controls.get(self._current_page, [])
         current = self.focusWidget()
         if current not in rows:
             return
@@ -928,6 +1180,25 @@ class SettingsWindow(QDialog):
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         """Implement deterministic D-pad navigation across the settings surface."""
+        if (
+            event.type() == QEvent.Type.FocusIn
+            and self._system_page is not None
+            and isinstance(watched, QWidget)
+            and watched in self._page_controls.get(self._system_page, [])
+        ):
+            self._system_scroll.ensureWidgetVisible(watched)
+        if (
+            event.type() == QEvent.Type.FocusIn
+            and isinstance(watched, QWidget)
+            and watched in self._page_controls.get(2, [])
+        ):
+            self._update_scroll.ensureWidgetVisible(watched)
+        if (
+            event.type() == QEvent.Type.FocusIn
+            and isinstance(watched, QWidget)
+            and watched in self._page_controls.get(0, [])
+        ):
+            self._appearance_scroll.ensureWidgetVisible(watched)
         if event.type() != QEvent.Type.KeyPress:
             return super().eventFilter(watched, event)
         key_event = event

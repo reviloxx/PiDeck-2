@@ -1,12 +1,14 @@
 """Qt tests for the Milestone 5 settings dialog."""
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 
@@ -36,6 +38,81 @@ def settings_window(application: QApplication) -> SettingsWindow:
     return window
 
 
+@pytest.mark.parametrize(("width", "height"), [(1280, 720), (1920, 1080)])
+def test_settings_wallpaper_covers_dialog(
+    application: QApplication, tmp_path: Path, width: int, height: int,
+) -> None:
+    """Wallpaper fills the actual dialog, including its outer margins."""
+    image = QImage(100, 50, QImage.Format.Format_RGB32)
+    image.fill(QColor("#ab4512"))
+    wallpaper = tmp_path / "wallpaper.png"
+    assert image.save(str(wallpaper))
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(configuration, replace(DEFAULT_THEME, wallpaper=wallpaper), tmp_path)
+    window.resize(width, height)
+    window.show()
+    application.processEvents()
+    rendered = window.grab().toImage()
+    for x, y in ((0, 0), (rendered.width() - 1, 0), (0, rendered.height() - 1)):
+        assert rendered.pixelColor(x, y) == QColor("#ab4512")
+    window.close()
+
+
+@pytest.mark.parametrize(
+    "status",
+    [status for status in UpdateStatus if status not in (UpdateStatus.AVAILABLE, UpdateStatus.UPDATING)],
+)
+def test_non_actionable_update_cannot_start(
+    application: QApplication, status: UpdateStatus,
+) -> None:
+    """Neither keyboard nor gamepad starts updates in non-actionable states."""
+    class Service:
+        def __init__(self) -> None:
+            self.starts = 0
+
+        def check_async(self, applications, callback) -> None:
+            pass
+
+        def start_async(self, application, password, callback) -> None:
+            self.starts += 1
+
+    service = Service()
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), update_service=service)
+    window.show()
+    window._select_page(2)
+    row = window._update_rows["browser"]
+    row.set_info(UpdateInfo("browser", "Browser", status))
+    application.processEvents()
+    QTest.keyClick(row, Qt.Key.Key_Return)
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert service.starts == 0
+    window.close()
+
+
+@pytest.mark.parametrize("status", list(PiDeckUpdateStatus))
+def test_pideck_activation_is_guarded(
+    application: QApplication, status: PiDeckUpdateStatus,
+) -> None:
+    """PiDeck requests are only emitted for available updates and retries."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(
+        configuration, DEFAULT_THEME, Path.cwd(),
+        pideck_update_info=PiDeckUpdateInfo(status, "1.0.0", "1.1.0"),
+    )
+    requests: list[bool] = []
+    window.pideck_update_requested.connect(lambda: requests.append(True))
+    window.show()
+    window._select_page(3)
+    application.processEvents()
+    assert window._pideck_row is not None
+    QTest.keyClick(window._pideck_row, Qt.Key.Key_Return)
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    expected = 2 if status in (PiDeckUpdateStatus.AVAILABLE, PiDeckUpdateStatus.FAILED) else 0
+    assert len(requests) == expected
+    window.close()
+
+
 def test_pideck_update_row_supports_controller_and_localization(application: QApplication) -> None:
     """PiDeck's row is independent of configured IDs and exposes update progress."""
     configuration = YamlConfigurationParser().parse(configuration_document())
@@ -47,7 +124,7 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     window.pideck_update_requested.connect(lambda: requests.append(True))
     window.show()
     application.processEvents()
-    window._select_page(2)
+    window._select_page(3)
     row = window._pideck_row
     assert row is not None
     assert row.hasFocus()
@@ -61,7 +138,32 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     window.apply_language("de")
     assert "neu starten" in row.status_label.text()
     QTest.keyClick(row, Qt.Key.Key_Down)
+    assert row.hasFocus()
+    window._select_page(2)
     assert window._update_rows["browser"].hasFocus()
+    window.close()
+
+
+def test_versions_and_build_date_are_visible(application: QApplication) -> None:
+    """Each update page shows installed versions and the PiDeck build date."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(
+        configuration, DEFAULT_THEME, Path.cwd(),
+        pideck_update_info=PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.2.3"),
+        build_date="2026-01-01T10:00:00+00:00",
+    )
+    window.show()
+    window._select_page(3)
+    assert "2026-01-01" in window._build_date_label.text()
+    assert "1.2.3" in window._pideck_row.version_label.text()
+    row = window._update_rows["browser"]
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE, "2.3"))
+    assert "2.3" in row.version_label.text()
+    assert "Unknown" in row.build_label.text()
+    row.set_info(UpdateInfo(
+        "browser", "Browser", UpdateStatus.UP_TO_DATE, "2.3", build_date="2026-01-01",
+    ))
+    assert "2026-01-01" in row.build_label.text()
     window.close()
 
 
@@ -267,6 +369,28 @@ def test_updates_page_renders_status_spinner_and_navigates(application: QApplica
     window.close()
 
 
+def test_long_update_list_scrolls_with_keyboard_focus(application: QApplication) -> None:
+    """Every update remains visible when navigating a long application list."""
+    document = configuration_document()
+    document["applications"] = [
+        {"id": f"app{index}", "name": f"Application {index}", "executable": f"app{index}"}
+        for index in range(12)
+    ]
+    document["home"]["visible_applications"] = ["app0"]
+    configuration = YamlConfigurationParser().parse(document)
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd())
+    window.resize(1280, 720)
+    window.show()
+    window._select_page(2)
+    application.processEvents()
+    for index in range(11):
+        QTest.keyClick(window._update_rows[f"app{index}"], Qt.Key.Key_Down)
+        application.processEvents()
+    assert window._update_rows["app11"].hasFocus()
+    assert window._update_scroll.verticalScrollBar().value() > 0
+    window.close()
+
+
 def test_gamepad_actions_navigate_settings(application: QApplication) -> None:
     """Normalized gamepad actions follow the same Settings focus rules."""
     window = settings_window(application)
@@ -354,6 +478,30 @@ def test_cancelled_update_is_rechecked(application: QApplication) -> None:
     application.processEvents()
     assert row.status_label.text() == "Update available"
     assert row.action.text() == "Update"
+    window.close()
+
+
+def test_completed_update_refreshes_installed_version(application: QApplication) -> None:
+    """A completed update rechecks the installed version instead of showing stale data."""
+    class Service:
+        def __init__(self) -> None:
+            self.checks = []
+
+        def check_async(self, applications, callback) -> None:
+            self.checks.append((applications, callback))
+
+    service = Service()
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), update_service=service)
+    window.show()
+    row = window._update_rows["browser"]
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE, "1.0", "2.0"))
+    window._handle_update_status(UpdateInfo("browser", "Browser", UpdateStatus.UPDATED))
+    assert "1.0" not in row.version_label.text()
+    assert len(service.checks) == 2
+    service.checks[-1][1](UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE, "2.0"))
+    application.processEvents()
+    assert "2.0" in row.version_label.text()
     window.close()
 
 

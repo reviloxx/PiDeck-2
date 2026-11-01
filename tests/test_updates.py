@@ -15,8 +15,9 @@ def test_flatpak_update_check_reports_available_update(monkeypatch) -> None:
     """Flatpak availability is detected without downloading packages."""
     responses = {
         ("flatpak", "info", "--show-commit", "tv.kodi.Kodi"): (0, "installed-commit\n"),
+        ("flatpak", "info", "--show-version", "tv.kodi.Kodi"): (0, "21.3\n"),
         ("flatpak", "remote-ls", "--updates", "--app", "--columns=application,version,commit"):
-            (0, "tv.kodi.Kodi 21.4 remote-commit\n"),
+            (0, "tv.kodi.Kodi\t21.4 Beta\tremote-commit\n"),
     }
 
     def fake_run(command, **kwargs):
@@ -36,7 +37,8 @@ def test_flatpak_update_check_reports_available_update(monkeypatch) -> None:
     info = NativeUpdateGateway().check(application)
 
     assert info.status is UpdateStatus.AVAILABLE
-    assert info.available_version == "21.4"
+    assert info.current_version == "21.3"
+    assert info.available_version == "21.4 Beta"
 
 
 def test_apt_update_check_reports_candidate_version(monkeypatch) -> None:
@@ -81,6 +83,38 @@ def test_apt_updates_work_when_flatpak_is_not_installed(monkeypatch) -> None:
     monkeypatch.setattr("pideck.infrastructure.platform_updates.subprocess.run", run)
     info = NativeUpdateGateway(image_mode=True).check(ApplicationDefinition("browser", "Browser", "firefox-esr"))
     assert info.status is UpdateStatus.AVAILABLE
+
+
+def test_apt_shows_installed_version_when_candidate_is_unavailable(monkeypatch) -> None:
+    """Missing update metadata must not hide a known installed version."""
+    def run(command, **_kwargs):
+        if command[0] == "flatpak":
+            raise FileNotFoundError("flatpak")
+        return type("Result", (), {
+            "returncode": 0, "stdout": "  Installed: 1.0\n  Candidate: (none)\n", "stderr": "",
+        })()
+
+    monkeypatch.setattr("pideck.infrastructure.platform_updates.subprocess.run", run)
+    info = NativeUpdateGateway().check(ApplicationDefinition("browser", "Browser", "firefox"))
+    assert info.status is UpdateStatus.UNSUPPORTED
+    assert info.current_version == "1.0"
+
+
+def test_apt_comparison_failure_is_not_reported_as_up_to_date(monkeypatch) -> None:
+    """Invalid package versions surface a failure instead of a false success."""
+    def run(command, **_kwargs):
+        if command[0] == "flatpak":
+            raise FileNotFoundError("flatpak")
+        if command[0] == "apt-cache":
+            return type("Result", (), {
+                "returncode": 0, "stdout": "  Installed: 1.0\n  Candidate: invalid\n", "stderr": "",
+            })()
+        return type("Result", (), {"returncode": 2, "stdout": "", "stderr": "bad version"})()
+
+    monkeypatch.setattr("pideck.infrastructure.platform_updates.subprocess.run", run)
+    info = NativeUpdateGateway().check(ApplicationDefinition("browser", "Browser", "firefox"))
+    assert info.status is UpdateStatus.FAILED
+    assert info.current_version == "1.0"
 
 
 def test_image_apt_update_uses_passwordless_broker(monkeypatch) -> None:

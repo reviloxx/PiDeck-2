@@ -55,6 +55,7 @@ def test_wireless_setup_controller_key_entry(application: QApplication) -> None:
             break
         QTest.qWait(5)
     assert window.networks.count() == 1
+    assert "Disconnected" in window.connection_status.text()
     window.networks.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     application.processEvents()
@@ -160,4 +161,28 @@ def test_settings_network_entry_is_optional_and_controller_accessible(applicatio
     assert requested == [True]
     window.apply_language("de")
     assert window._nav_buttons[3].text() == "Netzwerk"
+    window.close()
+
+
+def test_system_category_includes_network_and_scrolls_to_focused_row(application: QApplication) -> None:
+    """Network joins System settings, whose rows remain controller-accessible."""
+    config = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(config, DEFAULT_THEME, Path.cwd(), network_enabled=True, system_enabled=True)
+    requested: list[bool] = []
+    window.network_requested.connect(lambda: requested.append(True))
+    window.resize(1280, 720)
+    window.show()
+    window._select_page(3)
+    application.processEvents()
+    assert window.width() <= 1280
+    assert window.height() <= 720
+    window._network_row.setFocus()
+    application.processEvents()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert requested == [True]
+    window._power_rows["shutdown"].setFocus()
+    application.processEvents()
+    scrollbar = window._system_scroll.verticalScrollBar()
+    if scrollbar.maximum() > 0:
+        assert scrollbar.value() > 0
     window.close()

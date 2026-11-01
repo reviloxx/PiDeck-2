@@ -1,6 +1,7 @@
 """Tests for x86 image build inputs without privileged disk operations."""
 
 from pathlib import Path
+import json
 import os
 import shutil
 import subprocess
@@ -61,7 +62,10 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     config = YamlConfigurationParser().load(tmp_path / "usr/share/pideck/config/pideck.yaml")
     packages = set((x86_build.INPUTS / "packages.txt").read_text().split())
     assert {app.executable for app in config.applications} <= packages
+    assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils"} <= packages
     assert (tmp_path / "usr/lib/pideck/python/pideck/bootstrap.py").is_file()
+    metadata = tmp_path / "usr/lib/pideck/python/pideck/_build_info.json"
+    assert json.loads(metadata.read_text())["built_at"]
     assert (tmp_path / "usr/share/pideck/config/window-modes.yaml").read_text() == (
         x86_build.PI_FILES / "window-modes.yaml"
     ).read_text()

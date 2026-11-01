@@ -136,10 +136,14 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border-color: %(focus)s;
             color: %(text)s;
         }
-        QFrame#settings_content {
+        QFrame#settings_content, QFrame#system_settings_panel {
             background-color: %(content_surface)s;
             border: 1px solid %(border)s;
             border-radius: 12px;
+        }
+        QScrollArea#settings_scroll, QScrollArea#settings_scroll > QWidget > QWidget {
+            background: transparent;
+            border: none;
         }
         QLabel#settings_kicker {
             color: %(primary)s;
@@ -159,6 +163,10 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         QFrame#settings_row:focus {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
+        }
+        QLabel#settings_chevron {
+            color: %(muted_text)s;
+            font-size: 30px;
         }
         QLabel#settings_label {
             color: %(text)s;
@@ -182,6 +190,31 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             color: %(text)s;
             selection-background-color: %(active_surface)s;
             selection-color: %(text)s;
+        }
+        QSlider#system_volume {
+            background-color: %(content_surface)s;
+            min-height: 28px;
+        }
+        QSlider#system_volume::groove:horizontal,
+        QSlider#system_volume::add-page:horizontal {
+            background-color: %(border)s;
+            border-radius: 3px;
+            height: 6px;
+        }
+        QSlider#system_volume::sub-page:horizontal {
+            background-color: %(primary)s;
+            border-radius: 3px;
+        }
+        QSlider#system_volume::handle:horizontal {
+            background-color: %(primary)s;
+            border: 2px solid %(focus)s;
+            border-radius: 10px;
+            margin: -7px 0;
+            width: 20px;
+        }
+        QSlider#system_volume:focus {
+            border: 1px solid %(focus)s;
+            border-radius: 6px;
         }
         QCheckBox#settings_control {
             color: %(text)s;

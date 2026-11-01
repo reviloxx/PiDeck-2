@@ -1,9 +1,11 @@
 """Tests for the signed PiDeck update release artifact."""
 
 import hashlib
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tomllib
 
@@ -64,10 +66,19 @@ def test_bundle_is_reproducible_signed_and_contains_only_application_files(tmp_p
     """Identical input produces identical artifacts verified by the public key."""
     private, public = _key_pair(tmp_path)
     first, second = tmp_path / "first", tmp_path / "second"
-    create_bundle(ROOT, first, TAG, private)
-    create_bundle(ROOT, second, TAG, private)
+    timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    create_bundle(ROOT, first, TAG, private, timestamp=timestamp)
+    create_bundle(ROOT, second, TAG, private, timestamp=timestamp)
     for name in ("pideck-update.tar", "pideck-update.json", "pideck-update.sig"):
         assert (first / name).read_bytes() == (second / name).read_bytes()
+    third = tmp_path / "third"
+    subprocess.run(
+        [sys.executable, str(ROOT / "image/update_bundle.py"), "--tag", TAG, "--signing-key", str(private),
+         "--output", str(third), "--build-timestamp", timestamp.isoformat()],
+        check=True,
+    )
+    for name in ("pideck-update.tar", "pideck-update.json", "pideck-update.sig"):
+        assert (first / name).read_bytes() == (third / name).read_bytes()
     bundle = first / "pideck-update.tar"
     manifest = json.loads((first / "pideck-update.json").read_text())
     assert manifest["version"] == VERSION
@@ -76,6 +87,8 @@ def test_bundle_is_reproducible_signed_and_contains_only_application_files(tmp_p
     with tarfile.open(bundle) as archive:
         names = archive.getnames()
         assert "python/pideck/bootstrap.py" in names
+        metadata = json.load(archive.extractfile("python/pideck/_build_info.json"))
+        assert metadata["built_at"] == "2026-01-01T00:00:00+00:00"
         assert "assets/icons/settings.svg" in names
         assert all(name.startswith(("python/pideck/", "assets/")) for name in names)
         assert all(member.isfile() for member in archive.getmembers())

@@ -5,6 +5,7 @@ from dataclasses import replace
 import logging
 import os
 from pathlib import Path
+import shutil
 import threading
 import time
 from typing import TYPE_CHECKING, Sequence
@@ -24,6 +25,7 @@ from pideck.application.ports.input import InputEvent
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, Configuration, WindowMode
 from pideck.domain.errors import ConfigurationError, PowerError
 from pideck.infrastructure.config import FileConfigurationRepository
+from pideck.infrastructure.build_info import installed_build_date
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
@@ -34,14 +36,20 @@ from pideck.infrastructure.pideck_releases import find_latest_release, version_k
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
 from pideck.infrastructure.network_manager import NetworkManagerGateway
 from pideck.application.ports.network import NetworkError
+from pideck.application.ports.bluetooth import BluetoothError
 from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
 from pideck.infrastructure.system_power import SystemPower
+from pideck.infrastructure.system_audio import PulseAudioGateway
+from pideck.infrastructure.x11_display import DisplayPreferences, X11DisplayGateway
 from pideck.infrastructure.theme import FileThemeRepository
 
 if TYPE_CHECKING:
     from pideck.presentation.qt.launcher_window import LauncherWindow
     from pideck.presentation.qt.settings_window import SettingsWindow
     from pideck.presentation.qt.network_window import NetworkWindow
+    from pideck.presentation.qt.audio_window import AudioWindow
+    from pideck.presentation.qt.display_window import DisplayWindow
+    from pideck.presentation.qt.bluetooth_window import BluetoothWindow
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -192,7 +200,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
     current_configuration = dependencies.configuration
     settings_service = SettingsService()
     image_mode = os.environ.get("PIDECK_IMAGE") == "1"
-    network_gateway = NetworkManagerGateway() if os.environ.get("PIDECK_NETWORK") == "1" else None
+    network_setup_enabled = os.environ.get("PIDECK_NETWORK") == "1"
+    network_gateway = NetworkManagerGateway() if network_setup_enabled or shutil.which("nmcli") else None
     update_service = ApplicationUpdateService(
         NativeUpdateGateway(image_mode=image_mode), allow_password_prompt=not image_mode
     )
@@ -200,6 +209,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
     power = SystemPower() if parsed_arguments.power_off_on_shutdown else None
     settings_window: SettingsWindow | None = None
     network_window: NetworkWindow | None = None
+    audio_window: AudioWindow | None = None
+    display_window: DisplayWindow | None = None
+    bluetooth_window: BluetoothWindow | None = None
+    bluetooth_opening = False
+    display_gateway = X11DisplayGateway(DisplayPreferences(parsed_arguments.config.parent / "display.yaml"))
 
     class PiDeckUpdateBridge(QObject):
         """Forward release worker results to the Qt thread."""
@@ -207,6 +221,13 @@ def main(arguments: Sequence[str] | None = None) -> int:
         status_received = Signal(object)
 
     update_bridge = PiDeckUpdateBridge()
+    class PowerBridge(QObject):
+        """Forward a completed host power request to the Qt thread."""
+
+        finished = Signal(object)
+
+    power_bridge = PowerBridge()
+    power_pending = False
     release_version = os.environ.get("PIDECK_RELEASE_VERSION") if image_mode else None
 
     def inspect_image_update() -> dict[str, str]:
@@ -271,7 +292,13 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     def handle_gamepad_event(event: InputEvent) -> None:
         """Route gamepad input to the active launcher/settings surface."""
-        if network_window is not None and network_window.isVisible():
+        if bluetooth_window is not None and bluetooth_window.isVisible():
+            bluetooth_window.handle_input(event)
+        elif display_window is not None and display_window.isVisible():
+            display_window.handle_input(event)
+        elif audio_window is not None and audio_window.isVisible():
+            audio_window.handle_input(event)
+        elif network_window is not None and network_window.isVisible():
             network_window.handle_input(event)
         elif settings_window is not None and settings_window.isVisible():
             settings_window.handle_input(event)
@@ -332,6 +359,46 @@ def main(arguments: Sequence[str] | None = None) -> int:
             dependencies.logger.error("System power-off failed: %s", error)
             window.show_power_error(str(error))
 
+    def handle_system_power_request(action: str) -> None:
+        """Run an explicitly confirmed host power action without blocking Qt."""
+        nonlocal power_pending
+        if power_pending or action not in {"restart", "shutdown"}:
+            return
+        power_pending = True
+
+        def request() -> None:
+            try:
+                host_power = SystemPower()
+                if action == "restart":
+                    host_power.restart()
+                else:
+                    host_power.power_off()
+            except PowerError as error:
+                power_bridge.finished.emit(str(error))
+                return
+            except Exception:
+                dependencies.logger.exception("Unexpected system power request failure")
+                power_bridge.finished.emit("System power request failed")
+                return
+            power_bridge.finished.emit(None)
+
+        threading.Thread(target=request, name="pideck-system-power", daemon=True).start()
+
+    def finish_system_power(error: str | None) -> None:
+        """Keep the session open on failure; clean up only after success."""
+        nonlocal power_pending
+        power_pending = False
+        if error is not None:
+            dependencies.logger.error("System power request failed: %s", error)
+            if settings_window is not None and settings_window.isVisible():
+                settings_window.show_power_error(error)
+            else:
+                window.show_power_error(error)
+            return
+        cleanup_session()
+
+    power_bridge.finished.connect(finish_system_power, Qt.ConnectionType.QueuedConnection)
+
     def handle_settings_changed(update: SettingsUpdate) -> None:
         """Persist each valid settings change and refresh both views."""
         nonlocal current_configuration
@@ -368,6 +435,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             update_service=update_service,
             pideck_update_info=pideck_update_service.state,
             network_enabled=network_gateway is not None,
+            system_enabled=True,
+            build_date=installed_build_date(),
         )
         def handle_pideck_update_request() -> None:
             if pideck_update_service.state.status is PiDeckUpdateStatus.FAILED:
@@ -377,6 +446,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         settings_window.pideck_update_requested.connect(handle_pideck_update_request)
         settings_window.network_requested.connect(open_network_window)
+        settings_window.audio_requested.connect(open_audio_window)
+        settings_window.display_requested.connect(open_display_window)
+        settings_window.bluetooth_requested.connect(open_bluetooth_window)
+        settings_window.power_requested.connect(handle_system_power_request)
         settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.finished.connect(lambda _: window.show_launcher())
         window.hide()
@@ -395,6 +468,68 @@ def main(arguments: Sequence[str] | None = None) -> int:
             network_gateway, theme, current_configuration.settings.language, parent,
         )
         network_window.showFullScreen()
+
+    def open_audio_window() -> None:
+        """Open audio settings using an unprivileged platform adapter."""
+        nonlocal audio_window
+        if audio_window is not None and audio_window.isVisible():
+            return
+        from pideck.presentation.qt.audio_window import AudioWindow
+
+        parent = settings_window if settings_window is not None and settings_window.isVisible() else window
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        audio_window = AudioWindow(
+            PulseAudioGateway(), theme, current_configuration.settings.language, parent,
+        )
+        audio_window.showFullScreen()
+
+    def open_display_window() -> None:
+        """Open guarded display settings using the X11 platform adapter."""
+        nonlocal display_window
+        if display_window is not None and display_window.isVisible():
+            return
+        from pideck.presentation.qt.display_window import DisplayWindow
+
+        parent = settings_window if settings_window is not None and settings_window.isVisible() else window
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        display_window = DisplayWindow(
+            display_gateway, theme, current_configuration.settings.language, parent,
+        )
+        display_window.showFullScreen()
+
+    def open_bluetooth_window() -> None:
+        """Open Bluetooth settings with an explicitly authorized pairing agent."""
+        nonlocal bluetooth_window, bluetooth_opening
+        if bluetooth_opening or (bluetooth_window is not None and bluetooth_window.isVisible()):
+            return
+        from pideck.presentation.qt.localization import tr
+
+        bluetooth_opening = True
+        try:
+            from pideck.infrastructure.bluez import BluezGateway
+            from pideck.infrastructure.bluez_agent import BluezAgent
+            from pideck.presentation.qt.bluetooth_window import BluetoothWindow
+
+            agent = BluezAgent()
+        except (ImportError, BluetoothError) as error:
+            dependencies.logger.warning("Bluetooth settings unavailable: %s", error)
+            if settings_window is not None:
+                settings_window.show_error(tr(
+                    current_configuration.settings.language, "bluetooth_error",
+                    message=tr(current_configuration.settings.language, "bluetooth_unavailable"),
+                ))
+            return
+        finally:
+            bluetooth_opening = False
+        if settings_window is None or not settings_window.isVisible():
+            agent.close()
+            return
+        parent = settings_window
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        bluetooth_window = BluetoothWindow(
+            BluezGateway(agent.path), agent, theme, current_configuration.settings.language, parent,
+        )
+        bluetooth_window.showFullScreen()
 
     class NetworkBridge(QObject):
         """Forward initial network detection to the Qt thread."""
@@ -432,10 +567,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
     window.application_requested.connect(handle_application_request)
     window.settings_requested.connect(handle_settings_request)
     window.shutdown_requested.connect(handle_shutdown_request)
+    display_gateway.restore_saved_async()
     window.show_launcher()
 
     QTimer.singleShot(0, pideck_update_service.check_async)
-    if network_gateway is not None:
+    if network_gateway is not None and network_setup_enabled:
         threading.Thread(target=check_initial_network, name="pideck-network-check", daemon=True).start()
     return application.exec()
 

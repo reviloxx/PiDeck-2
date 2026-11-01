@@ -81,3 +81,22 @@ def test_shutdown_without_power_control_only_cleans_up() -> None:
     shutdown(None, lambda: events.append("cleanup"))
 
     assert events == ["cleanup"]
+
+
+def test_restart_is_noninteractive_and_reports_failure(monkeypatch) -> None:
+    """Restart requests use systemd and report authorization failures."""
+    events: list[str] = []
+    def run(command, **kwargs):
+        events.append(" ".join(command))
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    SystemPower().restart()
+    assert events == ["systemctl reboot --no-block --no-ask-password"]
+
+    def reject(command, **kwargs):
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="Not authorized")
+
+    monkeypatch.setattr(subprocess, "run", reject)
+    with pytest.raises(PowerError, match="Not authorized"):
+        SystemPower().restart()

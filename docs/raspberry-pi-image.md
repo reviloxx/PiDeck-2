@@ -119,10 +119,24 @@ tag, both project version declarations and the checked-out commit to agree.
 Release inputs must have no local modifications. Existing images do not contain
 the updater; reflash them with an update-enabled release image.
 
+New image and signed application builds record the PiDeck application build
+time in UTC. Settings shows the timestamp for the running application, not the
+OS image; older builds without this metadata show it as unknown. Signed
+artifacts are reproducible for identical source and build timestamp inputs;
+different build times produce different artifacts. The bundle builder accepts
+`--build-timestamp` with the original timezone-aware ISO 8601 timestamp when
+reproducing an artifact.
+
+New images include the system-settings dependencies for X11 display control,
+PulseAudio-compatible audio, NetworkManager and BlueZ pairing. See
+[Settings](../README.md#settings) for supported operations and limitations.
+Validate display rollback, audio routing and Bluetooth pairing on the target
+hardware; these image changes have not been hardware-certified.
+
 On a release image, PiDeck checks for stable releases at startup and every six
 hours while running. The check interval can be set with
 `settings.update_check_interval_hours` in the user YAML (a whole number from
-1 to 596). In **Settings > Updates**, select the PiDeck row to download and
+1 to 596). In **Settings > PiDeck**, select the PiDeck row to download and
 verify an available update. The update is activated at the next boot; user
 configuration and data are not replaced. If the new launcher does not reach
 readiness, the previous release is restored on the following boot and the

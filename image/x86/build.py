@@ -14,11 +14,11 @@ import sys
 
 if __package__:
     from ..build import _validate_release_checkout, file_hash
-    from ..update_bundle import release_version
+    from ..update_bundle import build_metadata, release_version
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from image.build import _validate_release_checkout, file_hash
-    from image.update_bundle import release_version
+    from image.update_bundle import build_metadata, release_version
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -121,6 +121,8 @@ def _write_inputs(root: Path, tag: str | None, key: Path | None) -> None:
     updater = root / "usr/lib/pideck-updater/python"
     ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
     shutil.copytree(ROOT / "src/pideck", lib / "python/pideck", ignore=ignore)
+    metadata = build_metadata()
+    (lib / "python/pideck/_build_info.json").write_bytes(metadata)
     shutil.copytree(ROOT / "src/pideck", updater / "pideck", ignore=ignore)
     shutil.copytree(ROOT / "assets", root / "usr/share/pideck/assets")
     _install(PI_FILES / "pideck.yaml", root / "usr/share/pideck/config/pideck.yaml")
@@ -143,6 +145,7 @@ def _write_inputs(root: Path, tag: str | None, key: Path | None) -> None:
         version = release_version(ROOT, tag)
         release = lib / "releases" / version
         shutil.copytree(ROOT / "src/pideck", release / "python/pideck", ignore=ignore)
+        (release / "python/pideck/_build_info.json").write_bytes(metadata)
         shutil.copytree(ROOT / "assets", release / "assets")
         (release / "config").mkdir()
         (lib / "current").symlink_to(f"releases/{version}")
@@ -215,7 +218,7 @@ def _configure(
         f"UUID={root_uuid} / ext4 defaults 0 1\n"
         f"UUID={efi_uuid} /boot/efi vfat umask=0077 0 2\n", encoding="utf-8",
     )
-    _run("systemctl", "--root", str(root), "enable", "NetworkManager", "pideck-updater.service",
+    _run("systemctl", "--root", str(root), "enable", "NetworkManager", "bluetooth.service", "pideck-updater.service",
          "pideck-grow-root.service", "getty@tty1.service")
     chroot("grub-install", "--target=i386-pc", "--no-nvram", loop)
     chroot("grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",

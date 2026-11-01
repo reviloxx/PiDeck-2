@@ -16,6 +16,7 @@ kodi
 retroarch
 libretro-mgba
 python3-pyside6.qtwidgets
+python3-pyside6.qtdbus
 python3-yaml
 python3-evdev
 qt6-qpa-plugins
@@ -34,7 +35,9 @@ x11-xserver-utils
 x11-utils
 dbus-x11
 pulseaudio
+pulseaudio-utils
 network-manager
+bluez
 wpasupplicant
 wireless-regdb
 polkitd

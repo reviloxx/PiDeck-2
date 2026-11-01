@@ -161,17 +161,21 @@ Use trusted physical and network environments. Recovery requires external
 rescue media; there is no password-based administrative login.
 
 Ethernet uses NetworkManager. On the first offline start, PiDeck offers Wi-Fi
-setup; it can be skipped and reopened under **Settings > Network**. Select a
+setup; it can be skipped and reopened under **Settings > System > Network**. Select a
 visible open or WPA personal network and enter its key using a keyboard,
 mouse or controller-operated on-screen keyboard. Keys are masked and sent to
 NetworkManager via standard input, not command-line arguments. NetworkManager
-persists connection credentials. Hidden networks, enterprise authentication and
-Bluetooth pairing are not provided by this interface. A Wi-Fi network key,
+persists connection credentials. Hidden networks and enterprise authentication
+are not provided by this interface. A Wi-Fi network key,
 Steam pairing, NoMachine host credentials and website logins are not system
 passwords and may still be required.
 
 Common non-free firmware is included for hardware compatibility, but no
 particular graphics, Wi-Fi, audio or controller chipset is guaranteed.
+Settings includes X11 display modes with timed rollback, PulseAudio-compatible
+audio controls and BlueZ Bluetooth pairing; these require compatible hardware
+and an authorized active session. See [Settings](../README.md#settings) for
+backend limitations and behavior.
 Network setup is authorized only for the active local appliance account.
 Third-party app updates use the existing apt/Flatpak integration when
 available; the locally supplied NoMachine package has no configured update
@@ -189,6 +193,9 @@ partition and package manifests, and test:
   root expansion on a larger virtual disk.
 - Offline Wi-Fi prompt, skip, Settings entry, WPA connection and reconnect;
   Ethernet; keyboard, mouse and controller navigation.
+- Display mode confirmation, timeout rollback, and restoration after reboot;
+  audio device selection and volume; Bluetooth discovery, pairing confirmation,
+  connect/disconnect and cancellation; restart and shutdown authorization.
 - Every included application, its external window, return to PiDeck, audio,
   video, updates, and persistence across reboot.
 - The same boot, display, audio, network and input checks on the target

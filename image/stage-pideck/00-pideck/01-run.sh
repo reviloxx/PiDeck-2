@@ -40,6 +40,7 @@ on_chroot <<'EOF'
 plymouth-set-default-theme pideck
 update-initramfs -u -k all
 systemctl enable NetworkManager
+systemctl enable bluetooth.service
 systemctl enable pideck-updater.service
 EOF
 

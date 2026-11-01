@@ -148,18 +148,21 @@ class NativeUpdateGateway(UpdateGateway):
         """Check Flatpak availability without downloading or changing anything."""
         app_id = _flatpak_id(arguments)
         installed = _run_lines(["flatpak", "info", "--show-commit", app_id])
-        if installed is None:
+        if not installed:
             return UpdateInfo(application.identifier, application.name, UpdateStatus.UNSUPPORTED, message="Flatpak application is not installed")
+        versions = _run_lines(["flatpak", "info", "--show-version", app_id])
+        current_version = versions[0] if versions and versions[0] != "-" else None
         remote_lines = _run_lines(
             ["flatpak", "remote-ls", "--updates", "--app", "--columns=application,version,commit"]
         )
         if remote_lines is None:
-            return UpdateInfo(application.identifier, application.name, UpdateStatus.UNSUPPORTED, message="Flatpak update metadata is unavailable")
+            return UpdateInfo(application.identifier, application.name, UpdateStatus.UNSUPPORTED, current_version, message="Flatpak update metadata is unavailable")
         for line in remote_lines:
-            fields = line.split()
+            fields = [field.strip() for field in line.split("\t")] if "\t" in line else line.split()
             if len(fields) >= 3 and fields[0] == app_id and fields[2] != installed[0]:
-                return UpdateInfo(application.identifier, application.name, UpdateStatus.AVAILABLE, installed[0], fields[1])
-        return UpdateInfo(application.identifier, application.name, UpdateStatus.UP_TO_DATE, installed[0])
+                available_version = fields[1] if fields[1] != "-" else None
+                return UpdateInfo(application.identifier, application.name, UpdateStatus.AVAILABLE, current_version, available_version)
+        return UpdateInfo(application.identifier, application.name, UpdateStatus.UP_TO_DATE, current_version)
 
     def _check_apt(self, application, executable) -> UpdateInfo:
         """Compare installed and candidate apt package versions."""
@@ -173,9 +176,22 @@ class NativeUpdateGateway(UpdateGateway):
         )
         installed = _policy_value(result.stdout, "Installed")
         candidate = _policy_value(result.stdout, "Candidate")
+        current_version = installed if installed and installed != "(none)" else None
         if result.returncode != 0 or not candidate or candidate == "(none)" or not installed or installed == "(none)":
-            return UpdateInfo(application.identifier, application.name, UpdateStatus.UNSUPPORTED, message=f"No apt package metadata for {package}")
-        newer = subprocess.run(["dpkg", "--compare-versions", candidate, "gt", installed], check=False).returncode == 0
+            return UpdateInfo(
+                application.identifier, application.name, UpdateStatus.UNSUPPORTED, current_version,
+                message=f"No apt package metadata for {package}",
+            )
+        comparison = subprocess.run(
+            ["dpkg", "--compare-versions", candidate, "gt", installed],
+            capture_output=True, text=True, check=False,
+        )
+        if comparison.returncode not in (0, 1):
+            return UpdateInfo(
+                application.identifier, application.name, UpdateStatus.FAILED, installed,
+                message=f"Unable to compare apt package versions for {package}",
+            )
+        newer = comparison.returncode == 0
         return UpdateInfo(application.identifier, application.name, UpdateStatus.AVAILABLE if newer else UpdateStatus.UP_TO_DATE, installed, candidate if newer else None)
 
 

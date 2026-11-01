@@ -33,6 +33,7 @@ class UpdateInfo:
     current_version: str | None = None
     available_version: str | None = None
     message: str | None = None
+    build_date: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

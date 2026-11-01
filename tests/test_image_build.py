@@ -104,6 +104,7 @@ def test_image_configuration_and_assets(tmp_path: Path) -> None:
     assert set(config.home.visible_applications) == set(applications)
     packages = (STAGE / "00-pideck" / "00-packages-nr").read_text().split()
     assert {app.executable for app in applications.values()} <= set(packages)
+    assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils"} <= set(packages)
 
     shutil.copytree(ROOT / "assets", tmp_path / "assets")
     asset_root = tmp_path / "config"
@@ -135,6 +136,8 @@ def test_prepare_stage_copies_snapshot_and_enables_only_custom_export(tmp_path: 
     assert os.access(stage / "prerun.sh", os.X_OK)
     assert os.access(stage / "00-pideck" / "01-run.sh", os.X_OK)
     assert (stage / "00-pideck" / "files" / "project" / "src" / "pideck" / "bootstrap.py").is_file()
+    metadata = stage / "00-pideck" / "files" / "project" / "src" / "pideck" / "_build_info.json"
+    assert json.loads(metadata.read_text())["built_at"]
     assert not list(stage.rglob("__pycache__"))
     assert "stage0 stage1 stage2 stage-pideck" in config.read_text()
     assert "ENABLE_CLOUD_INIT=0" in config.read_text()

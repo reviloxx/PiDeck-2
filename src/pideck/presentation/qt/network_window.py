@@ -17,7 +17,9 @@ from pideck.application.ports.network import NetworkError, NetworkGateway, Wirel
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
+from .system_panel import create_system_panel
 from .theme import apply_theme
+from .wallpaper import WallpaperDialog
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,21 +28,24 @@ _LOGGER = logging.getLogger(__name__)
 class WirelessKeyDialog(QDialog):
     """Collect a wireless key using either a physical or on-screen keyboard."""
 
-    def __init__(self, theme: ThemeDefinition, language: str, parent: QWidget) -> None:
+    def __init__(
+        self, theme: ThemeDefinition, language: str, parent: QWidget,
+        *, title_key: str = "wifi_key", max_length: int = 64,
+    ) -> None:
         """Create a masked key editor with controller-navigable character keys."""
         super().__init__(parent)
-        self.setWindowTitle(tr(language, "wifi_key"))
+        self.setWindowTitle(tr(language, title_key))
         self.setModal(True)
         self._keys: list[QPushButton] = []
         self._shifted = False
         layout = QVBoxLayout(self)
-        title = QLabel(tr(language, "wifi_key"), self)
+        title = QLabel(tr(language, title_key), self)
         title.setObjectName("settings_heading")
         layout.addWidget(title)
         self.entry = QLineEdit(self)
         self.entry.setObjectName("password_input")
         self.entry.setEchoMode(QLineEdit.EchoMode.Password)
-        self.entry.setMaxLength(64)
+        self.entry.setMaxLength(max_length)
         self.entry.installEventFilter(self)
         layout.addWidget(self.entry)
         grid = QGridLayout()
@@ -117,7 +122,7 @@ class WirelessKeyDialog(QDialog):
         return True
 
 
-class NetworkWindow(QDialog):
+class NetworkWindow(WallpaperDialog):
     """Show wireless networks and perform slow network operations off the UI thread."""
 
     operation_finished = Signal(object, object)
@@ -136,8 +141,7 @@ class NetworkWindow(QDialog):
         self._key_dialog: WirelessKeyDialog | None = None
         self.setWindowTitle(tr(language, "network"))
         self.setModal(True)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(56, 44, 56, 44)
+        layout = create_system_panel(self)
         title = QLabel(tr(language, "network"), self)
         title.setObjectName("settings_heading")
         layout.addWidget(title)
@@ -145,6 +149,11 @@ class NetworkWindow(QDialog):
         description.setObjectName("settings_description")
         description.setWordWrap(True)
         layout.addWidget(description)
+        self.connection_status = QLabel(
+            tr(language, "network_connection_status", status=tr(language, "checking")), self,
+        )
+        self.connection_status.setObjectName("settings_description")
+        layout.addWidget(self.connection_status)
         self.status = QLabel("", self)
         self.status.setObjectName("settings_description")
         self.status.setWordWrap(True)
@@ -155,6 +164,7 @@ class NetworkWindow(QDialog):
         self.networks.installEventFilter(self)
         layout.addWidget(self.networks, stretch=1)
         actions = QHBoxLayout()
+        actions.addStretch()
         self.rescan = QPushButton(tr(language, "wifi_rescan"), self)
         self.rescan.setObjectName("settings_footer")
         self.rescan.clicked.connect(self.scan)
@@ -184,7 +194,10 @@ class NetworkWindow(QDialog):
 
     def scan(self) -> None:
         """Refresh access points asynchronously."""
-        self._submit("scan", self._gateway.scan)
+        def inspect() -> tuple[bool, tuple[WirelessNetwork, ...]]:
+            return self._gateway.connected(), self._gateway.scan()
+
+        self._submit("scan", inspect)
 
     def _finish_operation(self, operation: str, future: Future) -> None:
         if self._closed:
@@ -195,25 +208,44 @@ class NetworkWindow(QDialog):
             result = future.result()
         except NetworkError as error:
             self.status.setText(tr(self._language, "wifi_error", message=str(error)))
+            if operation == "scan":
+                self.connection_status.setText(tr(
+                    self._language, "network_connection_status",
+                    status=tr(self._language, "unknown"),
+                ))
             self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         except Exception as error:
             _LOGGER.error("Unexpected network operation failure: %s", type(error).__name__)
             self.status.setText(tr(self._language, "wifi_error", message=tr(self._language, "wifi_unavailable")))
+            if operation == "scan":
+                self.connection_status.setText(tr(
+                    self._language, "network_connection_status",
+                    status=tr(self._language, "unknown"),
+                ))
             self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         if operation == "connect":
             self.status.setText(tr(self._language, "wifi_connected"))
+            self.connection_status.setText(tr(
+                self._language, "network_connection_status",
+                status=tr(self._language, "wifi_connected"),
+            ))
             return
+        connected, networks = result
+        self.connection_status.setText(tr(
+            self._language, "network_connection_status",
+            status=tr(self._language, "wifi_connected" if connected else "network_disconnected"),
+        ))
         self.networks.clear()
-        for network in result:
+        for network in networks:
             text = f"{network.ssid}  ({network.signal}%)"
             if network.connected:
                 text += f" - {tr(self._language, 'wifi_connected')}"
             item = QListWidgetItem(text, self.networks)
             item.setData(Qt.ItemDataRole.UserRole, network)
-        self.status.setText(tr(self._language, "wifi_select" if result else "wifi_empty"))
-        if result:
+        self.status.setText(tr(self._language, "wifi_select" if networks else "wifi_empty"))
+        if networks:
             self.networks.setCurrentRow(0)
             self.networks.setFocus(Qt.FocusReason.OtherFocusReason)
         else:

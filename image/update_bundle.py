@@ -2,6 +2,7 @@
 """Build a signed, reproducible application update bundle for an image release."""
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import io
 import json
@@ -17,6 +18,15 @@ ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_NAME = "pideck-update.tar"
 MANIFEST_NAME = "pideck-update.json"
 SIGNATURE_NAME = "pideck-update.sig"
+
+
+def build_metadata(timestamp: datetime | None = None) -> bytes:
+    """Encode the actual build time as a stable UTC metadata document."""
+    timestamp = timestamp or datetime.now(timezone.utc)
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError("Build time must include a timezone")
+    value = timestamp.astimezone(timezone.utc).isoformat(timespec="seconds")
+    return (json.dumps({"built_at": value}, sort_keys=True) + "\n").encode("utf-8")
 
 
 def release_version(project_root: Path, tag: str) -> str:
@@ -56,8 +66,11 @@ def _sources(project_root: Path) -> list[tuple[Path, str]]:
     return files
 
 
-def create_bundle(project_root: Path, output: Path, tag: str, signing_key: Path) -> None:
-    """Create a deterministic bundle and sign its metadata with an Ed25519 key."""
+def create_bundle(
+    project_root: Path, output: Path, tag: str, signing_key: Path,
+    *, timestamp: datetime | None = None,
+) -> None:
+    """Create a signed bundle reproducible for a fixed build timestamp."""
     version = release_version(project_root, tag)
     key_details = subprocess.run(
         ["openssl", "pkey", "-in", str(signing_key), "-pubout", "-text", "-noout"],
@@ -68,6 +81,9 @@ def create_bundle(project_root: Path, output: Path, tag: str, signing_key: Path)
     if not key_details.stdout.startswith("ED25519 Public-Key:"):
         raise ValueError("The release signing key must be an Ed25519 private key")
     sources = _sources(project_root)
+    metadata_name = "python/pideck/_build_info.json"
+    if any(name == metadata_name for _, name in sources):
+        raise ValueError("Build metadata must be generated, not supplied in source")
     output.mkdir(parents=True, exist_ok=True)
     bundle = output / BUNDLE_NAME
     with tarfile.open(bundle, "w", format=tarfile.USTAR_FORMAT) as archive:
@@ -80,6 +96,14 @@ def create_bundle(project_root: Path, output: Path, tag: str, signing_key: Path)
             info.uid = info.gid = 0
             info.uname = info.gname = ""
             archive.addfile(info, io.BytesIO(data))
+        data = build_metadata(timestamp)
+        info = tarfile.TarInfo(metadata_name)
+        info.size = len(data)
+        info.mode = 0o644
+        info.mtime = 0
+        info.uid = info.gid = 0
+        info.uname = info.gname = ""
+        archive.addfile(info, io.BytesIO(data))
 
     manifest = {
         "format": 1,
@@ -109,8 +133,12 @@ def main() -> None:
     parser.add_argument("--tag", required=True)
     parser.add_argument("--signing-key", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--build-timestamp", type=datetime.fromisoformat,
+        help="Original timezone-aware ISO 8601 build time for reproducing an artifact",
+    )
     args = parser.parse_args()
-    create_bundle(ROOT, args.output, args.tag, args.signing_key)
+    create_bundle(ROOT, args.output, args.tag, args.signing_key, timestamp=args.build_timestamp)
 
 
 if __name__ == "__main__":
