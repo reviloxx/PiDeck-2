@@ -233,6 +233,33 @@ def test_arrow_keys_on_tile_use_grid_navigation(application: QApplication) -> No
     window.close()
 
 
+def test_tab_focused_tile_is_activated_and_used_for_navigation(application: QApplication) -> None:
+    """Tab and Enter act on the visibly focused tile, not a stale grid selection."""
+    window = launcher_window(application)
+    requested: list[str] = []
+    window.application_requested.connect(lambda app: requested.append(app.identifier))
+    QTest.keyClick(window._tiles[0], Qt.Key.Key_Tab)
+    assert window._tiles[1].hasFocus()
+    assert window._controller.state.focused_index == 1
+    QTest.keyClick(window._tiles[1], Qt.Key.Key_Return)
+    assert requested == ["two"]
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert requested == ["two", "two"]
+    QTest.keyClick(window._tiles[1], Qt.Key.Key_Right)
+    assert window._tiles[2].hasFocus()
+    window.close()
+
+
+def test_mouse_focused_tile_updates_controller_selection(application: QApplication) -> None:
+    """Mouse activation and subsequent directional input use the same selection."""
+    window = launcher_window(application)
+    QTest.mouseClick(window._tiles[1], Qt.MouseButton.LeftButton)
+    assert window._controller.state.focused_index == 1
+    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
+    assert window._tiles[2].hasFocus()
+    window.close()
+
+
 def test_gamepad_dpad_and_activate_navigate_launcher(application: QApplication) -> None:
     """Normalized gamepad actions move and activate launcher tiles."""
     window = launcher_window(application)

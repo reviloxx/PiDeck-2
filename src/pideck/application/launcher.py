@@ -79,6 +79,17 @@ class LauncherController:
         )
         return self._state
 
+    def select(self, index: int) -> LauncherState:
+        """Synchronize the selected application with a focused tile."""
+        if not 0 <= index < len(self._state.applications):
+            raise IndexError("Application tile index is out of range")
+        self._state = LauncherState(
+            applications=self._state.applications,
+            focused_index=index,
+            columns=self._state.columns,
+        )
+        return self._state
+
     def activate(self) -> ApplicationDefinition | None:
         """Return the focused application as an activation intent."""
         return self._state.focused_application

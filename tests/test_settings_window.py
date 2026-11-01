@@ -306,6 +306,31 @@ def test_german_language_updates_settings_labels(application: QApplication) -> N
     assert window._nav_buttons[2].text() == "Aktualisierungen"
     assert window._clock_labels[0].text() == "Uhr"
     assert window._language_labels[0].text() == "Sprache"
+    assert window._show_clock.text() == "Ein"
+    assert window._reduced_motion.text() == "Ein"
+    window.close()
+
+
+def test_gamepad_language_dropdown_confirms_or_cancels_selection(application: QApplication) -> None:
+    """Browsing a language does not persist it until the controller confirms."""
+    window = settings_window(application)
+    window._select_page(0)
+    window._language_row.setFocus()
+    changes: list[SettingsUpdate] = []
+    window.settings_changed.connect(changes.append)
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert window._language_combo.view().isVisible()
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert window._language_combo.currentData() == "en"
+    assert changes == []
+    window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
+    assert window._language_combo.currentData() == "en"
+    assert window.isVisible()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert window._language_combo.currentData() == "de"
+    assert len(changes) == 1
     window.close()
 
 
@@ -490,7 +515,7 @@ def test_gamepad_actions_navigate_settings(application: QApplication) -> None:
 
 
 def test_gamepad_arrows_navigate_open_language_dropdown(application: QApplication) -> None:
-    """Gamepad arrows change and close an expanded language combo popup."""
+    """Gamepad arrows select a popup choice and activation applies it."""
     window = settings_window(application)
     window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
@@ -500,9 +525,11 @@ def test_gamepad_arrows_navigate_open_language_dropdown(application: QApplicatio
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert window._language_combo.view().isVisible()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
-    assert window._language_combo.currentData() == "de"
+    assert window._language_combo.view().currentIndex().row() == 1
+    assert window._language_combo.currentData() == "en"
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert window._language_combo.view().isVisible() is False
+    assert window._language_combo.currentData() == "de"
     window.close()
 
 

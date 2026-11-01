@@ -50,6 +50,13 @@ pideck --validate-only --config config/pideck.yaml
 
 On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and Start maps to Home. Controllers can be connected or removed while PiDeck is running.
 
+Use the arrow keys or Tab to select an application, then Enter or Space to open
+it. Close the application to return to PiDeck; Alt+F4 works for most X11
+applications. Some applications provide their own exit action. The configured
+Home shortcut is not a global shortcut while another application has focus.
+In settings dropdowns, use the arrow keys to browse, Enter to confirm, or
+Escape to cancel.
+
 ## Settings
 
 **Settings > PiDeck** shows the installed PiDeck version, its application

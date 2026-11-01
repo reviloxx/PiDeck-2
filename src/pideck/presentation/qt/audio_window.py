@@ -206,6 +206,11 @@ class AudioWindow(WallpaperDialog):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Navigate between audio controls with vertical directional input."""
         if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            if watched is self.output and event.key() in (
+                Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space,
+            ):
+                self.output.showPopup()
+                return True
             if watched in (self.refresh, self.back) and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
                 target = self.refresh if event.key() == Qt.Key.Key_Left else self.back
                 if target.isEnabled():

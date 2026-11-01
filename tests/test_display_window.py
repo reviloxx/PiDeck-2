@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtTest import QTest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
 from pideck.application.ports.display import DisplayError, DisplayMode, DisplayOutput
@@ -88,6 +89,31 @@ def test_gamepad_display_selection_and_confirmation(application: QApplication) -
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     _wait(application, lambda: display.change.confirmed)
     assert not display.change.cancelled
+    window.close()
+    parent.close()
+
+
+def test_keyboard_enter_opens_mode_selector_without_applying(application: QApplication) -> None:
+    """Enter on a mode selector opens choices instead of applying the current mode."""
+    parent = QWidget()
+    display = Display()
+    window = DisplayWindow(display, DEFAULT_THEME, "en", parent)
+    window.show()
+    _wait(application, lambda: window.output.isEnabled())
+    QTest.keyClick(window.output, Qt.Key.Key_Down)
+    assert window.mode.hasFocus()
+    QTest.keyClick(window.mode, Qt.Key.Key_Return)
+    assert window.mode.view().isVisible()
+    assert display.selected is None
+    QTest.keyClick(window.mode.view(), Qt.Key.Key_Down)
+    QTest.keyClick(window.mode.view(), Qt.Key.Key_Return)
+    assert window.mode.currentData() == display.modes[1]
+    assert display.selected is None
+    QTest.keyClick(window.mode, Qt.Key.Key_Down)
+    assert window.apply.hasFocus()
+    QTest.keyClick(window.apply, Qt.Key.Key_Return)
+    _wait(application, lambda: display.selected is not None)
+    assert display.selected == ("HDMI-1", display.modes[1])
     window.close()
     parent.close()
 

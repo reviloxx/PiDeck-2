@@ -242,6 +242,11 @@ class DisplayWindow(WallpaperDialog):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Navigate available controls vertically with the keyboard or gamepad."""
         if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            if isinstance(watched, QComboBox) and event.key() in (
+                Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space,
+            ):
+                watched.showPopup()
+                return True
             if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
                 for group in ((self.apply, self.keep, self.revert), (self.refresh, self.back)):
                     buttons = [button for button in group if button.isEnabled() and button.isVisible()]

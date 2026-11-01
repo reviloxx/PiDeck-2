@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtTest import QTest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
 from pideck.application.ports.audio import AudioError, AudioOutput, AudioState
@@ -71,6 +72,24 @@ def test_audio_controls_are_asynchronous_and_controller_accessible(application: 
     assert window.output.currentText() == "Speakers"
     window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
     assert not window.isVisible()
+    parent.close()
+
+
+def test_keyboard_enter_opens_audio_selector(application: QApplication) -> None:
+    """Keyboard activation opens output choices instead of a default action."""
+    parent = QWidget()
+    audio = Audio()
+    window = AudioWindow(audio, DEFAULT_THEME, "en", parent)
+    window.show()
+    _wait(application, lambda: window.output.isEnabled())
+    QTest.keyClick(window.output, Qt.Key.Key_Return)
+    assert window.output.view().isVisible()
+    assert audio.current == 1
+    QTest.keyClick(window.output.view(), Qt.Key.Key_Down)
+    QTest.keyClick(window.output.view(), Qt.Key.Key_Return)
+    _wait(application, lambda: audio.current == 2 and window.output.isEnabled())
+    assert window.output.currentText() == "Speakers"
+    window.close()
     parent.close()
 
 

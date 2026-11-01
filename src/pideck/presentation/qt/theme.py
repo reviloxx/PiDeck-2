@@ -178,6 +178,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border: 1px solid %(muted_text)s;
             border-radius: 6px;
             color: %(text)s;
+            font-size: %(body_size)spx;
             min-height: 42px;
             padding: 0 12px;
         }
@@ -188,8 +189,17 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             background-color: %(surface)s;
             border: 1px solid %(focus)s;
             color: %(text)s;
+            font-size: %(body_size)spx;
             selection-background-color: %(active_surface)s;
             selection-color: %(text)s;
+        }
+        QComboBox#settings_control QAbstractItemView::item {
+            min-height: 42px;
+            padding: 4px 12px;
+        }
+        QComboBox#settings_control QAbstractItemView::item:selected {
+            background-color: %(active_surface)s;
+            color: %(text)s;
         }
         QSlider#system_volume {
             background-color: %(content_surface)s;

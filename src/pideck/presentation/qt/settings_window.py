@@ -936,18 +936,18 @@ class SettingsWindow(QDialog):
             return
         dropdown = self._open_dropdown()
         if dropdown is not None:
-            if event.action in (InputAction.UP, InputAction.DOWN):
-                step = -1 if event.action is InputAction.UP else 1
-                dropdown.setCurrentIndex(
-                    max(0, min(dropdown.count() - 1, dropdown.currentIndex() + step))
+            keys = {
+                InputAction.UP: Qt.Key.Key_Up,
+                InputAction.DOWN: Qt.Key.Key_Down,
+                InputAction.ACTIVATE: Qt.Key.Key_Return,
+                InputAction.BACK: Qt.Key.Key_Escape,
+            }
+            key = keys.get(event.action)
+            if key is not None:
+                QApplication.sendEvent(
+                    dropdown.view(), QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
                 )
-                return
-            if event.action is InputAction.ACTIVATE:
-                dropdown.hidePopup()
-                return
-            if event.action is InputAction.BACK:
-                dropdown.hidePopup()
-                return
+            return
         current = self.focusWidget()
         qt_keys = {
             InputAction.LEFT: Qt.Key.Key_Left,
@@ -1094,6 +1094,8 @@ class SettingsWindow(QDialog):
                 self._power_rows[action].setAccessibleName(self._power_labels[action][0].text())
                 self._power_rows[action].setAccessibleDescription(self._power_labels[action][1].text())
         self._back_button.setText(tr(self._language, "back"))
+        self._reduced_motion.setText(tr(self._language, "on"))
+        self._show_clock.setText(tr(self._language, "on"))
         self._sidebar_subtitle.setText(tr(self._language, "launcher_settings"))
         self._sidebar_hint.setText(tr(self._language, "navigation_hint"))
         self._page_kicker.setText(tr(self._language, "appearance_kicker"))

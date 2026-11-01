@@ -35,6 +35,7 @@ class LauncherTile(QPushButton):
 
     activated = Signal(object)
     navigation_requested = Signal(object)
+    focused = Signal()
 
     def __init__(
         self,
@@ -120,6 +121,7 @@ class LauncherTile(QPushButton):
     def focusInEvent(self, event: object) -> None:
         """Enable the theme glow when the tile receives keyboard focus."""
         super().focusInEvent(event)
+        self.focused.emit()
         effect = self.property("focus_effect")
         animation = self.property("focus_animation")
         if effect is not None and animation is not None:
@@ -327,6 +329,10 @@ class LauncherWindow(QMainWindow):
         subtitle.setObjectName("launcher_subtitle")
         heading.addWidget(title)
         heading.addWidget(subtitle)
+        self._close_hint_label = QLabel(tr(self._language, "close_application_hint"), self._root)
+        self._close_hint_label.setObjectName("launcher_subtitle")
+        self._close_hint_label.setWordWrap(True)
+        heading.addWidget(self._close_hint_label)
         header.addLayout(heading)
         header.addStretch()
         self._clock_label = QLabel(self._root)
@@ -357,6 +363,7 @@ class LauncherWindow(QMainWindow):
         """Translate launcher controls and switch the clock date format."""
         self._language = language if language in {"en", "de"} else "en"
         self._subtitle_label.setText(tr(self._language, "choose_application"))
+        self._close_hint_label.setText(tr(self._language, "close_application_hint"))
         self._settings_button.setText(tr(self._language, "settings"))
         self._shutdown_button.setText(tr(self._language, "shutdown"))
         self._update_clock()
@@ -416,6 +423,7 @@ class LauncherWindow(QMainWindow):
             tile.set_running(application.identifier == self._running_identifier)
             tile.activated.connect(self.application_requested)
             tile.navigation_requested.connect(self._handle_tile_navigation)
+            tile.focused.connect(lambda tile_index=index: self._controller.select(tile_index))
             self._tiles.append(tile)
             self._grid_layout.addWidget(tile, index // columns, index % columns)
         self._focus_current_tile()

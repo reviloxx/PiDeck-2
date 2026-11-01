@@ -8,6 +8,7 @@ from PySide6.QtCore import QDate, QDateTime, QLocale, QTime
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         "choose_application": "Choose an application",
+        "close_application_hint": "Close an application to return to PiDeck (Alt+F4 in most apps).",
         "settings": "Settings",
         "shutdown": "Shutdown",
         "power_off_failed": "Shutdown failed: {message}",
@@ -152,6 +153,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "install_password_message": "Administratorpasswort eingeben, um Flatpak für {name} zu installieren.",
         "install_cancel_deferred": "Der Abbruch erfolgt nach Abschluss der Systempaket-Installation: {message}",
         "choose_application": "Anwendung auswählen",
+        "close_application_hint": "Anwendung schließen, um zu PiDeck zurückzukehren (meist Alt+F4).",
         "settings": "Einstellungen",
         "shutdown": "Herunterfahren",
         "power_off_failed": "Herunterfahren fehlgeschlagen: {message}",
