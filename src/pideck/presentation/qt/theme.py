@@ -13,6 +13,7 @@ def configure_combo_box(combo: QComboBox) -> None:
     """Use a list delegate that renders the themed popup selection and item size."""
     view = combo.view()
     view.setItemDelegate(QStyledItemDelegate(view))
+    combo.setMaxVisibleItems(6)
 
 
 def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
@@ -183,6 +184,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             background-color: %(surface)s;
             border: 1px solid %(muted_text)s;
             border-radius: 6px;
+            combobox-popup: 0;
             color: %(text)s;
             font-size: %(body_size)spx;
             min-height: 42px;

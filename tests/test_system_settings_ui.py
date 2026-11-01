@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QImage, QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QLabel, QProxyStyle, QPushButton, QStyle, QWidget
 
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
@@ -21,6 +21,7 @@ from pideck.presentation.qt.display_window import DisplayWindow
 from pideck.presentation.qt.network_window import NetworkWindow
 from pideck.presentation.qt.power_dialog import PowerDialog
 from pideck.presentation.qt.settings_window import SettingsWindow
+from pideck.presentation.qt.theme import apply_theme, configure_combo_box
 from tests.test_audio_window import Audio
 from tests.test_bluetooth_window import Agent, Gateway
 from tests.test_configuration import configuration_document
@@ -121,6 +122,34 @@ def test_power_confirmation_uses_themed_legible_text(application: QApplication) 
     assert dialog.cancel.hasFocus()
     dialog.close()
     parent.close()
+
+
+def test_long_dropdown_is_bounded_with_native_menu_style(application: QApplication) -> None:
+    """Long lists remain scrollable without covering the entire TV screen."""
+    class MenuPopupStyle(QProxyStyle):
+        def styleHint(self, hint, option=None, widget=None, returnData=None):
+            if hint == QStyle.StyleHint.SH_ComboBox_Popup:
+                return 1
+            return super().styleHint(hint, option, widget, returnData)
+
+    combo = QComboBox()
+    style = MenuPopupStyle()
+    combo.setStyle(style)
+    combo.setObjectName("settings_control")
+    configure_combo_box(combo)
+    for index in range(40):
+        combo.addItem(f"Mode {index}")
+    apply_theme(combo, DEFAULT_THEME)
+    combo.show()
+    combo.showPopup()
+    application.processEvents()
+    view = combo.view()
+    item_height = view.visualRect(view.model().index(0, 0)).height()
+    assert combo.style().styleHint(QStyle.StyleHint.SH_ComboBox_Popup, None, combo) == 0
+    assert combo.maxVisibleItems() <= 6
+    assert view.window().height() <= item_height * 6 + 20
+    combo.hidePopup()
+    combo.close()
 
 
 def test_appearance_row_mouse_click_still_only_moves_focus(application: QApplication) -> None:
