@@ -29,7 +29,7 @@ DEBIAN_KEYRING = Path("/usr/share/keyrings/debian-archive-keyring.gpg")
 IMAGE_SIZE = 12 * 1024**3
 HOST_TOOLS = (
     "debootstrap", "sgdisk", "losetup", "mkfs.ext4", "mkfs.vfat",
-    "mount", "umount", "chroot", "xz", "blkid", "openssl", "dpkg-deb", "systemctl", "gpgv",
+    "mount", "umount", "chroot", "xz", "blkid", "openssl", "dpkg-deb", "systemctl", "gpgv", "udevadm",
 )
 
 
@@ -65,6 +65,14 @@ def _partition(image: Path) -> None:
     _run("sgdisk", "--clear", "--new=1:2048:+2M", "--typecode=1:ef02",
          "--new=2:0:+512M", "--typecode=2:ef00", "--change-name=2:pideck-efi",
          "--new=3:0:0", "--typecode=3:8300", "--change-name=3:pideck-root", str(image))
+
+
+def _settle_loop_partitions(loop: str) -> None:
+    """Wait for udev and require both filesystem partition devices."""
+    _run("udevadm", "settle", "--timeout=30")
+    missing = [f"{loop}p{number}" for number in (2, 3) if not Path(f"{loop}p{number}").is_block_device()]
+    if missing:
+        raise RuntimeError(f"Loop partition devices are unavailable: {', '.join(missing)}")
 
 
 def _input_hashes() -> dict[str, str]:
@@ -244,6 +252,7 @@ def build(
     with ExitStack() as stack:
         loop = _run("losetup", "--find", "--show", "--partscan", str(image), capture=True)
         stack.callback(_run, "losetup", "--detach", loop)
+        _settle_loop_partitions(loop)
         _run("mkfs.vfat", "-F", "32", f"{loop}p2")
         _run("mkfs.ext4", "-F", f"{loop}p3")
         root = work_dir / "root"

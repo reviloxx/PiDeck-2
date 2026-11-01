@@ -27,7 +27,7 @@ tools. On Debian or Ubuntu, install them with:
 ```bash
 sudo apt-get update
 sudo apt-get install --no-install-recommends debootstrap gdisk util-linux \
-  e2fsprogs dosfstools xz-utils openssl systemd python3 gpgv debian-archive-keyring
+  e2fsprogs dosfstools xz-utils openssl systemd udev python3 gpgv debian-archive-keyring
 ```
 
 The installed Debian archive keyring must contain the keys for Debian 13.

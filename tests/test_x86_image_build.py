@@ -184,13 +184,41 @@ def test_failure_releases_mounts_and_loop_device(
 
     monkeypatch.setattr(x86_build, "_run", run)
     monkeypatch.setattr(x86_build, "_configure", fail)
+    monkeypatch.setattr(Path, "is_block_device", lambda self: True)
     with pytest.raises(RuntimeError, match="configuration failed"):
         x86_build.build(tmp_path / "image")
     bootstrap = next(command for command in calls if command[0] == "debootstrap")
+    assert calls.index(("udevadm", "settle", "--timeout=30")) < next(
+        index for index, command in enumerate(calls) if command[0] == "mkfs.vfat"
+    )
     assert "--force-check-gpg" in bootstrap
     assert f"--keyring={x86_build.DEBIAN_KEYRING}" in bootstrap
     cleanup = [command for command in calls if command[0] == "umount" or command[:2] == ("losetup", "--detach")]
     assert [Path(command[-1]).name for command in cleanup] == ["sys", "proc", "dev", "efi", "root", "loop987"]
+
+
+@pytest.mark.parametrize("settle_fails", [False, True])
+def test_missing_loop_partitions_abort_and_detach(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, settle_fails: bool,
+) -> None:
+    """A device failure must detach the loop without formatting either partition."""
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(x86_build, "_check_host", lambda *args: None)
+    monkeypatch.setattr(x86_build, "IMAGE_SIZE", 1024)
+    monkeypatch.setattr(Path, "is_block_device", lambda self: False)
+
+    def run(*command: str, capture: bool = False) -> str:
+        calls.append(command)
+        if command[0] == "udevadm" and settle_fails:
+            raise subprocess.CalledProcessError(1, command)
+        return "/dev/loop987" if command[:1] == ("losetup",) and capture else ""
+
+    monkeypatch.setattr(x86_build, "_run", run)
+    error = subprocess.CalledProcessError if settle_fails else RuntimeError
+    with pytest.raises(error):
+        x86_build.build(tmp_path / "image")
+    assert not any(command[0].startswith("mkfs.") for command in calls)
+    assert calls[-1] == ("losetup", "--detach", "/dev/loop987")
 
 
 def test_source_changes_abort_before_compression(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -213,6 +241,7 @@ def test_source_changes_abort_before_compression(tmp_path: Path, monkeypatch: py
 
     monkeypatch.setattr(x86_build, "_run", run)
     monkeypatch.setattr(x86_build, "_configure", configure)
+    monkeypatch.setattr(Path, "is_block_device", lambda self: True)
     with pytest.raises(RuntimeError, match="source inputs changed"):
         x86_build.build(tmp_path / "image")
     assert not any(command[0] == "xz" for command in commands)
