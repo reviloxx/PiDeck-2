@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -22,11 +23,12 @@ from PySide6.QtWidgets import (
 )
 
 from pideck.application.settings import SettingsUpdate
+from pideck.application.catalog import available_applications
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
-from pideck.domain.configuration import Configuration
+from pideck.domain.configuration import ApplicationDefinition, Configuration
 from pideck.domain.theme import ThemeDefinition
 from pideck import __version__
 
@@ -284,6 +286,7 @@ class PasswordPrompt(WallpaperDialog):
         theme: ThemeDefinition,
         parent: QWidget,
         language: str = "en",
+        installing: bool = False,
     ) -> None:
         """Create a modal password prompt without persisting the secret."""
         super().__init__(parent)
@@ -295,7 +298,7 @@ class PasswordPrompt(WallpaperDialog):
         layout.setSpacing(16)
         title = QLabel(tr(language, "system_update"), self)
         title.setObjectName("settings_heading")
-        message = QLabel(tr(language, "password_message", name=application_name), self)
+        message = QLabel(tr(language, "install_password_message" if installing else "password_message", name=application_name), self)
         message.setObjectName("settings_description")
         message.setWordWrap(True)
         self.password_input = QLineEdit(self)
@@ -373,6 +376,7 @@ class SettingsWindow(QDialog):
     display_requested = Signal()
     bluetooth_requested = Signal()
     power_requested = Signal(str)
+    application_install_requested = Signal(str)
 
     def __init__(
         self,
@@ -385,10 +389,15 @@ class SettingsWindow(QDialog):
         network_enabled: bool = False,
         system_enabled: bool = False,
         build_date: str | None = None,
+        catalog: tuple[ApplicationDefinition, ...] = (),
     ) -> None:
         """Build the settings menu from the current validated configuration."""
         super().__init__(parent)
         self._configuration = configuration
+        self._catalog = {
+            item.identifier: item for item in available_applications(configuration, catalog)
+        }
+        self._installing_id: str | None = None
         self._theme = theme
         self._language = configuration.settings.language
         self._asset_root = asset_root
@@ -424,6 +433,7 @@ class SettingsWindow(QDialog):
         self._show_clock.toggled.connect(self._emit_current_settings)
         self._language_combo.currentIndexChanged.connect(self._handle_language_changed)
         self._applications.itemChanged.connect(self._handle_application_item_changed)
+        self._applications.itemClicked.connect(self._activate_catalog_item)
         self.update_status.connect(self._handle_update_status)
         if self._update_service is not None:
             self._update_service.check_async(
@@ -641,6 +651,10 @@ class SettingsWindow(QDialog):
                 if all_visible or application.identifier in visible_ids
                 else Qt.CheckState.Unchecked
             )
+        for application in self._catalog.values():
+            item = QListWidgetItem(tr(self._language, "install_application", name=application.name), self._applications)
+            item.setData(Qt.ItemDataRole.UserRole, application.identifier)
+            item.setData(Qt.ItemDataRole.UserRole + 1, True)
         layout.addWidget(self._applications, stretch=1)
         self._page_controls[1] = [self._applications]
         return page
@@ -897,6 +911,18 @@ class SettingsWindow(QDialog):
         """Handle normalized gamepad actions using the current focus target."""
         if not event.pressed:
             return
+        modal = QApplication.activeModalWidget()
+        if isinstance(modal, PasswordPrompt) and modal.parent() is self:
+            keys = {
+                InputAction.LEFT: Qt.Key.Key_Left, InputAction.RIGHT: Qt.Key.Key_Right,
+                InputAction.UP: Qt.Key.Key_Up, InputAction.DOWN: Qt.Key.Key_Down,
+                InputAction.ACTIVATE: Qt.Key.Key_Return, InputAction.BACK: Qt.Key.Key_Escape,
+            }
+            key = keys.get(event.action)
+            if key is not None:
+                focus = modal.focusWidget() or modal
+                QApplication.sendEvent(focus, QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier))
+            return
         if self._power_dialog is not None:
             self._power_dialog.handle_input(event)
             return
@@ -968,11 +994,7 @@ class SettingsWindow(QDialog):
             elif current is self._applications:
                 item = self._applications.item(self._applications.currentRow())
                 if item is not None:
-                    item.setCheckState(
-                        Qt.CheckState.Unchecked
-                        if item.checkState() is Qt.CheckState.Checked
-                        else Qt.CheckState.Checked
-                    )
+                    self._activate_application_item(item)
             elif current in self._page_controls.get(0, []):
                 self._handle_row_activation(current)
             elif current is self._pideck_row and self._pideck_row is not None:
@@ -1075,6 +1097,12 @@ class SettingsWindow(QDialog):
             labels[0].setText(tr(self._language, title_key))
             labels[1].setText(tr(self._language, hint_key))
         self._select_page(self._current_page, focus_first=False)
+        for index in range(self._applications.count()):
+            item = self._applications.item(index)
+            application_id = item.data(Qt.ItemDataRole.UserRole)
+            if item.data(Qt.ItemDataRole.UserRole + 1) and application_id in self._catalog:
+                key = "installing_application" if self._installing_id == application_id else "install_application"
+                item.setText(tr(self._language, key, name=self._catalog[application_id].name))
         self._language_combo.setItemText(0, tr(self._language, "english"))
         self._language_combo.setItemText(1, tr(self._language, "german"))
         for row in self._update_rows.values():
@@ -1245,11 +1273,7 @@ class SettingsWindow(QDialog):
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
                 item = self._applications.item(current_row)
                 if item is not None:
-                    item.setCheckState(
-                        Qt.CheckState.Unchecked
-                        if item.checkState() is Qt.CheckState.Checked
-                        else Qt.CheckState.Checked
-                    )
+                    self._activate_application_item(item)
                 return True
             return super().eventFilter(watched, event)
         controls = self._page_controls.get(self._current_page, [])
@@ -1275,6 +1299,8 @@ class SettingsWindow(QDialog):
         state: Qt.CheckState | None = None,
     ) -> None:
         """Keep one application visible and emit valid list changes immediately."""
+        if item.data(Qt.ItemDataRole.UserRole + 1):
+            return
         state = item.checkState() if state is None else state
         if state is Qt.CheckState.Unchecked and not any(
             self._applications.item(index).checkState() is Qt.CheckState.Checked
@@ -1293,6 +1319,7 @@ class SettingsWindow(QDialog):
             self._applications.item(index).data(Qt.ItemDataRole.UserRole)
             for index in range(self._applications.count())
             if self._applications.item(index).checkState() is Qt.CheckState.Checked
+            and not self._applications.item(index).data(Qt.ItemDataRole.UserRole + 1)
         )
         if not selected_applications:
             self.show_error(tr(self._language, "at_least_one"))
@@ -1305,6 +1332,25 @@ class SettingsWindow(QDialog):
             show_clock=self._show_clock.isChecked(),
             language=self._language,
         )
+
+    def _activate_catalog_item(self, item: QListWidgetItem) -> None:
+        """Start or cancel installation when an installable list item is clicked."""
+        if item.data(Qt.ItemDataRole.UserRole + 1):
+            self.application_install_requested.emit(item.data(Qt.ItemDataRole.UserRole))
+
+    def _activate_application_item(self, item: QListWidgetItem) -> None:
+        """Activate an installable entry or toggle an installed entry."""
+        if item.data(Qt.ItemDataRole.UserRole + 1):
+            self._activate_catalog_item(item)
+            return
+        item.setCheckState(
+            Qt.CheckState.Unchecked if item.checkState() is Qt.CheckState.Checked else Qt.CheckState.Checked
+        )
+
+    def set_installing(self, application_id: str | None) -> None:
+        """Update the installation action label without modifying user visibility."""
+        self._installing_id = application_id
+        self.apply_language(self._language)
 
     def apply_theme_definition(self, theme: ThemeDefinition) -> None:
         """Apply a persisted theme change while the settings view remains open."""

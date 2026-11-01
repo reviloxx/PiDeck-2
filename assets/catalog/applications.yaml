@@ -1,0 +1,8 @@
+applications:
+  - id: youtube
+    name: YouTube
+    executable: flatpak
+    arguments: [run, com.ktechpit.red, --tv]
+    profiles: []
+    icon: ../assets/icons/youtube.svg
+    preferred_input: gamepad

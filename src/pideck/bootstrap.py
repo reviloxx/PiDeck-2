@@ -19,6 +19,7 @@ from pideck.application.session import (
     SessionState,
 )
 from pideck.application.settings import SettingsService, SettingsUpdate
+from pideck.application.catalog import register_application
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
 from pideck.application.ports.input import InputEvent
@@ -27,6 +28,8 @@ from pideck.domain.errors import ConfigurationError, PowerError
 from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.build_info import installed_build_date
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
+from pideck.infrastructure.config.catalog import load_catalog
+from pideck.infrastructure.flatpak_installer import FlatpakInstaller, InstallationError
 from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
@@ -208,6 +211,15 @@ def main(arguments: Sequence[str] | None = None) -> int:
     gamepad_adapter = EvdevGamepadAdapter()
     power = SystemPower() if parsed_arguments.power_off_on_shutdown else None
     settings_window: SettingsWindow | None = None
+    installer: FlatpakInstaller | None = None
+    installing_id: str | None = None
+    try:
+        catalog = load_catalog(asset_root.parent / "assets/catalog/applications.yaml")
+        catalog_error: str | None = None
+    except ConfigurationError as error:
+        dependencies.logger.error("Unable to load application catalog: %s", error)
+        catalog = ()
+        catalog_error = str(error)
     network_window: NetworkWindow | None = None
     audio_window: AudioWindow | None = None
     display_window: DisplayWindow | None = None
@@ -221,6 +233,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
         status_received = Signal(object)
 
     update_bridge = PiDeckUpdateBridge()
+    class InstallationBridge(QObject):
+        """Forward installer completion from its worker thread."""
+
+        finished = Signal(str, object)
+
+    installation_bridge = InstallationBridge()
     class PowerBridge(QObject):
         """Forward a completed host power request to the Qt thread."""
 
@@ -437,6 +455,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             network_enabled=network_gateway is not None,
             system_enabled=True,
             build_date=installed_build_date(),
+            catalog=catalog,
         )
         def handle_pideck_update_request() -> None:
             if pideck_update_service.state.status is PiDeckUpdateStatus.FAILED:
@@ -451,9 +470,104 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.bluetooth_requested.connect(open_bluetooth_window)
         settings_window.power_requested.connect(handle_system_power_request)
         settings_window.settings_changed.connect(handle_settings_changed)
+        settings_window.application_install_requested.connect(handle_install_request)
         settings_window.finished.connect(lambda _: window.show_launcher())
+        settings_window.finished.connect(cancel_install_on_close)
         window.hide()
         settings_window.show_fullscreen()
+        if installing_id is not None:
+            settings_window.set_installing(installing_id)
+        if catalog_error is not None:
+            settings_window.show_error(catalog_error)
+
+    def cancel_install_on_close(_: int) -> None:
+        """Cancel an active user-requested installation when settings closes."""
+        if installer is not None:
+            try:
+                installer.cancel()
+            except PermissionError:
+                dependencies.logger.warning("Unable to cancel privileged installation process")
+
+    def handle_install_request(application_id: str) -> None:
+        """Start or cancel a catalog install without running package commands in Qt."""
+        nonlocal installer, installing_id
+        if settings_window is None:
+            return
+        if installer is not None:
+            if application_id == installing_id:
+                try:
+                    installer.cancel()
+                except PermissionError as error:
+                    from pideck.presentation.qt.localization import tr
+                    settings_window.show_error(tr(current_configuration.settings.language, "install_cancel_deferred", message=str(error)))
+            return
+        definition = next((item for item in catalog if item.identifier == application_id), None)
+        if definition is None or any(item.identifier == application_id for item in current_configuration.applications):
+            settings_window.show_error("Application is no longer available for installation")
+            return
+        password = None
+        if FlatpakInstaller.needs_password():
+            from pideck.presentation.qt.settings_window import PasswordPrompt
+            from PySide6.QtWidgets import QDialog
+
+            prompt = PasswordPrompt(definition.name, dependencies.theme_repository.get(current_configuration.home.theme),
+                                    settings_window, current_configuration.settings.language, installing=True)
+            if prompt.exec() != QDialog.DialogCode.Accepted:
+                return
+            password = prompt.password()
+            prompt.password_input.clear()
+        operation = FlatpakInstaller()
+        installer = operation
+        installing_id = application_id
+        settings_window.set_installing(application_id)
+
+        def run_install() -> None:
+            try:
+                operation.install(definition, password)
+            except InstallationError as error:
+                installation_bridge.finished.emit(application_id, str(error))
+                return
+            except Exception:
+                dependencies.logger.exception("Unexpected application installation failure")
+                installation_bridge.finished.emit(application_id, "Unexpected application installation failure")
+                return
+            installation_bridge.finished.emit(application_id, None)
+
+        threading.Thread(target=run_install, name="pideck-application-install", daemon=True).start()
+
+    def finish_install(application_id: str, error: str | None) -> None:
+        """Persist a successful installation and refresh launcher and settings."""
+        nonlocal installer, installing_id, current_configuration
+        installer = None
+        installing_id = None
+        active = settings_window is not None and settings_window.isVisible()
+        if error is not None:
+            dependencies.logger.warning("Application installation failed: %s", error)
+            if active and settings_window is not None:
+                settings_window.set_installing(None)
+                settings_window.show_error(error)
+            return
+        definition = next(item for item in catalog if item.identifier == application_id)
+        if definition.icon is not None and not definition.icon.is_absolute():
+            definition = replace(definition, icon=Path(os.path.abspath(asset_root / definition.icon)))
+        try:
+            updated = register_application(current_configuration, definition)
+            dependencies.configuration_repository.save(updated)
+        except ConfigurationError as save_error:
+            dependencies.logger.error("Unable to register installed application: %s", save_error)
+            if active and settings_window is not None:
+                settings_window.set_installing(None)
+                settings_window.show_error(str(save_error))
+            return
+        current_configuration = updated
+        theme = dependencies.theme_repository.get(updated.home.theme)
+        window.apply_configuration(updated, theme)
+        if active:
+            handle_settings_request()
+            if settings_window is not None:
+                settings_window._select_page(1)
+
+    installation_bridge.finished.connect(finish_install, Qt.ConnectionType.QueuedConnection)
 
     def open_network_window() -> None:
         """Open wireless setup without giving presentation code system privileges."""

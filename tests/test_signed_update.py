@@ -34,6 +34,8 @@ def test_verified_bundle_extracts_and_downgrade_is_rejected(tmp_path: Path) -> N
     assert verify_bundle(manifest, signature, bundle, public, "0.0.0") == VERSION
     unpack_bundle(bundle, tmp_path / "unpacked")
     assert (tmp_path / "unpacked/python/pideck/bootstrap.py").is_file()
+    assert (tmp_path / "unpacked/assets/catalog/applications.yaml").is_file()
+    assert (tmp_path / "unpacked/assets/icons/youtube.svg").is_file()
     with pytest.raises(InvalidUpdate, match="not newer"):
         verify_bundle(manifest, signature, bundle, public, VERSION)
 

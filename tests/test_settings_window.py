@@ -21,6 +21,7 @@ from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.presentation.qt.settings_window import PasswordPrompt, SettingsWindow
 from tests.test_configuration import configuration_document
+from pideck.infrastructure.config.catalog import load_catalog
 
 
 @pytest.fixture(scope="module")
@@ -36,6 +37,28 @@ def settings_window(application: QApplication) -> SettingsWindow:
     window.show()
     application.processEvents()
     return window
+
+
+def test_catalog_item_installs_without_changing_visibility(application: QApplication) -> None:
+    """Keyboard and controller activate an installable item without toggling settings."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    catalog = load_catalog(Path.cwd() / "assets/catalog/applications.yaml")
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), catalog=catalog)
+    requests = []
+    changes = []
+    window.application_install_requested.connect(requests.append)
+    window.settings_changed.connect(changes.append)
+    window.show()
+    window._select_page(1)
+    window._applications.setCurrentRow(window._applications.count() - 1)
+    window._applications.setFocus()
+    QTest.keyClick(window._applications, Qt.Key.Key_Return)
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert requests == ["youtube", "youtube"]
+    assert changes == []
+    window.set_installing("youtube")
+    assert "Installing" in window._applications.currentItem().text()
+    window.close()
 
 
 @pytest.mark.parametrize(("width", "height"), [(1280, 720), (1920, 1080)])

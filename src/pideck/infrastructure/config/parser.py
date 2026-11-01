@@ -45,7 +45,7 @@ class YamlConfigurationParser:
         _require_keys(document, {"version", "applications", "themes", "home", "input", "settings"}, "root")
         version = _integer(document["version"], "version")
         applications = tuple(
-            self._parse_application(item, index)
+            self.parse_application(item, index)
             for index, item in enumerate(_sequence(document["applications"], "applications"))
         )
         themes = tuple(
@@ -69,7 +69,7 @@ class YamlConfigurationParser:
         except ValueError as error:
             raise ConfigurationValidationError(str(error)) from error
 
-    def _parse_application(self, raw_data: Any, index: int) -> ApplicationDefinition:
+    def parse_application(self, raw_data: Any, index: int = 0) -> ApplicationDefinition:
         """Parse one application definition."""
         context = f"applications[{index}]"
         data = _mapping(raw_data, context)

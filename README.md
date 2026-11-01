@@ -58,6 +58,24 @@ applications separately. Versions and build times that the installation does
 not provide are shown as unknown. PiDeck self-updates update the application,
 not the operating system or image dependencies.
 
+**Settings > Home screen** offers **YouTube** for installation. This is the
+independent [Red](https://flathub.org/en/apps/com.ktechpit.red) Flatpak, not
+an official YouTube application. Select it to install; PiDeck then adds it to
+the home screen and starts Red in TV mode. The installation needs internet and
+disk space. If Flatpak is absent, PiDeck requests an administrator password to
+install the Flatpak system package; the account must be permitted to use
+`sudo`. Red and its runtimes are otherwise installed for the current user from
+Flathub, or an existing installation is reused. Errors are shown in Settings.
+An interrupted system-package operation may need to finish before cancellation
+takes effect. Red has its own license and settings; video playback, sign-in and
+controller support depend on Red, the device and YouTube.
+
+Existing appliances receive this feature through a signed PiDeck update only
+if their image has the update service and matching release verification key.
+Installing the PiDeck update does not itself install Red. Development and
+older images without the signed updater need a separately installed update or
+new image.
+
 **Settings > System** provides:
 
 - X11 display output, resolution and refresh-rate selection. A temporary mode
