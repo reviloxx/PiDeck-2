@@ -1,5 +1,7 @@
 linux-image-amd64
 systemd-sysv
+plymouth
+plymouth-label
 libpam-systemd
 dbus-user-session
 grub-pc-bin
@@ -29,6 +31,7 @@ openbox
 wmctrl
 libxres1
 x11-xserver-utils
+x11-utils
 dbus-x11
 pulseaudio
 network-manager

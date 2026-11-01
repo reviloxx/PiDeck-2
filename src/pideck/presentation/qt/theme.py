@@ -6,6 +6,8 @@ from PySide6.QtWidgets import QGraphicsDropShadowEffect, QWidget
 
 from pideck.domain.theme import ThemeDefinition
 
+from .wallpaper import WallpaperDialog, WallpaperWidget
+
 
 def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
     """Apply a theme palette, font, and widget stylesheet."""
@@ -18,19 +20,15 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
     palette.setColor(QPalette.ColorRole.ButtonText, QColor(colors["text"]))
     widget.setPalette(palette)
     widget.setFont(QFont(theme.fonts.family, theme.fonts.body_size))
-    wallpaper_style = ""
-    if theme.wallpaper is not None:
-        wallpaper_style = (
-            "background-image: url('"
-            f"{theme.wallpaper.as_posix()}"
-            "'); background-position: center; background-repeat: no-repeat;"
-        )
+    for background in widget.findChildren(WallpaperWidget):
+        background.set_wallpaper(theme.wallpaper, colors["background"])
+    if isinstance(widget, WallpaperDialog):
+        widget.set_wallpaper(theme.wallpaper, colors["background"])
     widget.setStyleSheet(
         """
-        QMainWindow, QDialog#settings_window, QDialog#password_prompt, QWidget#launcher_root, QWidget#settings_root {
+        QMainWindow, QDialog#settings_window, QDialog#password_prompt {
             background-color: %(background)s;
             color: %(text)s;
-            %(wallpaper_style)s
         }
         QLabel#launcher_title {
             color: %(text)s;
@@ -282,7 +280,6 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             "primary_surface": _blend(colors["surface"], colors["primary"], 0.24),
             "running_surface": _blend(colors["surface"], colors["running"], 0.20),
             "active_surface": _blend(colors["surface"], colors["focus"], 0.18),
-            "wallpaper_style": wallpaper_style,
         }
     )
 

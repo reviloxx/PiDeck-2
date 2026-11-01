@@ -18,6 +18,12 @@ class PreferredInput(StrEnum):
     KEYBOARD = "keyboard"
     MOUSE = "mouse"
 
+class WindowMode(StrEnum):
+    """Preferred presentation for an application's main window."""
+
+    NORMAL = "normal"
+    MAXIMIZED = "maximized"
+
 
 @dataclass(frozen=True, slots=True)
 class ApplicationProfile:
@@ -50,6 +56,7 @@ class ApplicationDefinition:
     profiles: tuple[ApplicationProfile, ...] = ()
     icon: Path | None = None
     preferred_input: PreferredInput = PreferredInput.KEYBOARD
+    window_mode: WindowMode | None = None
 
     def __post_init__(self) -> None:
         """Validate application identity and normalize collection values."""

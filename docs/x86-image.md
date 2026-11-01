@@ -97,10 +97,38 @@ with VirtualBox EFI disabled and enabled. Do not attach the same raw image as
 a writable disk to two machines simultaneously. Configure the SATA controller
 with only as many ports as attached devices; unused virtual ports can
 significantly delay boot while the firmware and kernel probe them.
+For a faster VirtualBox BIOS boot, the firmware splash fades and delay can be
+reduced while the VM is powered off:
+
+```bash
+VBoxManage modifyvm PiDeck --firmware-logo-fade-in off \
+  --firmware-logo-fade-out off --firmware-logo-display-time 1
+```
+
+The shorter firmware display leaves less time to use its boot-selection menu.
 
 The image boots its default GRUB entry without displaying a menu or waiting,
 including after an interrupted boot. Use external rescue media if recovery
 requires selecting a different boot entry.
+
+New builds use a PiDeck Plymouth splash while Linux starts. Firmware and
+VirtualBox screens before Linux starts are outside its control. Press Escape
+to switch to boot details, and use the system journal when diagnosing failures;
+the splash does not remove journal entries. Graphics-driver availability may
+affect the splash on physical hardware. The splash uses the default theme's
+colors because it starts before user theme settings are available. Boot
+components are not updated by PiDeck's signed application updater: an existing
+installation needs a separately applied system update or a newly built image.
+
+The launcher wallpaper fills the window while preserving its aspect ratio;
+edges are cropped on screens with a different shape. The image's default
+window policies are in `/usr/share/pideck/config/window-modes.yaml`.
+Chromium, Firefox, NoMachine and RetroArch are set to `maximized`; fullscreen
+windows remain fullscreen. To override a policy without editing system files,
+create `~/.config/pideck/window-modes.yaml` with, for example,
+`firefox: normal`. Policies apply to detected main windows launched by PiDeck,
+not dialog windows. They are stored separately from launcher settings so older
+releases can still read those settings after a rollback.
 
 ## Physical disk
 

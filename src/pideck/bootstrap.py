@@ -1,6 +1,7 @@
 """Composition root and Milestone 1 validation entry point."""
 
 import argparse
+from dataclasses import replace
 import logging
 import os
 from pathlib import Path
@@ -20,10 +21,11 @@ from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
 from pideck.application.ports.input import InputEvent
-from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
+from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, Configuration, WindowMode
 from pideck.domain.errors import ConfigurationError, PowerError
 from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
+from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
 from pideck.infrastructure.platform_updates import NativeUpdateGateway
@@ -77,6 +79,16 @@ def default_configuration_path() -> Path:
     config_root = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return config_root / "pideck" / "pideck.yaml"
 
+def _apply_window_modes(configuration: Configuration, window_modes: dict[str, WindowMode]) -> Configuration:
+    """Apply configured window presentation without changing saved settings."""
+    return replace(
+        configuration,
+        applications=tuple(
+            replace(app, window_mode=window_modes.get(app.identifier))
+            for app in configuration.applications
+        ),
+    )
+
 
 def build_dependencies(
     configuration_path: Path,
@@ -88,6 +100,20 @@ def build_dependencies(
     logger = configure_logging(level=log_level, log_file=log_file)
     configuration_repository = FileConfigurationRepository(configuration_path)
     configuration = configuration_repository.load()
+    window_modes: dict[str, WindowMode] = {}
+    policy_paths = []
+    image_mode = os.environ.get("PIDECK_IMAGE") == "1"
+    if image_mode:
+        policy_paths.append(Path("/usr/share/pideck/config/window-modes.yaml"))
+    policy_paths.append(configuration_path.with_name("window-modes.yaml"))
+    for index, policy_path in enumerate(policy_paths):
+        if not policy_path.exists() and (not image_mode or index > 0):
+            continue
+        try:
+            window_modes.update(load_window_modes(policy_path))
+        except ConfigurationError:
+            logger.exception("Unable to load application window policy path=%s", policy_path)
+    configuration = _apply_window_modes(configuration, window_modes)
     theme_repository = FileThemeRepository(
         themes=configuration.themes,
         asset_root=asset_root or configuration_path.parent,

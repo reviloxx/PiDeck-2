@@ -10,6 +10,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtGui import QColor
 
 from pideck.application.launcher import LauncherController
 from pideck.application.ports.input import InputAction, InputEvent
@@ -157,6 +158,29 @@ def test_reduced_motion_disables_focus_animation(application: QApplication) -> N
     assert animation.duration() == 0
 
     reduced_window.close()
+    window.close()
+
+
+def test_wallpaper_covers_launcher_root_at_wqhd(
+    application: QApplication, tmp_path: Path,
+) -> None:
+    """The actual launcher root scales wallpaper beyond its native SVG size."""
+    path = tmp_path / "wallpaper.svg"
+    path.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50">'
+        '<rect width="100" height="50" fill="#ab4512"/></svg>',
+        encoding="utf-8",
+    )
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = LauncherWindow(
+        LauncherController(configuration), replace(DEFAULT_THEME, wallpaper=path), tmp_path,
+    )
+    window.resize(2560, 1440)
+    window.show()
+    application.processEvents()
+    root = window._root.grab().toImage()
+    for x, y in ((0, 0), (root.width() - 1, 0), (0, root.height() - 1)):
+        assert root.pixelColor(x, y) == QColor("#ab4512")
     window.close()
 
 

@@ -1,0 +1,41 @@
+Window.SetBackgroundTopColor(0.063, 0.071, 0.078);
+Window.SetBackgroundBottomColor(0.063, 0.071, 0.078);
+
+logo = Image.Text("PiDeck", 0.957, 0.969, 0.969, 1, "DejaVu Sans Bold 36");
+logo_sprite = Sprite(logo);
+logo_sprite.SetX((Window.GetWidth() - logo.GetWidth()) / 2);
+logo_sprite.SetY((Window.GetHeight() - logo.GetHeight()) / 2);
+
+message_sprite = Sprite();
+
+fun show_message(text)
+{
+    message = Image.Text(text, 0.957, 0.969, 0.969, 1, "DejaVu Sans 14", "center");
+    message_sprite.SetImage(message);
+    message_sprite.SetX((Window.GetWidth() - message.GetWidth()) / 2);
+    message_sprite.SetY((Window.GetHeight() + logo.GetHeight()) / 2 + 40);
+    message_sprite.SetOpacity(1);
+}
+
+fun show_password(prompt, bullets)
+{
+    masked = "";
+    for (index = 0; index < bullets; index++)
+        masked += "*";
+    show_message(prompt + "\n" + masked);
+}
+
+fun show_question(prompt, answer)
+{
+    show_message(prompt + "\n" + answer);
+}
+
+fun show_normal()
+{
+    message_sprite.SetOpacity(0);
+}
+
+Plymouth.SetMessageFunction(show_message);
+Plymouth.SetDisplayPasswordFunction(show_password);
+Plymouth.SetDisplayQuestionFunction(show_question);
+Plymouth.SetDisplayNormalFunction(show_normal);

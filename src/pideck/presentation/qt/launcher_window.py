@@ -27,6 +27,7 @@ from pideck.domain.theme import ThemeDefinition
 
 from .theme import apply_theme, configure_tile_effect, icon_for_path
 from .localization import clock_text, tr
+from .wallpaper import WallpaperWidget
 
 
 class LauncherTile(QPushButton):
@@ -221,7 +222,7 @@ class LauncherWindow(QMainWindow):
         self.setObjectName("launcher_window")
         self.setWindowTitle("PiDeck")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._root = QWidget(self)
+        self._root = WallpaperWidget(self)
         self._root.setObjectName("launcher_root")
         self.setCentralWidget(self._root)
         self._root_layout = QVBoxLayout(self._root)

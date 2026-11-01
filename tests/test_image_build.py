@@ -247,6 +247,8 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     stage = image_build.prepare_stage(ROOT, pi_gen) / "00-pideck"
     rootfs = tmp_path / "rootfs"
     rootfs.mkdir()
+    (rootfs / "boot/firmware").mkdir(parents=True)
+    (rootfs / "boot/firmware/cmdline.txt").write_text("console=tty1 root=PARTUUID=example\n")
     commands = tmp_path / "bin"
     commands.mkdir()
     stub = commands / "on_chroot"
@@ -264,11 +266,19 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     assert (rootfs / "usr/lib/pideck/python/pideck/bootstrap.py").is_file()
     assert (rootfs / "usr/share/pideck/assets/icons/kodi.svg").is_file()
     assert (rootfs / "usr/share/pideck/config/pideck.yaml").is_file()
+    assert (rootfs / "usr/share/pideck/config/window-modes.yaml").read_text() == (
+        FILES / "window-modes.yaml"
+    ).read_text()
     assert os.access(rootfs / "usr/lib/pideck/pideck-session", os.X_OK)
     assert (rootfs / "etc/systemd/system/getty@tty1.service.d/pideck.conf").is_file()
     assert (rootfs / "etc/systemd/system/userconfig.service.d/pideck.conf").is_file()
     assert "After=userconfig.service" in (FILES / "getty-override.conf").read_text()
     assert "systemctl enable NetworkManager" in (tmp_path / "chroot-commands").read_text()
+    assert "plymouth-set-default-theme pideck" in (tmp_path / "chroot-commands").read_text()
+    assert (rootfs / "boot/firmware/cmdline.txt").read_text() == (
+        "console=tty1 root=PARTUUID=example quiet splash\n"
+    )
+    assert (rootfs / "usr/share/plymouth/themes/pideck/pideck.script").is_file()
     assert (rootfs / "usr/lib/pideck-updater/python/pideck/infrastructure/image_update_daemon.py").is_file()
     assert (rootfs / "etc/systemd/system/pideck-updater.service").is_file()
     assert (rootfs / "etc/systemd/system/pideck-activate.service").is_file()
@@ -289,6 +299,8 @@ def test_release_image_installs_versioned_tree_and_trusted_key(tmp_path: Path) -
     stage = image_build.prepare_stage(ROOT, pi_gen, f"v{version}", public) / "00-pideck"
     rootfs = tmp_path / "rootfs"
     rootfs.mkdir()
+    (rootfs / "boot/firmware").mkdir(parents=True)
+    (rootfs / "boot/firmware/cmdline.txt").write_text("console=tty1 root=PARTUUID=example\n")
     commands = tmp_path / "bin"
     commands.mkdir()
     stub = commands / "on_chroot"
@@ -447,6 +459,8 @@ def test_getty_requires_provisioned_unlocked_user(
     arguments = result.stdout.splitlines()
     assert ("--autologin" in arguments) is expected
     if expected:
-        assert arguments == ["--autologin", "alice", "--noclear", "tty1", "linux"]
+        assert arguments == [
+            "--autologin", "alice", "--skip-login", "--noissue", "--noclear", "tty1", "linux",
+        ]
     else:
         assert "requires a user" in result.stderr

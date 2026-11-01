@@ -3,6 +3,7 @@
 from typing import Callable, Protocol
 
 from .process import ProcessHandle
+from pideck.domain.configuration import WindowMode
 
 
 VisibilityCallback = Callable[[ProcessHandle], None]
@@ -17,6 +18,7 @@ class ProcessVisibilityDetector(Protocol):
         handle: ProcessHandle,
         on_visible: VisibilityCallback,
         on_timeout: VisibilityTimeoutCallback,
+        window_mode: WindowMode | None = None,
     ) -> None:
         """Monitor a process handle until its application window is visible."""
         ...

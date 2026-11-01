@@ -29,6 +29,7 @@ from pideck.domain.configuration import Configuration
 from pideck.domain.theme import ThemeDefinition
 
 from .theme import apply_theme, icon_for_path
+from .wallpaper import WallpaperDialog, WallpaperWidget
 from .localization import tr
 
 
@@ -219,7 +220,7 @@ class PiDeckUpdateRow(UpdateRow):
         self.set_pideck_info(self._pideck_info)
 
 
-class PasswordPrompt(QDialog):
+class PasswordPrompt(WallpaperDialog):
     """Themed, cancellable sudo password prompt for package updates."""
 
     def __init__(
@@ -374,7 +375,7 @@ class SettingsWindow(QDialog):
 
     def _build_ui(self) -> None:
         """Create the settings rail and content pages."""
-        root = QWidget(self)
+        root = WallpaperWidget(self)
         root.setObjectName("settings_root")
         self.setLayout(QHBoxLayout())
         self.layout().setContentsMargins(56, 44, 56, 44)

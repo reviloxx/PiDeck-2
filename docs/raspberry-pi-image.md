@@ -6,6 +6,23 @@ The image has been built successfully on a GitHub-hosted ARM64 runner, but
 has not yet been tested on a Raspberry Pi 5. Treat it as experimental until
 the hardware acceptance checklist below passes.
 
+New builds configure a PiDeck Plymouth splash during Linux startup. Press
+Escape for boot details; kernel and service logs remain in the journal.
+Firmware output before Linux and display-driver behavior are platform-specific.
+The splash and its hardware compatibility have not yet been verified on a Pi.
+It uses the default theme's colors because user settings are unavailable early
+in boot.
+Existing installations need a separately applied system update or a newly
+built image, since PiDeck application updates do not replace boot components.
+
+Wallpaper scales proportionally to fill the window, cropping edges when
+necessary. The default policies in `/usr/share/pideck/config/window-modes.yaml`
+request maximized main windows for Chromium, Firefox, RetroArch and NoMachine
+if configured. Existing fullscreen windows stay fullscreen. User overrides can
+be placed in `~/.config/pideck/window-modes.yaml`, for example `firefox: normal`.
+Dialogs are not maximized, and the separate policy file keeps the existing
+launcher settings compatible with older releases.
+
 ## Build
 
 ### GitHub Actions

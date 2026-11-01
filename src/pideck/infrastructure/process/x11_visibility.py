@@ -14,6 +14,7 @@ from pideck.application.ports.visibility import (
     VisibilityCallback,
     VisibilityTimeoutCallback,
 )
+from pideck.domain.configuration import WindowMode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class X11WindowVisibilityDetector:
         handle: ProcessHandle,
         on_visible: VisibilityCallback,
         on_timeout: VisibilityTimeoutCallback,
+        window_mode: WindowMode | None = None,
     ) -> None:
         """Monitor one process group in a daemon thread until a window appears."""
         if not os.environ.get("DISPLAY"):
@@ -55,7 +57,7 @@ class X11WindowVisibilityDetector:
             self._watches[handle.token] = watch
         threading.Thread(
             target=self._watch,
-            args=(watch, on_visible, on_timeout),
+            args=(watch, on_visible, on_timeout, window_mode),
             name=f"pideck-visibility-{handle.token}",
             daemon=True,
         ).start()
@@ -81,11 +83,17 @@ class X11WindowVisibilityDetector:
         watch: _VisibilityWatch,
         on_visible: VisibilityCallback,
         on_timeout: VisibilityTimeoutCallback,
+        window_mode: WindowMode | None,
     ) -> None:
         """Poll X11 windows until readiness, cancellation, or timeout."""
         deadline = time.monotonic() + self._timeout
         while time.monotonic() < deadline and not watch.cancel.is_set():
-            if self._has_visible_window(watch.handle):
+            window_id = self._find_visible_window(
+                watch.handle, main_only=window_mode is WindowMode.MAXIMIZED,
+            )
+            if window_id:
+                if window_mode is WindowMode.MAXIMIZED:
+                    _maximize_window(window_id, watch.cancel)
                 self._finish(watch.handle)
                 on_visible(watch.handle)
                 return
@@ -102,6 +110,11 @@ class X11WindowVisibilityDetector:
     @staticmethod
     def _has_visible_window(handle: ProcessHandle) -> bool:
         """Return whether wmctrl reports a non-zero window for this process group."""
+        return X11WindowVisibilityDetector._find_visible_window(handle) is not None
+
+    @staticmethod
+    def _find_visible_window(handle: ProcessHandle, *, main_only: bool = False) -> str | None:
+        """Find a visible matching process window, optionally excluding dialogs."""
         process_ids = _process_group_ids(handle.process_group_id)
         if not process_ids:
             process_ids = {handle.pid}
@@ -115,9 +128,9 @@ class X11WindowVisibilityDetector:
             )
         except (OSError, subprocess.SubprocessError) as error:
             _LOGGER.debug("Unable to inspect X11 windows: %s", error)
-            return False
+            return None
         if result.returncode != 0:
-            return False
+            return None
         for line in result.stdout.splitlines():
             fields = line.split(maxsplit=8)
             if len(fields) < 7:
@@ -128,11 +141,75 @@ class X11WindowVisibilityDetector:
                 height = int(fields[6])
             except ValueError:
                 continue
-            if pid in process_ids and width > 1 and height > 1:
-                return True
-            if width > 1 and height > 1 and _window_client_pid(fields[0]) in process_ids:
-                return True
+            if width <= 1 or height <= 1:
+                continue
+            if pid not in process_ids and _window_client_pid(fields[0]) not in process_ids:
+                continue
+            if main_only and not _is_main_window(fields[0]):
+                continue
+            return fields[0]
+        return None
+
+
+def _window_properties(window_id: str) -> str | None:
+    """Read EWMH and transient properties without raising on vanished windows."""
+    try:
+        result = subprocess.run(
+            ["xprop", "-id", window_id, "WM_TRANSIENT_FOR", "_NET_WM_WINDOW_TYPE", "_NET_WM_STATE"],
+            check=False, capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _LOGGER.warning("Unable to inspect window %s: %s", window_id, error)
+        return None
+    if result.returncode:
+        _LOGGER.debug("Unable to inspect window %s: %s", window_id, result.stderr.strip())
+        return None
+    return result.stdout
+
+
+def _is_main_window(window_id: str) -> bool:
+    """Exclude transient and non-normal EWMH windows from window management."""
+    properties = _window_properties(window_id)
+    if properties is None:
         return False
+    for line in properties.splitlines():
+        if line.startswith("WM_TRANSIENT_FOR") and "window id #" in line:
+            return False
+        if line.startswith("_NET_WM_WINDOW_TYPE") and "=" in line:
+            if "_NET_WM_WINDOW_TYPE_NORMAL" not in line:
+                return False
+    return True
+
+
+def _maximize_window(window_id: str, cancel: threading.Event) -> None:
+    """Ask the window manager to maximize a normal, non-fullscreen window."""
+    properties = _window_properties(window_id)
+    if properties is None:
+        _LOGGER.warning("Cannot maximize window %s: properties unavailable", window_id)
+        return
+    if "_NET_WM_STATE_FULLSCREEN" in properties:
+        return
+    try:
+        result = subprocess.run(
+            ["wmctrl", "-ir", window_id, "-b", "add,maximized_vert,maximized_horz"],
+            check=False, capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _LOGGER.warning("Unable to maximize window %s: %s", window_id, error)
+        return
+    if result.returncode:
+        _LOGGER.warning("Unable to maximize window %s: %s", window_id, result.stderr.strip())
+        return
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and not cancel.is_set():
+        properties = _window_properties(window_id)
+        if properties is None:
+            break
+        if "_NET_WM_STATE_MAXIMIZED_VERT" in properties and "_NET_WM_STATE_MAXIMIZED_HORZ" in properties:
+            return
+        cancel.wait(0.1)
+    if not cancel.is_set():
+        _LOGGER.warning("Window %s did not enter the maximized state", window_id)
 
 
 def _window_client_pid(window_id: str) -> int | None:

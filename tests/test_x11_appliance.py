@@ -16,7 +16,7 @@ import pytest
 
 from pideck.application.session import ApplicationSessionService, LaunchStatus, SessionState
 from pideck.application.ports.process import ProcessHandle
-from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
+from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, WindowMode
 from pideck.infrastructure.process import SubprocessSupervisor
 from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector, _window_client_pid
 
@@ -154,6 +154,79 @@ def test_real_x11_window_is_detected_and_returns_to_launcher(window_manager: Non
         assert observer.finished_event.wait(8), "The child did not exit"
         assert observer.return_code == 0
         assert session.snapshot.state is SessionState.IDLE
+    finally:
+        session.close()
+
+
+def test_main_window_is_maximized_but_dialog_is_not(window_manager: None) -> None:
+    """Maximize a managed main window without altering its transient dialog."""
+    observer = SessionObserver()
+    session = ApplicationSessionService(
+        SubprocessSupervisor(), observer, X11WindowVisibilityDetector(timeout=8)
+    )
+    child = (
+        "from PySide6.QtCore import QTimer; "
+        "from PySide6.QtWidgets import QApplication, QWidget, QDialog; "
+        "app=QApplication([]); main=QWidget(); main.setWindowTitle('PiDeck maximize main'); "
+        "main.resize(300,200); main.show(); "
+        "dialog=QDialog(main); dialog.setWindowTitle('PiDeck maximize dialog'); "
+        "dialog.resize(150,100); dialog.show(); QTimer.singleShot(10000, app.quit); app.exec()"
+    )
+    definition = ApplicationDefinition(
+        identifier="test-maximize", name="Maximize", executable=sys.executable,
+        arguments=("-c", child), window_mode=WindowMode.MAXIMIZED,
+    )
+    try:
+        assert session.request_launch(definition).status is LaunchStatus.STARTED
+        assert observer.visible_event.wait(8), "The main window was not detected"
+        output = subprocess.run(["wmctrl", "-l"], capture_output=True, text=True, check=True).stdout
+        ids = {
+            line.rsplit("PiDeck maximize ", 1)[-1]: line.split()[0]
+            for line in output.splitlines() if "PiDeck maximize " in line
+        }
+        assert set(ids) == {"main", "dialog"}
+        main_state = subprocess.run(
+            ["xprop", "-id", ids["main"], "_NET_WM_STATE"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        dialog_state = subprocess.run(
+            ["xprop", "-id", ids["dialog"], "_NET_WM_STATE"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        assert "_NET_WM_STATE_MAXIMIZED_VERT" in main_state
+        assert "_NET_WM_STATE_MAXIMIZED_HORZ" in main_state
+        assert "_NET_WM_STATE_MAXIMIZED" not in dialog_state
+    finally:
+        session.close()
+
+
+def test_fullscreen_main_window_stays_fullscreen(window_manager: None) -> None:
+    """The maximization policy does not replace an application's fullscreen state."""
+    observer = SessionObserver()
+    session = ApplicationSessionService(
+        SubprocessSupervisor(), observer, X11WindowVisibilityDetector(timeout=8)
+    )
+    child = (
+        "from PySide6.QtCore import QTimer; "
+        "from PySide6.QtWidgets import QApplication, QWidget; "
+        "app=QApplication([]); main=QWidget(); main.setWindowTitle('PiDeck fullscreen child'); "
+        "main.showFullScreen(); QTimer.singleShot(10000, app.quit); app.exec()"
+    )
+    definition = ApplicationDefinition(
+        identifier="test-fullscreen", name="Fullscreen", executable=sys.executable,
+        arguments=("-c", child), window_mode=WindowMode.MAXIMIZED,
+    )
+    try:
+        assert session.request_launch(definition).status is LaunchStatus.STARTED
+        assert observer.visible_event.wait(8), "The fullscreen window was not detected"
+        output = subprocess.run(["wmctrl", "-l"], capture_output=True, text=True, check=True).stdout
+        window_id = next(line.split()[0] for line in output.splitlines() if "PiDeck fullscreen child" in line)
+        state = subprocess.run(
+            ["xprop", "-id", window_id, "_NET_WM_STATE"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        assert "_NET_WM_STATE_FULLSCREEN" in state
+        assert "_NET_WM_STATE_MAXIMIZED" not in state
     finally:
         session.close()
 

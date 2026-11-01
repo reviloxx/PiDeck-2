@@ -224,6 +224,7 @@ class ApplicationSessionService:
                 handle,
                 self._mark_visible,
                 self._visibility_timeout,
+                application.window_mode,
             )
         return LaunchResult(LaunchStatus.STARTED, application)
 

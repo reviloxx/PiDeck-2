@@ -62,6 +62,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     packages = set((x86_build.INPUTS / "packages.txt").read_text().split())
     assert {app.executable for app in config.applications} <= packages
     assert (tmp_path / "usr/lib/pideck/python/pideck/bootstrap.py").is_file()
+    assert (tmp_path / "usr/share/pideck/config/window-modes.yaml").read_text() == (
+        x86_build.PI_FILES / "window-modes.yaml"
+    ).read_text()
     assert (tmp_path / "usr/lib/pideck-updater/python/pideck/infrastructure/image_update_daemon.py").is_file()
     assert (tmp_path / "usr/lib/pideck/pideck-getty").stat().st_mode & 0o111
     assert not (tmp_path / "usr/lib/pideck/current").exists()
@@ -77,6 +80,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "GRUB_TIMEOUT_STYLE=hidden\n" in grub
     assert "GRUB_TIMEOUT=0\n" in grub
     assert "GRUB_RECORDFAIL_TIMEOUT=0\n" in grub
+    assert "quiet splash" in grub
+    assert (tmp_path / "usr/share/plymouth/themes/pideck/pideck.script").is_file()
+    assert {"plymouth", "plymouth-label"} <= packages
 
 
 @pytest.mark.parametrize("nomachine", [False, True])

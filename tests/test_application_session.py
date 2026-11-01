@@ -85,7 +85,9 @@ class FakeVisibilityDetector:
         self.watches: dict[str, tuple[object, object]] = {}
         self.cancelled: list[str] = []
 
-    def wait_until_visible(self, handle: ProcessHandle, on_visible: object, on_timeout: object) -> None:
+    def wait_until_visible(
+        self, handle: ProcessHandle, on_visible: object, on_timeout: object, window_mode: object = None,
+    ) -> None:
         """Store callbacks for a test-controlled process handle."""
         self.watches[handle.token] = (on_visible, on_timeout)
 

@@ -124,6 +124,7 @@ def _write_inputs(root: Path, tag: str | None, key: Path | None) -> None:
     shutil.copytree(ROOT / "src/pideck", updater / "pideck", ignore=ignore)
     shutil.copytree(ROOT / "assets", root / "usr/share/pideck/assets")
     _install(PI_FILES / "pideck.yaml", root / "usr/share/pideck/config/pideck.yaml")
+    _install(PI_FILES / "window-modes.yaml", root / "usr/share/pideck/config/window-modes.yaml")
     for name in ("pideck-session", "pideck-xsession"):
         _install(PI_FILES / name, lib / name, 0o755)
     for name in ("pideck-getty", "pideck-grow-root"):
@@ -133,6 +134,8 @@ def _write_inputs(root: Path, tag: str | None, key: Path | None) -> None:
     _install(INPUTS / "49-pideck-network.rules", root / "etc/polkit-1/rules.d/49-pideck-network.rules")
     _install(INPUTS / "getty-override.conf", root / "etc/systemd/system/getty@tty1.service.d/pideck.conf")
     _install(INPUTS / "grub-pideck.cfg", root / "etc/default/grub.d/90-pideck.cfg")
+    for name in ("pideck.plymouth", "pideck.script"):
+        _install(PI_FILES / name, root / "usr/share/plymouth/themes/pideck" / name)
     for name in ("pideck-updater.service", "pideck-activate.service"):
         _install(PI_FILES / name, root / "etc/systemd/system" / name)
     _install(INPUTS / "pideck-grow-root.service", root / "etc/systemd/system/pideck-grow-root.service")
@@ -186,6 +189,8 @@ def _configure(
             raise RuntimeError("NoMachine Player did not install its expected executable")
     policy.unlink()
     _write_inputs(root, tag, key)
+    chroot("plymouth-set-default-theme", "pideck")
+    chroot("update-initramfs", "-u", "-k", "all")
     app_configurator = root / "tmp/pideck-configure-apps.py"
     app_definitions = root / "tmp/pideck-x86-applications.yaml"
     _install(INPUTS / "configure_apps.py", app_configurator)

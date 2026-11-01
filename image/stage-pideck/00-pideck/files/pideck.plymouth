@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=PiDeck
+Description=PiDeck appliance boot screen
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/pideck
+ScriptFile=/usr/share/plymouth/themes/pideck/pideck.script

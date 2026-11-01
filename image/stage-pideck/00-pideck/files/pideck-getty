@@ -8,7 +8,7 @@ if [ -n "$account" ]; then
     status="$(passwd -S "$username")"
     set -- $status
     if [ "${2:-}" = P ]; then
-        exec /sbin/agetty --autologin "$username" --noclear "$tty_name" "$TERM"
+        exec /sbin/agetty --autologin "$username" --skip-login --noissue --noclear "$tty_name" "$TERM"
     fi
 fi
 
