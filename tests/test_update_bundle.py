@@ -1,4 +1,4 @@
-"""Tests for the signed PiDeck update release artifact."""
+"""Tests for the unsigned PiDeck update release artifact."""
 
 import hashlib
 from datetime import datetime, timezone
@@ -21,18 +21,17 @@ with (ROOT / "pyproject.toml").open("rb") as stream:
 TAG = f"v{VERSION}"
 
 
-def test_release_workflow_verifies_key_before_publishing() -> None:
-    """Release publishing requires configured signing and matching trusted keys."""
+def test_release_workflow_publishes_without_signing() -> None:
+    """Release publishing builds the manifest and archive without signing keys."""
     workflow = yaml.load(
         (ROOT / ".github/workflows/release-update.yml").read_text(),
         Loader=yaml.BaseLoader,
     )
     assert workflow["on"]["push"]["tags"] == ["v*"]
     steps = workflow["jobs"]["release"]["steps"]
-    build = next(step for step in steps if step["name"] == "Build and verify signed update")
-    assert "PIDECK_RELEASE_SIGNING_KEY" in build["env"]["SIGNING_KEY"]
-    assert "PIDECK_RELEASE_PUBLIC_KEY" in build["env"]["PUBLIC_KEY"]
-    assert "openssl pkeyutl -verify" in build["run"]
+    build = next(step for step in steps if step["name"] == "Build update")
+    assert "image/update_bundle.py" in build["run"]
+    assert "signing-key" not in build["run"]
     publish = next(step for step in steps if step["name"] == "Publish stable release")
     assert "--verify-tag" in publish["run"]
     for step in steps:
@@ -40,48 +39,35 @@ def test_release_workflow_verifies_key_before_publishing() -> None:
             subprocess.run(["bash", "-n"], input=step["run"], text=True, check=True)
 
 
-def _key_pair(directory: Path) -> tuple[Path, Path]:
-    private = directory / "private.pem"
-    public = directory / "public.pem"
-    subprocess.run(
-        ["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private)],
-        check=True,
-    )
-    subprocess.run(
-        ["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)],
-        check=True,
-    )
-    return private, public
-
-
 def test_release_version_rejects_nonstable_or_mismatched_tags() -> None:
-    """Only exactly matching stable tags are valid for signing."""
+    """Only exactly matching stable tags are valid for release."""
     assert release_version(ROOT, TAG) == VERSION
     for tag in (VERSION, "v999999.0.0", f"{TAG}-rc1", "v00.1.0", f"{TAG}\n"):
         with pytest.raises(ValueError):
             release_version(ROOT, tag)
 
 
-def test_bundle_is_reproducible_signed_and_contains_only_application_files(tmp_path: Path) -> None:
-    """Identical input produces identical artifacts verified by the public key."""
-    private, public = _key_pair(tmp_path)
+def test_bundle_is_reproducible_and_contains_only_application_files(tmp_path: Path) -> None:
+    """Identical input produces identical unsigned artifacts."""
     first, second = tmp_path / "first", tmp_path / "second"
     timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    create_bundle(ROOT, first, TAG, private, timestamp=timestamp)
-    create_bundle(ROOT, second, TAG, private, timestamp=timestamp)
-    for name in ("pideck-update.tar", "pideck-update.json", "pideck-update.sig"):
+    create_bundle(ROOT, first, TAG, timestamp=timestamp)
+    create_bundle(ROOT, second, TAG, timestamp=timestamp)
+    for name in ("pideck-update.tar", "pideck-update.json"):
         assert (first / name).read_bytes() == (second / name).read_bytes()
     third = tmp_path / "third"
     subprocess.run(
-        [sys.executable, str(ROOT / "image/update_bundle.py"), "--tag", TAG, "--signing-key", str(private),
+        [sys.executable, str(ROOT / "image/update_bundle.py"), "--tag", TAG,
          "--output", str(third), "--build-timestamp", timestamp.isoformat()],
         check=True,
     )
-    for name in ("pideck-update.tar", "pideck-update.json", "pideck-update.sig"):
+    for name in ("pideck-update.tar", "pideck-update.json"):
         assert (first / name).read_bytes() == (third / name).read_bytes()
     bundle = first / "pideck-update.tar"
     manifest = json.loads((first / "pideck-update.json").read_text())
     assert manifest["version"] == VERSION
+    assert manifest["updater_protocol"] == 2
+    assert not (first / "pideck-update.sig").exists()
     assert manifest["size"] == bundle.stat().st_size
     assert manifest["sha256"] == hashlib.sha256(bundle.read_bytes()).hexdigest()
     with tarfile.open(bundle) as archive:
@@ -92,20 +78,8 @@ def test_bundle_is_reproducible_signed_and_contains_only_application_files(tmp_p
         assert "assets/icons/settings.svg" in names
         assert all(name.startswith(("python/pideck/", "assets/")) for name in names)
         assert all(member.isfile() for member in archive.getmembers())
-    result = subprocess.run(
-        ["openssl", "pkeyutl", "-verify", "-rawin", "-pubin", "-inkey", str(public),
-         "-in", str(first / "pideck-update.json"), "-sigfile", str(first / "pideck-update.sig")],
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0
-    (first / "pideck-update.json").write_text("{}\n")
-    assert subprocess.run(result.args, capture_output=True, check=False).returncode != 0
-
-
 def test_bundle_rejects_symbolic_links(tmp_path: Path) -> None:
     """A release cannot accidentally archive a symbolic link."""
-    private, _ = _key_pair(tmp_path)
     project = tmp_path / "project"
     (project / "src/pideck").mkdir(parents=True)
     (project / "assets").mkdir()
@@ -113,4 +87,4 @@ def test_bundle_rejects_symbolic_links(tmp_path: Path) -> None:
     (project / "src/pideck/__init__.py").write_text('__version__ = "1.0.0"\n')
     (project / "assets/link").symlink_to("/etc/passwd")
     with pytest.raises(ValueError, match="Symbolic links"):
-        create_bundle(project, tmp_path / "out", "v1.0.0", private)
+        create_bundle(project, tmp_path / "out", "v1.0.0")

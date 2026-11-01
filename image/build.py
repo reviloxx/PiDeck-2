@@ -41,7 +41,6 @@ def prepare_stage(
     project_root: Path,
     pi_gen: Path,
     release_tag: str | None = None,
-    public_key: Path | None = None,
 ) -> Path:
     """Copy the image stage and a snapshot of PiDeck into a private checkout."""
     stage = pi_gen / "stage-pideck"
@@ -52,18 +51,9 @@ def prepare_stage(
     shutil.copytree(project_root / "src", project / "src", ignore=ignore)
     (project / "src/pideck/_build_info.json").write_bytes(build_metadata())
     shutil.copytree(project_root / "assets", project / "assets", ignore=ignore)
-    if (release_tag is None) != (public_key is None):
-        raise ValueError("A release tag and public key must be supplied together")
-    if release_tag is not None and public_key is not None:
+    if release_tag is not None:
         version = release_version(project_root, release_tag)
-        key_details = subprocess.run(
-            ["openssl", "pkey", "-pubin", "-in", str(public_key), "-text", "-noout"],
-            capture_output=True, text=True, check=True,
-        )
-        if not key_details.stdout.startswith("ED25519 Public-Key:"):
-            raise ValueError("The update public key must be Ed25519")
         (project / "release-version").write_text(version + "\n", encoding="utf-8")
-        shutil.copyfile(public_key, project / "update-public.pem")
     shutil.copyfile(
         project_root / "image" / "export" / "02-run-chroot.sh",
         pi_gen / "export-image" / "01-user-rename" / "02-run-chroot.sh",
@@ -164,7 +154,6 @@ def build(
     work_dir: Path,
     project_root: Path = PROJECT_ROOT,
     release_tag: str | None = None,
-    public_key: Path | None = None,
 ) -> Path:
     """Build and checksum one image in a new, dedicated working directory."""
     if platform.machine() not in ("aarch64", "arm64"):
@@ -173,8 +162,6 @@ def build(
         raise RuntimeError("The image must be built on Linux")
     if os.geteuid() != 0:
         raise RuntimeError("Run the build as root; pi-gen requires mount privileges")
-    if (release_tag is None) != (public_key is None):
-        raise ValueError("A release tag and public key must be supplied together")
     if release_tag is not None:
         _validate_release_checkout(project_root, release_tag)
     work_dir = work_dir.resolve()
@@ -200,7 +187,7 @@ def build(
         check=True,
         env=build_env,
     )
-    stage = prepare_stage(project_root, pi_gen, release_tag, public_key)
+    stage = prepare_stage(project_root, pi_gen, release_tag)
     config = write_build_config(pi_gen)
     write_source_manifest(stage, work_dir / "source-manifest.json", project_root)
     subprocess.run(["./build.sh", "-c", str(config)], cwd=pi_gen, check=True, env=build_env)
@@ -225,10 +212,9 @@ def main() -> int:
         help="New, space-free directory for the isolated build and output",
     )
     parser.add_argument("--release-tag", help="Stable tag for an update-enabled release image")
-    parser.add_argument("--public-key", type=Path, help="Trusted Ed25519 release public key (PEM)")
     arguments = parser.parse_args()
     try:
-        image = build(arguments.work_dir, release_tag=arguments.release_tag, public_key=arguments.public_key)
+        image = build(arguments.work_dir, release_tag=arguments.release_tag)
     except (OSError, EOFError, ValueError, RuntimeError, lzma.LZMAError, subprocess.CalledProcessError) as error:
         print(f"Image build failed: {error}", file=sys.stderr)
         return 1

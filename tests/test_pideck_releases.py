@@ -36,6 +36,16 @@ def test_discovery_ignores_drafts_and_prereleases(monkeypatch) -> None:
     assert pideck_releases.find_latest_release().version == "1.10.0"
 
 
+def test_unsigned_release_requires_only_manifest_and_bundle(monkeypatch) -> None:
+    """A stable release is discoverable without a signature asset."""
+    monkeypatch.setattr(pideck_releases, "_read_page", lambda _: [
+        _release("v1.0.0", assets=[
+            {"name": "pideck-update.json"}, {"name": "pideck-update.tar"},
+        ]),
+    ])
+    assert pideck_releases.find_latest_release().version == "1.0.0"
+
+
 def test_discovery_reports_incomplete_latest_release(monkeypatch) -> None:
     """A broken latest release is not hidden by reporting an older one."""
     monkeypatch.setattr(pideck_releases, "_read_page", lambda _: [

@@ -13,13 +13,12 @@ from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from pideck.infrastructure.pideck_releases import version_key
-from pideck.infrastructure.signed_update import InvalidUpdate, unpack_bundle, verify_bundle
+from pideck.infrastructure.image_update_bundle import InvalidUpdate, unpack_bundle, verify_bundle
 
 
 _LOGGER = logging.getLogger(__name__)
 _ARTIFACT_LIMITS = {
     "pideck-update.json": 16 * 1024,
-    "pideck-update.sig": 64,
     "pideck-update.tar": 256 * 1024 * 1024,
 }
 _DOWNLOAD_BASE = "https://github.com/reviloxx/PiDeck-2/releases/download"
@@ -87,12 +86,11 @@ def _download(version: str, name: str, target: Path) -> None:
 
 
 class ImageUpdateStore:
-    """Stage verified releases and activate them atomically at image startup."""
+    """Stage validated releases and activate them atomically at image startup."""
 
-    def __init__(self, root: Path, public_key: Path) -> None:
-        """Use an image-owned root directory and pinned public key."""
+    def __init__(self, root: Path) -> None:
+        """Use an image-owned root directory for unsigned updates."""
         self.root = root
-        self.public_key = public_key
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
@@ -158,7 +156,7 @@ class ImageUpdateStore:
             return {**self._state(), "current_version": self._current()}
 
     def stage(self, version: str) -> None:
-        """Download and authenticate a newer release into root-owned storage."""
+        """Download and validate a newer release into root-owned storage."""
         version_key(version)
         with self._locked():
             current = self._current()
@@ -176,11 +174,10 @@ class ImageUpdateStore:
                 for name in _ARTIFACT_LIMITS:
                     _download(version, name, directory / name)
                 verified = verify_bundle(
-                    directory / "pideck-update.json", directory / "pideck-update.sig",
-                    directory / "pideck-update.tar", self.public_key, current,
+                    directory / "pideck-update.json", directory / "pideck-update.tar", current,
                 )
                 if verified != version:
-                    raise InvalidUpdate("Release tag does not match signed version")
+                    raise InvalidUpdate("Release tag does not match update version")
                 _sync_directory(directory)
                 os.rename(directory, staged)
                 self._sync_root()
@@ -202,11 +199,10 @@ class ImageUpdateStore:
             staged = self.root / "staged"
             try:
                 verified = verify_bundle(
-                    staged / "pideck-update.json", staged / "pideck-update.sig",
-                    staged / "pideck-update.tar", self.public_key, current,
+                    staged / "pideck-update.json", staged / "pideck-update.tar", current,
                 )
                 if verified != version:
-                    raise InvalidUpdate("Pending release does not match signed version")
+                    raise InvalidUpdate("Pending release does not match update version")
                 releases = self.root / "releases"
                 releases.mkdir(exist_ok=True)
                 _remove_interrupted_directories(releases, ".extract-")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a signed, reproducible application update bundle for an image release."""
+"""Build a reproducible application update bundle for an image release."""
 
 import argparse
 from datetime import datetime, timezone
@@ -8,7 +8,6 @@ import io
 import json
 from pathlib import Path
 import re
-import subprocess
 import tarfile
 import tomllib
 
@@ -17,7 +16,6 @@ VERSION_PATTERN = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)
 ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_NAME = "pideck-update.tar"
 MANIFEST_NAME = "pideck-update.json"
-SIGNATURE_NAME = "pideck-update.sig"
 
 
 def build_metadata(timestamp: datetime | None = None) -> bytes:
@@ -67,19 +65,11 @@ def _sources(project_root: Path) -> list[tuple[Path, str]]:
 
 
 def create_bundle(
-    project_root: Path, output: Path, tag: str, signing_key: Path,
+    project_root: Path, output: Path, tag: str,
     *, timestamp: datetime | None = None,
 ) -> None:
-    """Create a signed bundle reproducible for a fixed build timestamp."""
+    """Create an unsigned bundle reproducible for a fixed build timestamp."""
     version = release_version(project_root, tag)
-    key_details = subprocess.run(
-        ["openssl", "pkey", "-in", str(signing_key), "-pubout", "-text", "-noout"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    if not key_details.stdout.startswith("ED25519 Public-Key:"):
-        raise ValueError("The release signing key must be an Ed25519 private key")
     sources = _sources(project_root)
     metadata_name = "python/pideck/_build_info.json"
     if any(name == metadata_name for _, name in sources):
@@ -107,7 +97,7 @@ def create_bundle(
 
     manifest = {
         "format": 1,
-        "updater_protocol": 1,
+        "updater_protocol": 2,
         "version": version,
         "artifact": BUNDLE_NAME,
         "size": bundle.stat().st_size,
@@ -118,27 +108,19 @@ def create_bundle(
         json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
-    subprocess.run(
-        [
-            "openssl", "pkeyutl", "-sign", "-rawin", "-inkey", str(signing_key),
-            "-in", str(manifest_path), "-out", str(output / SIGNATURE_NAME),
-        ],
-        check=True,
-    )
 
 
 def main() -> None:
     """Build update assets from the current checkout and release tag."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True)
-    parser.add_argument("--signing-key", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--build-timestamp", type=datetime.fromisoformat,
         help="Original timezone-aware ISO 8601 build time for reproducing an artifact",
     )
     args = parser.parse_args()
-    create_bundle(ROOT, args.output, args.tag, args.signing_key, timestamp=args.build_timestamp)
+    create_bundle(ROOT, args.output, args.tag, timestamp=args.build_timestamp)
 
 
 if __name__ == "__main__":

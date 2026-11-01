@@ -1,4 +1,4 @@
-name: Publish signed PiDeck update
+name: Publish PiDeck update
 
 on:
   push:
@@ -17,23 +17,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build and verify signed update
-        env:
-          SIGNING_KEY: ${{ secrets.PIDECK_RELEASE_SIGNING_KEY }}
-          PUBLIC_KEY: ${{ vars.PIDECK_RELEASE_PUBLIC_KEY }}
+      - name: Build update
         run: |
           set -eu
-          test -n "$SIGNING_KEY" || { echo "Missing PIDECK_RELEASE_SIGNING_KEY secret" >&2; exit 1; }
-          test -n "$PUBLIC_KEY" || { echo "Missing PIDECK_RELEASE_PUBLIC_KEY variable" >&2; exit 1; }
-          umask 077
-          key="$(mktemp)"
-          public="$(mktemp)"
-          trap 'rm -f "$key" "$public"' EXIT
-          printf '%s\n' "$SIGNING_KEY" > "$key"
-          printf '%s\n' "$PUBLIC_KEY" > "$public"
-          python3 image/update_bundle.py --tag "$GITHUB_REF_NAME" --signing-key "$key" --output release-assets
-          openssl pkeyutl -verify -rawin -pubin -inkey "$public" \
-            -in release-assets/pideck-update.json -sigfile release-assets/pideck-update.sig
+          python3 image/update_bundle.py --tag "$GITHUB_REF_NAME" --output release-assets
 
       - name: Publish stable release
         env:
@@ -43,5 +30,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             release-assets/pideck-update.tar \
             release-assets/pideck-update.json \
-            release-assets/pideck-update.sig \
             --verify-tag --title "$GITHUB_REF_NAME" --generate-notes

@@ -1,11 +1,10 @@
-"""Verify and safely unpack signed PiDeck image update artifacts."""
+"""Validate and safely unpack unsigned PiDeck image update artifacts."""
 
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
 import shutil
-import subprocess
 import tarfile
 
 from pideck.infrastructure.pideck_releases import version_key
@@ -18,41 +17,27 @@ _DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
 class InvalidUpdate(Exception):
-    """A downloaded update is invalid, untrusted or incompatible."""
+    """A downloaded update is invalid or incompatible."""
 
 
 def verify_bundle(
     manifest_path: Path,
-    signature_path: Path,
     bundle_path: Path,
-    public_key: Path,
     current_version: str,
 ) -> str:
-    """Authenticate metadata and confirm that the matching bundle is a newer release."""
+    """Check unsigned metadata, bundle integrity, and release version."""
     if manifest_path.stat().st_size > _MAX_MANIFEST_SIZE:
         raise InvalidUpdate("Update manifest is too large")
-    if signature_path.stat().st_size != 64:
-        raise InvalidUpdate("Invalid Ed25519 signature size")
-    result = subprocess.run(
-        [
-            "/usr/bin/openssl", "pkeyutl", "-verify", "-rawin", "-pubin", "-inkey", str(public_key),
-            "-in", str(manifest_path), "-sigfile", str(signature_path),
-        ],
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode:
-        raise InvalidUpdate("Update signature verification failed")
     try:
         manifest = json.loads(manifest_path.read_bytes())
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise InvalidUpdate("Invalid signed update manifest") from error
+        raise InvalidUpdate("Invalid update manifest") from error
     expected_keys = {"format", "updater_protocol", "version", "artifact", "size", "sha256"}
     if not isinstance(manifest, dict) or set(manifest) != expected_keys:
         raise InvalidUpdate("Unexpected update manifest fields")
     if type(manifest["format"]) is not int or manifest["format"] != 1:
         raise InvalidUpdate("Unsupported update format")
-    if type(manifest["updater_protocol"]) is not int or manifest["updater_protocol"] != 1:
+    if type(manifest["updater_protocol"]) is not int or manifest["updater_protocol"] != 2:
         raise InvalidUpdate("Incompatible updater protocol")
     version = manifest["version"]
     if not isinstance(version, str):
@@ -71,15 +56,15 @@ def verify_bundle(
         or not isinstance(digest, str)
         or _DIGEST.fullmatch(digest) is None
     ):
-        raise InvalidUpdate("Invalid signed artifact metadata")
+        raise InvalidUpdate("Invalid artifact metadata")
     if bundle_path.stat().st_size != size:
-        raise InvalidUpdate("Update bundle size does not match signed metadata")
+        raise InvalidUpdate("Update bundle size does not match metadata")
     hasher = hashlib.sha256()
     with bundle_path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             hasher.update(chunk)
     if hasher.hexdigest() != digest:
-        raise InvalidUpdate("Update bundle hash does not match signed metadata")
+        raise InvalidUpdate("Update bundle hash does not match metadata")
     return version
 
 

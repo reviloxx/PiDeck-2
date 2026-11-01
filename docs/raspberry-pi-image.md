@@ -35,6 +35,11 @@ repository's **Actions** tab, select the workflow, choose **Run workflow**,
 select the branch to build, and start it. Only committed files on the selected
 branch are built; local uncommitted changes are not included.
 
+To trigger an update-enabled release build from Git, an `image-vMAJOR.MINOR.PATCH`
+tag can also be pushed at the same commit as the matching `vMAJOR.MINOR.PATCH`
+release tag. The builder validates the release tag and source checkout before
+building; an image tag alone does not publish an application release.
+
 After a successful run, download and extract the
 `pideck-raspberry-pi-image` artifact. It contains the `.img.xz`, `SHA256SUMS`,
 the pi-gen package information, the source manifest, and `imager_repo.py`.
@@ -93,35 +98,35 @@ still contains Raspberry Pi OS utilities beyond the explicitly added
 application dependencies. Failures leave the dedicated working directory in
 place for investigation; choose another new directory for the next build.
 
-## Signed application release artifacts
+## Application release artifacts
 
-The `Publish signed PiDeck update` workflow creates application update
+The `Publish PiDeck update` workflow creates application update
 artifacts for stable tags of the form `vMAJOR.MINOR.PATCH`. The tag must match
 both version declarations in `pyproject.toml` and `src/pideck/__init__.py`.
-Provision an Ed25519 PEM private key as the GitHub Actions secret
-`PIDECK_RELEASE_SIGNING_KEY` and its matching PEM public key as the repository
-variable `PIDECK_RELEASE_PUBLIC_KEY`. Protect the private key outside the
-repository and never commit it. The workflow verifies the signature against the
-configured public key before publishing.
+Releases contain a bundle and metadata, not a signature or signing key.
+Downloads use HTTPS and check the bundle's size and SHA-256 against the
+downloaded metadata. These checks detect corruption but do not authenticate
+the publisher: anyone able to replace both files can distribute altered code.
 
 To build an update-enabled image, select the matching release tag when starting
 the image workflow. A branch build is a development image and cannot
-self-update. For a native build, use a clean checkout of the matching tag and
-pass the same public key used by the release workflow:
+self-update. For a native build, use a clean checkout of the matching tag:
 
 ```bash
 sudo python3 image/build.py --work-dir /var/tmp/pideck-release-build \
-  --release-tag v0.1.0 --public-key /path/to/release-public.pem
+  --release-tag v0.3.0
 ```
 
 Replace the example tag with the actual release tag. The builder requires the
 tag, both project version declarations and the checked-out commit to agree.
-Release inputs must have no local modifications. Existing images do not contain
-the updater; reflash them with an update-enabled release image.
+Release inputs must have no local modifications. Older signed-update images
+cannot accept this unsigned protocol; development images cannot self-update.
+Reflash with an unsigned update-enabled release image or perform a separate
+system migration.
 
-New image and signed application builds record the PiDeck application build
+New image and application builds record the PiDeck application build
 time in UTC. Settings shows the timestamp for the running application, not the
-OS image; older builds without this metadata show it as unknown. Signed
+OS image; older builds without this metadata show it as unknown. Update
 artifacts are reproducible for identical source and build timestamp inputs;
 different build times produce different artifacts. The bundle builder accepts
 `--build-timestamp` with the original timezone-aware ISO 8601 timestamp when
@@ -145,8 +150,8 @@ rolled back. For recovery, use a second console or an explicitly enabled SSH
 connection and inspect `journalctl -u pideck-updater -u pideck-activate`.
 
 The image includes a root-owned update service. It accepts requests only from
-the Imager-provisioned UID 1000 account and verifies PiDeck release signatures
-against the public key embedded in the image. PiDeck and supported third-party
+the Imager-provisioned UID 1000 account and validates release metadata, sizes,
+hashes and archive contents, but does not verify a signature. PiDeck and supported third-party
 application updates need no password. For apt, the service permits upgrading
 any installed package, including required dependencies, without allowing
 arbitrary sudo commands. Package maintainer scripts run as root, so anyone with
@@ -154,12 +159,9 @@ access to the appliance account can initiate privileged package upgrades. User
 Flatpak updates run as that user; system Flatpak updates use the service.
 Package-manager failures are reported in Settings and the journal.
 
-Keep the signing private key offline or in the protected GitHub Actions secret.
-The installed public key and updater protocol are not themselves self-updated.
-If the key is lost or compromised, or an incompatible updater protocol is
-needed, provision a new trusted key and reflash a new release image; changing
-the GitHub variable alone does not rotate existing devices. These application
-updates do not update the operating system or image bootstrap components.
+The installed privileged updater and its protocol are not themselves updated by
+application releases. These application updates do not update the operating
+system or image bootstrap components.
 
 ## Flash and first boot
 
@@ -233,7 +235,7 @@ minimum storage capacity. On a Pi 5, verify:
   navigation and hot-plug behavior.
 - Kodi, Chromium, Firefox ESR and RetroArch including mGBA core loading, with
   external-window detection, closing the app and returning to PiDeck.
-- Settings persistence, passwordless application and signed PiDeck updates,
+- Settings persistence, passwordless application and unsigned PiDeck updates,
   reboot activation and rollback, shutdown, error handling and console recovery.
 
 No Pi 5 hardware acceptance has yet been performed. PiDeck's application

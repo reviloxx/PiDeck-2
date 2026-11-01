@@ -58,7 +58,7 @@ def test_preflight_requires_debian_archive_keyring(
 
 def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     """Install the shared session and configured apps in the expected locations."""
-    x86_build._write_inputs(tmp_path, None, None)
+    x86_build._write_inputs(tmp_path, None)
     config = YamlConfigurationParser().load(tmp_path / "usr/share/pideck/config/pideck.yaml")
     packages = set((x86_build.INPUTS / "packages.txt").read_text().split())
     assert {app.executable for app in config.applications} <= packages
@@ -92,7 +92,7 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
 @pytest.mark.parametrize("nomachine", [False, True])
 def test_x86_configuration_only_lists_installed_optional_apps(tmp_path: Path, nomachine: bool) -> None:
     """Include Steam Link and gate the player tile on its private package."""
-    x86_build._write_inputs(tmp_path, None, None)
+    x86_build._write_inputs(tmp_path, None)
     path = tmp_path / "usr/share/pideck/config/pideck.yaml"
     configure(path, x86_build.INPUTS / "applications.yaml", nomachine=nomachine)
     config = YamlConfigurationParser().load(path)
@@ -105,7 +105,7 @@ def test_x86_configuration_only_lists_installed_optional_apps(tmp_path: Path, no
 
 def test_x86_application_definitions_are_configurable(tmp_path: Path) -> None:
     """Load application details from YAML rather than embedding them in code."""
-    x86_build._write_inputs(tmp_path, None, None)
+    x86_build._write_inputs(tmp_path, None)
     path = tmp_path / "usr/share/pideck/config/pideck.yaml"
     definitions = tmp_path / "apps.yaml"
     definitions.write_text(
@@ -117,6 +117,19 @@ def test_x86_application_definitions_are_configurable(tmp_path: Path) -> None:
     config = YamlConfigurationParser().load(path)
     assert any(app.identifier == "custom" and app.executable == "custom-player" for app in config.applications)
     assert "custom" in config.home.visible_applications
+
+
+def test_x86_release_is_update_enabled_without_key(tmp_path: Path) -> None:
+    """A tagged x86 image includes the versioned release without a key."""
+    import tomllib
+
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        version = tomllib.load(stream)["project"]["version"]
+    x86_build._write_inputs(tmp_path, f"v{version}")
+    root = tmp_path / "usr/lib/pideck"
+    assert os.readlink(root / "current") == f"releases/{version}"
+    assert (root / "current/python/pideck/bootstrap.py").is_file()
+    assert not (tmp_path / "usr/share/pideck/update-public.pem").exists()
 
 
 def test_private_player_checksum_is_required_before_creating_image(

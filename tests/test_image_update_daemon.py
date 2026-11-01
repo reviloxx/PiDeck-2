@@ -19,7 +19,7 @@ def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (root / "releases/1.0.0").mkdir(parents=True)
     (root / "current").symlink_to("releases/1.0.0")
     path = tmp_path / "service.sock"
-    broker = UpdateServer(path, ImageUpdateStore(root, tmp_path / "public.pem"), allowed_uid=os.getuid())
+    broker = UpdateServer(path, ImageUpdateStore(root), allowed_uid=os.getuid())
     monkeypatch.setattr(image_update_client, "SOCKET_PATH", path)
     thread = threading.Thread(target=broker.serve_forever)
     thread.start()

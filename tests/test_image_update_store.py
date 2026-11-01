@@ -15,12 +15,12 @@ from pideck.infrastructure import image_update_store
 from pideck.infrastructure import image_update_client
 from pideck.infrastructure.image_update_daemon import UpdateServer
 from pideck.infrastructure.image_update_store import ImageUpdateStore
-from pideck.infrastructure.signed_update import InvalidUpdate
+from pideck.infrastructure.image_update_bundle import InvalidUpdate
 
 
 @pytest.fixture
 def release_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ImageUpdateStore:
-    """Create an isolated image layout and locally signed release."""
+    """Create an isolated image layout and locally built release."""
     project = tmp_path / "project"
     (project / "src/pideck").mkdir(parents=True)
     (project / "assets").mkdir()
@@ -28,17 +28,13 @@ def release_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ImageUpdat
     (project / "src/pideck/__init__.py").write_text('__version__ = "1.1.0"\n')
     (project / "src/pideck/bootstrap.py").write_text('"""Entry point."""\n')
     (project / "assets/example.svg").write_text("<svg/>\n")
-    private = tmp_path / "private.pem"
-    public = tmp_path / "public.pem"
-    subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private)], check=True)
-    subprocess.run(["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)], check=True)
     release = tmp_path / "release"
-    create_bundle(project, release, "v1.1.0", private)
+    create_bundle(project, release, "v1.1.0")
     monkeypatch.setattr(image_update_store, "_download", lambda version, name, target: shutil.copyfile(release / name, target))
     root = tmp_path / "image"
     (root / "releases/1.0.0").mkdir(parents=True)
     (root / "current").symlink_to("releases/1.0.0")
-    return ImageUpdateStore(root, public)
+    return ImageUpdateStore(root)
 
 
 def test_staging_activation_and_readiness(release_store: ImageUpdateStore) -> None:
@@ -89,7 +85,7 @@ def test_interrupted_activation_recovers(
 
 
 def test_tampering_after_staging_prevents_activation(release_store: ImageUpdateStore) -> None:
-    """Activation rechecks signatures and hashes before switching versions."""
+    """Activation rechecks hashes before switching versions."""
     release_store.stage("1.1.0")
     bundle = release_store.root / "staged/pideck-update.tar"
     bundle.write_bytes(bundle.read_bytes() + b"bad")
@@ -111,7 +107,7 @@ def test_rejects_repeated_and_older_staging(release_store: ImageUpdateStore) -> 
 def test_socket_staging_activation_and_confirmation(
     release_store: ImageUpdateStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Exercise signed staging and next-start activation through the real socket protocol."""
+    """Exercise staging and next-start activation through the real socket protocol."""
     path = tmp_path / "service.sock"
     server = UpdateServer(path, release_store, allowed_uid=os.getuid())
     monkeypatch.setattr(image_update_client, "SOCKET_PATH", path)
@@ -132,20 +128,17 @@ def test_socket_staging_activation_and_confirmation(
 def test_real_bundled_application_starts_after_activation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Run the actual signed application and bundled assets from the activated tree."""
+    """Run the actual application and bundled assets from the activated tree."""
     project = Path(__file__).resolve().parents[1]
     with (project / "pyproject.toml").open("rb") as stream:
         version = tomllib.load(stream)["project"]["version"]
-    private, public = tmp_path / "private.pem", tmp_path / "public.pem"
-    subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private)], check=True)
-    subprocess.run(["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)], check=True)
     release = tmp_path / "bundle"
-    create_bundle(project, release, f"v{version}", private)
+    create_bundle(project, release, f"v{version}")
     monkeypatch.setattr(image_update_store, "_download", lambda _version, name, target: shutil.copyfile(release / name, target))
     root = tmp_path / "image"
     (root / "releases/0.0.0").mkdir(parents=True)
     (root / "current").symlink_to("releases/0.0.0")
-    store = ImageUpdateStore(root, public)
+    store = ImageUpdateStore(root)
     store.stage(version)
     store.activate_at_startup()
     script = """

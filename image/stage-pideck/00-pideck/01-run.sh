@@ -33,7 +33,6 @@ if [ -f files/project/release-version ]; then
     cp -a files/project/src/pideck "$release/python/"
     cp -a files/project/assets/. "$release/assets/"
     ln -s "releases/$version" "${ROOTFS_DIR}/usr/lib/pideck/current"
-    install -m 644 files/project/update-public.pem "${ROOTFS_DIR}/usr/share/pideck/update-public.pem"
 fi
 
 on_chroot <<'EOF'

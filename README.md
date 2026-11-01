@@ -70,11 +70,12 @@ An interrupted system-package operation may need to finish before cancellation
 takes effect. Red has its own license and settings; video playback, sign-in and
 controller support depend on Red, the device and YouTube.
 
-Existing appliances receive this feature through a signed PiDeck update only
-if their image has the update service and matching release verification key.
-Installing the PiDeck update does not itself install Red. Development and
-older images without the signed updater need a separately installed update or
-new image.
+New release images support unsigned PiDeck application updates. Installing a
+PiDeck update does not itself install Red. Older signed-update and development
+images cannot switch to the new unsigned updater through an application update;
+they need a separate system migration or a new image. Updates use HTTPS and
+check the bundle's size and hash, but do not authenticate the publisher: anyone
+able to replace both the release and its manifest can distribute altered code.
 
 **Settings > System** provides:
 

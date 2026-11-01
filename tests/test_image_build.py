@@ -29,10 +29,12 @@ def test_github_image_workflow_has_valid_shell_and_artifact_inputs() -> None:
         Loader=yaml.BaseLoader,
     )
     assert "workflow_dispatch" in workflow["on"]
+    assert workflow["on"]["push"]["tags"] == ["image-v*"]
     job = workflow["jobs"]["build"]
     assert job["runs-on"] == "ubuntu-24.04-arm"
     steps = {step["name"]: step for step in job["steps"]}
     assert 'image/build.py --work-dir "$RUNNER_TEMP/pideck-build"' in steps["Build image"]["run"]
+    assert '${GITHUB_REF_NAME#image-}' in steps["Build image"]["run"]
     assert "source-manifest.json" in steps["Prepare downloadable files"]["run"]
     assert "image/imager_repo.py" in steps["Prepare downloadable files"]["run"]
     upload = steps["Upload image and manifests"]["with"]
@@ -41,6 +43,37 @@ def test_github_image_workflow_has_valid_shell_and_artifact_inputs() -> None:
     for step in job["steps"]:
         if "run" in step:
             subprocess.run(["bash", "-n"], input=step["run"], text=True, check=True)
+
+
+@pytest.mark.parametrize(("ref_type", "ref_name", "release_tag"), [
+    ("tag", "image-v0.3.0", "v0.3.0"),
+    ("tag", "v0.3.0", "v0.3.0"),
+    ("branch", "main", None),
+])
+def test_image_workflow_selects_correct_release_tag(
+    tmp_path: Path, ref_type: str, ref_name: str, release_tag: str | None,
+) -> None:
+    """Image tags build the matching release; branch builds remain development images."""
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/raspberry-pi-image.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    script = next(step["run"] for step in workflow["jobs"]["build"]["steps"] if step["name"] == "Build image")
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    sudo = commands / "sudo"
+    sudo.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$RUNNER_TEMP/arguments"\n')
+    sudo.chmod(0o755)
+    subprocess.run(
+        ["bash", "-c", script], check=True,
+        env={**os.environ, "PATH": f"{commands}:{os.environ['PATH']}", "RUNNER_TEMP": str(tmp_path),
+             "GITHUB_REF_TYPE": ref_type, "GITHUB_REF_NAME": ref_name},
+    )
+    arguments = (tmp_path / "arguments").read_text().splitlines()
+    if release_tag is None:
+        assert "--release-tag" not in arguments
+    else:
+        assert arguments[-2:] == ["--release-tag", release_tag]
 
 
 def test_github_artifact_preparation_keeps_image_usable(tmp_path: Path) -> None:
@@ -287,19 +320,15 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     assert (rootfs / "etc/systemd/system/pideck-activate.service").is_file()
 
 
-def test_release_image_installs_versioned_tree_and_trusted_key(tmp_path: Path) -> None:
-    """Release image inputs install a pinned key and one atomic release tree."""
+def test_release_image_installs_versioned_tree_without_a_key(tmp_path: Path) -> None:
+    """Release image inputs install an update-enabled tree without a public key."""
     import tomllib
 
     with (ROOT / "pyproject.toml").open("rb") as stream:
         version = tomllib.load(stream)["project"]["version"]
-    private = tmp_path / "private.pem"
-    public = tmp_path / "public.pem"
-    subprocess.run(["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private)], check=True)
-    subprocess.run(["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)], check=True)
     pi_gen = tmp_path / "pi-gen"
     make_fake_pi_gen(pi_gen)
-    stage = image_build.prepare_stage(ROOT, pi_gen, f"v{version}", public) / "00-pideck"
+    stage = image_build.prepare_stage(ROOT, pi_gen, f"v{version}") / "00-pideck"
     rootfs = tmp_path / "rootfs"
     rootfs.mkdir()
     (rootfs / "boot/firmware").mkdir(parents=True)
@@ -318,15 +347,15 @@ def test_release_image_installs_versioned_tree_and_trusted_key(tmp_path: Path) -
     assert (root / "current/python/pideck/bootstrap.py").is_file()
     assert (root / "current/assets/icons/settings.svg").is_file()
     assert (root / "current/config").is_dir()
-    assert (rootfs / "usr/share/pideck/update-public.pem").read_bytes() == public.read_bytes()
+    assert not (rootfs / "usr/share/pideck/update-public.pem").exists()
 
 
-def test_release_image_requires_both_tag_and_key(tmp_path: Path) -> None:
-    """A partial release configuration must not silently build an untrusted image."""
+def test_release_image_rejects_mismatched_tag(tmp_path: Path) -> None:
+    """A release image cannot claim a different application version."""
     pi_gen = tmp_path / "pi-gen"
     make_fake_pi_gen(pi_gen)
-    with pytest.raises(ValueError, match="supplied together"):
-        image_build.prepare_stage(ROOT, pi_gen, release_tag="v0.1.0")
+    with pytest.raises(ValueError, match="do not match"):
+        image_build.prepare_stage(ROOT, pi_gen, release_tag="v999.0.0")
 
 
 def test_release_image_requires_clean_matching_tag(tmp_path: Path) -> None:

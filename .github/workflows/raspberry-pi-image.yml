@@ -2,6 +2,9 @@ name: Build Raspberry Pi image
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'image-v*'
 
 permissions:
   contents: read
@@ -27,17 +30,12 @@ jobs:
           df -h "$RUNNER_TEMP"
 
       - name: Build image
-        env:
-          PUBLIC_KEY: ${{ vars.PIDECK_RELEASE_PUBLIC_KEY }}
         run: |
           set -eu
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            test -n "$PUBLIC_KEY" || { echo "Missing PIDECK_RELEASE_PUBLIC_KEY variable" >&2; exit 1; }
-            key="$(mktemp)"
-            trap 'rm -f "$key"' EXIT
-            printf '%s\n' "$PUBLIC_KEY" > "$key"
+            release_tag="${GITHUB_REF_NAME#image-}"
             sudo python3 image/build.py --work-dir "$RUNNER_TEMP/pideck-build" \
-              --release-tag "$GITHUB_REF_NAME" --public-key "$key"
+              --release-tag "$release_tag"
           else
             sudo python3 image/build.py --work-dir "$RUNNER_TEMP/pideck-build"
           fi

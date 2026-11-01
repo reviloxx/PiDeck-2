@@ -64,12 +64,11 @@ to this repository. Without it, the builder reports the omission and does not
 add a broken NoMachine tile. NoMachine Player's server service is masked.
 Only build and store this image privately under your applicable licenses.
 
-Release images can also be built with `--release-tag vMAJOR.MINOR.PATCH
---public-key /path/to/update-public.pem`. The tag, checked-out commit and
-project versions must agree, the image inputs must be clean, and the key must
-be the Ed25519 public key corresponding to the signed PiDeck release. Without
-both options the image is a development image and cannot self-update. See
-[signed update details](raspberry-pi-image.md#signed-application-release-artifacts);
+Release images can also be built with `--release-tag vMAJOR.MINOR.PATCH`.
+The tag, checked-out commit and project versions must agree, and the image
+inputs must be clean. Without the tag the image is a development image and
+cannot self-update. See
+[unsigned update details](raspberry-pi-image.md#application-release-artifacts);
 the x86 image does not use Raspberry Pi Imager provisioning.
 
 The build directory contains the raw `.img`, compressed `.img.xz`,
@@ -117,7 +116,7 @@ to switch to boot details, and use the system journal when diagnosing failures;
 the splash does not remove journal entries. Graphics-driver availability may
 affect the splash on physical hardware. The splash uses the default theme's
 colors because it starts before user theme settings are available. Boot
-components are not updated by PiDeck's signed application updater: an existing
+components are not updated by PiDeck's application updater: an existing
 installation needs a separately applied system update or a newly built image.
 
 The launcher wallpaper fills the window while preserving its aspect ratio;
@@ -200,7 +199,7 @@ partition and package manifests, and test:
   video, updates, and persistence across reboot.
 - The same boot, display, audio, network and input checks on the target
   physical hardware, including its specific firmware.
-- On a release image, signed update staging, reboot activation and rollback.
+- On a release image, unsigned update staging, reboot activation and rollback.
 
 These are release gates, not claims that the current experimental builder
 has already passed them.

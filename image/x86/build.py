@@ -80,7 +80,7 @@ def _input_hashes() -> dict[str, str]:
 
 
 def _check_host(
-    work_dir: Path, tag: str | None, key: Path | None,
+    work_dir: Path, tag: str | None,
     player: Path | None, player_sha256: str | None,
 ) -> None:
     """Reject unsupported hosts and invalid release inputs before making files."""
@@ -95,8 +95,6 @@ def _check_host(
         raise RuntimeError(f"Missing host tools: {', '.join(missing)}")
     if not DEBIAN_KEYRING.is_file():
         raise RuntimeError(f"Debian archive signing keyring is missing: {DEBIAN_KEYRING}")
-    if (tag is None) != (key is None):
-        raise ValueError("Release tag and public key must be supplied together")
     if (player is None) != (player_sha256 is None):
         raise ValueError("NoMachine player package and SHA-256 must be supplied together")
     if player is not None and player_sha256 is not None:
@@ -108,14 +106,11 @@ def _check_host(
         architecture = _run("dpkg-deb", "--field", str(player), "Architecture", capture=True)
         if package != "nomachine-player" or architecture != "amd64":
             raise ValueError("Expected the amd64 nomachine-player package")
-    if tag is not None and key is not None:
+    if tag is not None:
         _validate_release_checkout(ROOT, tag)
-        details = _run("openssl", "pkey", "-pubin", "-in", str(key), "-text", "-noout", capture=True)
-        if not details.startswith("ED25519 Public-Key:"):
-            raise ValueError("The update public key must be Ed25519")
 
 
-def _write_inputs(root: Path, tag: str | None, key: Path | None) -> None:
+def _write_inputs(root: Path, tag: str | None) -> None:
     """Install the shared launcher, update services, and x86 boot configuration."""
     lib = root / "usr/lib/pideck"
     updater = root / "usr/lib/pideck-updater/python"
@@ -141,7 +136,7 @@ def _write_inputs(root: Path, tag: str | None, key: Path | None) -> None:
     for name in ("pideck-updater.service", "pideck-activate.service"):
         _install(PI_FILES / name, root / "etc/systemd/system" / name)
     _install(INPUTS / "pideck-grow-root.service", root / "etc/systemd/system/pideck-grow-root.service")
-    if tag is not None and key is not None:
+    if tag is not None:
         version = release_version(ROOT, tag)
         release = lib / "releases" / version
         shutil.copytree(ROOT / "src/pideck", release / "python/pideck", ignore=ignore)
@@ -149,11 +144,10 @@ def _write_inputs(root: Path, tag: str | None, key: Path | None) -> None:
         shutil.copytree(ROOT / "assets", release / "assets")
         (release / "config").mkdir()
         (lib / "current").symlink_to(f"releases/{version}")
-        _install(key, root / "usr/share/pideck/update-public.pem")
 
 
 def _configure(
-    root: Path, loop: str, tag: str | None, key: Path | None, player: Path | None,
+    root: Path, loop: str, tag: str | None, player: Path | None,
     player_sha256: str | None,
 ) -> None:
     """Install packages and configure the mounted Debian appliance."""
@@ -191,7 +185,7 @@ def _configure(
         if not (root / "usr/NX/bin/nxplayer").is_file():
             raise RuntimeError("NoMachine Player did not install its expected executable")
     policy.unlink()
-    _write_inputs(root, tag, key)
+    _write_inputs(root, tag)
     chroot("plymouth-set-default-theme", "pideck")
     chroot("update-initramfs", "-u", "-k", "all")
     app_configurator = root / "tmp/pideck-configure-apps.py"
@@ -235,14 +229,13 @@ def _configure(
 
 
 def build(
-    work_dir: Path, tag: str | None = None, key: Path | None = None,
+    work_dir: Path, tag: str | None = None,
     player: Path | None = None, player_sha256: str | None = None,
 ) -> Path:
     """Build one raw image in a new directory and return its compressed path."""
     work_dir = work_dir.resolve()
-    _check_host(work_dir, tag, key, player, player_sha256)
+    _check_host(work_dir, tag, player, player_sha256)
     input_hashes = _input_hashes()
-    key_hash = file_hash(key) if key is not None else None
     work_dir.mkdir(mode=0o700)
     image = work_dir / "pideck-x86_64.img"
     with image.open("xb") as stream:
@@ -260,15 +253,13 @@ def build(
         _mount(stack, f"{loop}p2", root / "boot/efi")
         for name in ("dev", "proc", "sys"):
             _mount(stack, f"/{name}", root / name, "--bind")
-        _configure(root, loop, tag, key, player, player_sha256)
+        _configure(root, loop, tag, player, player_sha256)
         shutil.copyfile(root / "usr/share/pideck/package-manifest.tsv", work_dir / "package-manifest.tsv")
         shutil.copyfile(root / "usr/share/pideck/flatpak-manifest.tsv", work_dir / "flatpak-manifest.tsv")
         stats = os.statvfs(root)
         installed_bytes = (stats.f_blocks - stats.f_bfree) * stats.f_frsize
     if _input_hashes() != input_hashes:
         raise RuntimeError("Image source inputs changed during the build")
-    if key is not None and file_hash(key) != key_hash:
-        raise RuntimeError("Release public key changed during the build")
     _run("xz", "-T0", "-k", str(image))
     compressed = image.with_suffix(".img.xz")
     (work_dir / "SHA256SUMS").write_text(f"{file_hash(compressed)}  {compressed.name}\n", encoding="utf-8")
@@ -277,7 +268,6 @@ def build(
         "root_filesystem_used_bytes": installed_bytes,
         "raw_image_bytes": IMAGE_SIZE,
         "nomachine_player_sha256": player_sha256,
-        "release_public_key_sha256": key_hash,
         "inputs": input_hashes,
     }, indent=2) + "\n", encoding="utf-8")
     return compressed
@@ -288,14 +278,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--release-tag")
-    parser.add_argument("--public-key", type=Path)
     parser.add_argument("--nomachine-deb", type=Path, help="Trusted local amd64 NoMachine Player package")
     parser.add_argument("--nomachine-sha256", help="Expected SHA-256 of the supplied player package")
     args = parser.parse_args()
     try:
         if args.nomachine_deb is None:
             print("NoMachine Player is omitted; supply --nomachine-deb and --nomachine-sha256.", file=sys.stderr)
-        image = build(args.work_dir, args.release_tag, args.public_key, args.nomachine_deb, args.nomachine_sha256)
+        image = build(args.work_dir, args.release_tag, args.nomachine_deb, args.nomachine_sha256)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"Image build failed: {error}", file=sys.stderr)
         return 1

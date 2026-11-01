@@ -24,7 +24,6 @@ _PACKAGE = re.compile(r"[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?")
 _FLATPAK_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*\.[A-Za-z0-9_.-]+")
 _SOCKET = Path("/run/pideck-updater/service.sock")
 _ROOT = Path("/usr/lib/pideck")
-_KEY = Path("/usr/share/pideck/update-public.pem")
 _ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C", "DEBIAN_FRONTEND": "noninteractive"}
 
 
@@ -215,7 +214,7 @@ def main() -> None:
     parser.add_argument("command", choices=("serve", "activate"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    store = ImageUpdateStore(_ROOT, _KEY)
+    store = ImageUpdateStore(_ROOT)
     if args.command == "activate":
         if (_ROOT / "current").is_symlink():
             store.activate_at_startup()

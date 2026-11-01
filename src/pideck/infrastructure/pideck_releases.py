@@ -12,7 +12,7 @@ _TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _MAX_PAGES = 20
 _PAGE_SIZE = 100
-_REQUIRED_ASSETS = frozenset({"pideck-update.tar", "pideck-update.json", "pideck-update.sig"})
+_REQUIRED_ASSETS = frozenset({"pideck-update.tar", "pideck-update.json"})
 
 
 class ReleaseCheckError(Exception):
