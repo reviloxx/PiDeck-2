@@ -167,6 +167,68 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     window.close()
 
 
+@pytest.mark.parametrize("status", list(PiDeckUpdateStatus))
+def test_pideck_manual_check_is_guarded(application: QApplication, status: PiDeckUpdateStatus) -> None:
+    """Manual checks are available only in stable, supported updater states."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(
+        configuration, DEFAULT_THEME, Path.cwd(),
+        pideck_update_info=PiDeckUpdateInfo(status, "1.0.0", "1.1.0"),
+    )
+    checks: list[bool] = []
+    updates: list[bool] = []
+    window.pideck_check_requested.connect(lambda: checks.append(True))
+    window.pideck_update_requested.connect(lambda: updates.append(True))
+    window.show()
+    window._select_page(3)
+    application.processEvents()
+    enabled = status in (PiDeckUpdateStatus.UP_TO_DATE, PiDeckUpdateStatus.AVAILABLE, PiDeckUpdateStatus.FAILED)
+    assert window._pideck_check_button.isEnabled() is enabled
+    window._pideck_check_button.click()
+    window._request_pideck_check()
+    assert len(checks) == (2 if enabled else 0)
+    assert not updates
+    window.close()
+
+
+def test_pideck_manual_check_navigation_and_language(application: QApplication) -> None:
+    """Keyboard, mouse, and gamepad can reach and activate the localized check button."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(
+        configuration, DEFAULT_THEME, Path.cwd(),
+        pideck_update_info=PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.0.0"),
+    )
+    checks: list[bool] = []
+    window.pideck_check_requested.connect(lambda: checks.append(True))
+    window.show()
+    window._select_page(3)
+    application.processEvents()
+    row = window._pideck_row
+    assert row is not None
+    button = window._pideck_check_button
+    assert button.text() == "Check for updates"
+    QTest.keyClick(row, Qt.Key.Key_Down)
+    assert button.hasFocus()
+    QTest.keyClick(button, Qt.Key.Key_Return)
+    QTest.keyClick(button, Qt.Key.Key_Space)
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+    assert len(checks) == 4
+    window.apply_language("de")
+    assert button.text() == "Nach Aktualisierungen suchen"
+    window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.CHECKING, "1.0.0"))
+    assert not button.isEnabled()
+    assert row.hasFocus()
+    QTest.keyClick(row, Qt.Key.Key_Down)
+    assert row.hasFocus()
+    window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.0.0"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert button.hasFocus()
+    window.handle_input(InputEvent(InputAction.UP, "gamepad"))
+    assert row.hasFocus()
+    window.close()
+
+
 def test_versions_and_build_date_are_visible(application: QApplication) -> None:
     """Each update page shows installed versions and the PiDeck build date."""
     configuration = YamlConfigurationParser().parse(configuration_document())

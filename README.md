@@ -53,7 +53,10 @@ On Linux, gamepad navigation uses the optional `evdev` backend. The user needs a
 ## Settings
 
 **Settings > PiDeck** shows the installed PiDeck version, its application
-build time when available, and self-update status. **Updates** lists configured
+build time when available, and self-update status. Select **Check for updates**
+to check again without installing an update. Checks run automatically at startup
+and periodically; manual checks are unavailable while checking, preparing an
+update, awaiting a restart, or on unsupported installations. **Updates** lists configured
 applications separately. Versions and build times that the installation does
 not provide are shown as unknown. PiDeck self-updates update the application,
 not the operating system or image dependencies.

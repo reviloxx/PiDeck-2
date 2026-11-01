@@ -371,6 +371,7 @@ class SettingsWindow(QDialog):
     settings_changed = Signal(object)
     update_status = Signal(object)
     pideck_update_requested = Signal()
+    pideck_check_requested = Signal()
     network_requested = Signal()
     audio_requested = Signal()
     display_requested = Signal()
@@ -694,8 +695,15 @@ class SettingsWindow(QDialog):
         self._build_date_label = QLabel(page)
         self._build_date_label.setObjectName("settings_hint")
         layout.addWidget(self._build_date_label)
+        self._pideck_check_button = QPushButton(page)
+        self._pideck_check_button.setObjectName("settings_footer")
+        self._pideck_check_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._pideck_check_button.installEventFilter(self)
+        self._pideck_check_button.clicked.connect(self._request_pideck_check)
+        layout.addWidget(self._pideck_check_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addStretch()
-        self._page_controls[self._pideck_page] = [self._pideck_row]
+        self._page_controls[self._pideck_page] = [self._pideck_row, self._pideck_check_button]
+        self._set_pideck_check_enabled(self._pideck_info)
         return page
 
     def _build_network_page(self) -> QWidget:
@@ -999,6 +1007,8 @@ class SettingsWindow(QDialog):
                 self._handle_row_activation(current)
             elif current is self._pideck_row and self._pideck_row is not None:
                 self._activate_pideck_update()
+            elif self._pideck_page is not None and current is self._pideck_check_button:
+                self._request_pideck_check()
             elif current in self._page_controls.get(2, []):
                 self._activate_update(current.application_id)
             elif self._network_enabled and current is self._network_row:
@@ -1109,6 +1119,7 @@ class SettingsWindow(QDialog):
             row.set_language(self._language)
         if self._pideck_row is not None:
             self._pideck_row.set_language(self._language)
+            self._pideck_check_button.setText(tr(self._language, "check_for_updates"))
             self._build_date_label.setText(tr(
                 self._language, "build_date",
                 date=self._build_date or tr(self._language, "unknown"),
@@ -1119,6 +1130,23 @@ class SettingsWindow(QDialog):
         self._pideck_info = info
         if self._pideck_row is not None:
             self._pideck_row.set_pideck_info(info)
+            self._set_pideck_check_enabled(info)
+
+    def _set_pideck_check_enabled(self, info: PiDeckUpdateInfo) -> None:
+        """Enable manual checks only when a release can safely be rechecked."""
+        enabled = info.status in (
+            PiDeckUpdateStatus.UP_TO_DATE,
+            PiDeckUpdateStatus.AVAILABLE,
+            PiDeckUpdateStatus.FAILED,
+        )
+        if not enabled and self._pideck_check_button.hasFocus() and self._pideck_row is not None:
+            self._pideck_row.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._pideck_check_button.setEnabled(enabled)
+
+    def _request_pideck_check(self) -> None:
+        """Request a fresh release check without starting an update."""
+        if self._pideck_check_button.isEnabled():
+            self.pideck_check_requested.emit()
 
     def show_power_error(self, message: str) -> None:
         """Display a failed host power request in the active settings view."""
@@ -1191,7 +1219,7 @@ class SettingsWindow(QDialog):
 
     def _handle_update_navigation(self, key: int) -> None:
         """Move through update rows or return to the active settings category."""
-        rows = self._page_controls.get(self._current_page, [])
+        rows = [row for row in self._page_controls.get(self._current_page, []) if row.isEnabled()]
         current = self.focusWidget()
         if current not in rows:
             return
@@ -1236,6 +1264,13 @@ class SettingsWindow(QDialog):
         if key == Qt.Key.Key_Escape:
             self.reject()
             return True
+        if self._pideck_page is not None and watched is self._pideck_check_button:
+            if key in (Qt.Key.Key_Left, Qt.Key.Key_Up, Qt.Key.Key_Down):
+                self._handle_update_navigation(key)
+                return True
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._request_pideck_check()
+                return True
         if watched in self._nav_buttons:
             nav_index = self._nav_buttons.index(watched)
             if key == Qt.Key.Key_Left:

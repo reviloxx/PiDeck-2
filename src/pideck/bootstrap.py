@@ -464,6 +464,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 pideck_update_service.prepare_async()
 
         settings_window.pideck_update_requested.connect(handle_pideck_update_request)
+        settings_window.pideck_check_requested.connect(pideck_update_service.check_async)
         settings_window.network_requested.connect(open_network_window)
         settings_window.audio_requested.connect(open_audio_window)
         settings_window.display_requested.connect(open_display_window)

@@ -52,7 +52,13 @@ def test_image_update_runs_through_settings_without_blocking_qt(
             pass
 
     monkeypatch.setattr(bootstrap, "image_update_request", request)
-    monkeypatch.setattr(bootstrap, "find_latest_release", lambda: StableRelease("1.1.0", "v1.1.0"))
+    discoveries = []
+
+    def discover():
+        discoveries.append(True)
+        return StableRelease("1.1.0", "v1.1.0")
+
+    monkeypatch.setattr(bootstrap, "find_latest_release", discover)
     monkeypatch.setattr(bootstrap, "NativeUpdateGateway", FakeGateway)
     monkeypatch.setattr(bootstrap, "EvdevGamepadAdapter", FakeGamepad)
     windows = []
@@ -71,6 +77,7 @@ def test_image_update_runs_through_settings_without_blocking_qt(
 
     monkeypatch.setattr(LauncherWindow, "show_launcher", show_and_open)
     completed = []
+    manual_checks = []
     timer = QTimer()
     timer.setInterval(10)
 
@@ -79,7 +86,11 @@ def test_image_update_runs_through_settings_without_blocking_qt(
             return
         row = windows[0]._pideck_row
         if row._pideck_info.status is PiDeckUpdateStatus.AVAILABLE:
-            windows[0].pideck_update_requested.emit()
+            if not manual_checks:
+                manual_checks.append(True)
+                windows[0]._pideck_check_button.click()
+            elif len(discoveries) >= 2:
+                windows[0].pideck_update_requested.emit()
         elif row._pideck_info.status is PiDeckUpdateStatus.PENDING:
             completed.append(True)
             timer.stop()
@@ -104,6 +115,7 @@ def test_image_update_runs_through_settings_without_blocking_qt(
             launcher.deleteLater()
         app.processEvents()
     assert completed == [True]
+    assert len(discoveries) == 2
     assert [action for action, _ in calls[:2]] == ["ready", "status"]
     assert any(action == "status" for action, _ in calls)
     assert any(action == "stage" and fields["version"] == "1.1.0" for action, fields in calls)
