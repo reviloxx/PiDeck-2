@@ -4,6 +4,8 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from PySide6.QtGui import QImage, QPainter
+from PySide6.QtSvg import QSvgRenderer
 
 from pideck.application.catalog import available_applications, register_application
 from pideck.domain.errors import ConfigurationError
@@ -28,6 +30,21 @@ def test_catalog_is_launchable_in_tv_mode() -> None:
     assert app.executable == "flatpak"
     assert app.arguments == ("run", "com.ktechpit.red", "--tv")
     assert app.icon is not None and (ROOT / "config" / app.icon).is_file()
+
+
+def test_youtube_icon_renders_as_a_rounded_play_tile() -> None:
+    """Render the bundled icon with the same tile shape and palette as other apps."""
+    renderer = QSvgRenderer(str(ROOT / "assets/icons/youtube.svg"))
+    assert renderer.isValid()
+    image = QImage(128, 128, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    renderer.render(painter)
+    painter.end()
+    assert image.pixelColor(0, 0).alpha() == 0
+    assert image.pixelColor(64, 15).name() == "#ed7777"
+    assert image.pixelColor(32, 64).name() == "#101214"
+    assert image.pixelColor(64, 64).name() == "#f4f7f7"
 
 
 def test_registration_preserves_existing_choices() -> None:
