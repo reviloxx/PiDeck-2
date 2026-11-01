@@ -15,7 +15,7 @@ from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
 from .system_panel import create_system_panel
-from .theme import apply_theme, configure_combo_box
+from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperDialog
 
 
@@ -53,14 +53,14 @@ class DisplayWindow(WallpaperDialog):
         output_label = QLabel(tr(language, "display_output"), self)
         output_label.setObjectName("settings_label")
         layout.addWidget(output_label)
-        self.output = QComboBox(self)
+        self.output = SettingsComboBox(self)
         self.output.setObjectName("settings_control")
         configure_combo_box(self.output)
         layout.addWidget(self.output)
         mode_label = QLabel(tr(language, "display_mode"), self)
         mode_label.setObjectName("settings_label")
         layout.addWidget(mode_label)
-        self.mode = QComboBox(self)
+        self.mode = SettingsComboBox(self)
         self.mode.setObjectName("settings_control")
         configure_combo_box(self.mode)
         layout.addWidget(self.mode)

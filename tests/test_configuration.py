@@ -141,6 +141,30 @@ def test_parser_rejects_invalid_theme_domain_values() -> None:
         YamlConfigurationParser().parse(document)
 
 
+def test_settings_font_sizes_are_optional_validated_and_persisted(tmp_path: Path) -> None:
+    """Old themes gain readable defaults; explicit sizes survive configuration saves."""
+    document = configuration_document()
+    fonts = document["themes"][0]["fonts"]
+    default = YamlConfigurationParser().parse(document).themes[0].fonts
+    assert default.settings_body_size == 22
+    assert default.settings_heading_size == 30
+    repository = FileConfigurationRepository(tmp_path / "pideck.yaml")
+    repository.save(YamlConfigurationParser().parse(document))
+    saved_fonts = yaml.safe_load(repository.path.read_text())["themes"][0]["fonts"]
+    assert "settings_body_size" not in saved_fonts
+    assert "settings_heading_size" not in saved_fonts
+    fonts["settings_body_size"] = 24
+    fonts["settings_heading_size"] = 34
+    configuration = YamlConfigurationParser().parse(document)
+    repository.save(configuration)
+    assert repository.load().themes[0].fonts == configuration.themes[0].fonts
+    for key in ("settings_body_size", "settings_heading_size"):
+        invalid = configuration_document()
+        invalid["themes"][0]["fonts"][key] = 0
+        with pytest.raises(ConfigurationValidationError, match="Font sizes"):
+            YamlConfigurationParser().parse(invalid)
+
+
 def test_repository_saves_and_loads_atomically(tmp_path: Path) -> None:
     """A saved typed model can be loaded again without data loss."""
     path = tmp_path / "nested" / "pideck.yaml"

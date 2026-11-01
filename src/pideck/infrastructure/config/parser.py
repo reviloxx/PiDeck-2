@@ -139,7 +139,12 @@ class YamlConfigurationParser:
             names = ", ".join(sorted(invalid_colors))
             raise ConfigurationValidationError(f"{context}.colors has invalid values: {names}")
         fonts_data = _mapping(data["fonts"], f"{context}.fonts")
-        _require_keys(fonts_data, {"family", "heading_size", "body_size"}, f"{context}.fonts")
+        _require_keys(
+            fonts_data,
+            {"family", "heading_size", "body_size"},
+            f"{context}.fonts",
+            optional={"settings_body_size", "settings_heading_size"},
+        )
         tile_data = _mapping(data["tile"], f"{context}.tile")
         _require_keys(tile_data, {"width", "height", "gap"}, f"{context}.tile")
         animation_data = _mapping(data["animation"], f"{context}.animation")
@@ -158,6 +163,11 @@ class YamlConfigurationParser:
                     family=_string(fonts_data["family"], f"{context}.fonts.family"),
                     heading_size=_integer(fonts_data["heading_size"], f"{context}.fonts.heading_size"),
                     body_size=_integer(fonts_data["body_size"], f"{context}.fonts.body_size"),
+                    **{
+                        key: _integer(fonts_data[key], f"{context}.fonts.{key}")
+                        for key in ("settings_body_size", "settings_heading_size")
+                        if key in fonts_data
+                    },
                 ),
                 icons={
                     key: Path(value)

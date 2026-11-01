@@ -7,7 +7,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
@@ -308,6 +308,81 @@ def test_german_language_updates_settings_labels(application: QApplication) -> N
     assert window._language_labels[0].text() == "Sprache"
     assert window._show_clock.text() == "Ein"
     assert window._reduced_motion.text() == "Ein"
+    window.close()
+
+
+def test_settings_text_uses_configurable_theme_sizes(application: QApplication) -> None:
+    """Settings text consistently uses the dedicated TV-friendly theme font size."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    theme = replace(
+        DEFAULT_THEME,
+        fonts=replace(
+            DEFAULT_THEME.fonts, family="Liberation Serif",
+            settings_body_size=24, settings_heading_size=34,
+        ),
+    )
+    window = SettingsWindow(configuration, theme, Path.cwd())
+    window.resize(1280, 720)
+    window.show()
+    window._select_page(0)
+    application.processEvents()
+    for widget in (
+        window._nav_buttons[0], window._back_button, window._page_description,
+        window._theme_labels[0], window._theme_labels[1], window._theme_combo,
+    ):
+        assert widget.font().pixelSize() == 24
+        assert widget.font().family() == "Liberation Serif"
+    assert window._page_title.font().pixelSize() == 34
+    window.close()
+
+
+@pytest.mark.parametrize("language", ["en", "de"])
+@pytest.mark.parametrize(("width", "height"), [(800, 600), (1280, 720)])
+def test_settings_are_responsive_and_controls_reachable(
+    application: QApplication, language: str, width: int, height: int,
+) -> None:
+    """Full settings remain readable and keyboard-reachable at both screen sizes."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(
+        configuration, DEFAULT_THEME, Path.cwd(),
+        pideck_update_info=PiDeckUpdateInfo(PiDeckUpdateStatus.AVAILABLE, "1.0", "1.1"),
+        system_enabled=True,
+    )
+    window.resize(width, height)
+    window.show()
+    window.apply_language(language)
+    application.processEvents()
+    for button in window._nav_buttons:
+        assert button.width() >= button.sizeHint().width()
+    for page in range(len(window._nav_buttons)):
+        window._select_page(page)
+        application.processEvents()
+        assert window.size().toTuple() == (width, height)
+
+    window._select_page(3)
+    window._pideck_check_button.setFocus()
+    application.processEvents()
+    viewport = window._pideck_scroll.viewport()
+    button = window._pideck_check_button
+    assert viewport.rect().contains(button.mapTo(viewport, QPoint(button.width() - 1, button.height() - 1)))
+
+    window._select_page(0)
+    for row, control in (
+        (window._theme_row, window._theme_combo),
+        (window._motion_row, window._reduced_motion),
+        (window._clock_row, window._show_clock),
+        (window._language_row, window._language_combo),
+    ):
+        row.setFocus()
+        application.processEvents()
+        viewport = window._appearance_scroll.viewport()
+        top_left = control.mapTo(viewport, QPoint(0, 0))
+        bottom_right = control.mapTo(viewport, QPoint(control.width() - 1, control.height() - 1))
+        assert viewport.rect().contains(top_left)
+        assert viewport.rect().contains(bottom_right)
+    QTest.keyClick(window._language_row, Qt.Key.Key_Return)
+    assert window._language_combo.view().isVisible()
+    QTest.keyClick(window._language_combo.view(), Qt.Key.Key_Escape)
     window.close()
 
 

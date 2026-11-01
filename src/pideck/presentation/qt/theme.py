@@ -1,12 +1,27 @@
 """Qt styling derived from immutable PiDeck theme tokens."""
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPalette
-from PySide6.QtWidgets import QComboBox, QGraphicsDropShadowEffect, QStyledItemDelegate, QWidget
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt
+from PySide6.QtGui import QColor, QFont, QIcon, QPaintEvent, QPainter, QPalette, QPolygon
+from PySide6.QtWidgets import QComboBox, QGraphicsDropShadowEffect, QPushButton, QStyledItemDelegate, QWidget
 
 from pideck.domain.theme import ThemeDefinition
 
 from .wallpaper import WallpaperDialog, WallpaperWidget
+
+
+class SettingsComboBox(QComboBox):
+    """Draw a theme-colored arrow inside the uninterrupted settings control frame."""
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Paint the standard control followed by its dropdown indicator."""
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self.palette().color(QPalette.ColorRole.ButtonText))
+        x = self.width() - 18
+        y = self.height() // 2
+        painter.drawPolygon(QPolygon([QPoint(x - 5, y - 2), QPoint(x + 5, y - 2), QPoint(x, y + 3)]))
 
 
 def configure_combo_box(combo: QComboBox) -> None:
@@ -27,6 +42,8 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
     palette.setColor(QPalette.ColorRole.ButtonText, QColor(colors["text"]))
     widget.setPalette(palette)
     widget.setFont(QFont(theme.fonts.family, theme.fonts.body_size))
+    for button in widget.findChildren(QPushButton, "settings_nav"):
+        button.setFont(QFont(theme.fonts.family, theme.fonts.body_size))
     for background in widget.findChildren(WallpaperWidget):
         background.set_wallpaper(theme.wallpaper, colors["background"])
     if isinstance(widget, WallpaperDialog):
@@ -36,6 +53,9 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         QMainWindow, QDialog#settings_window, QDialog#password_prompt {
             background-color: %(background)s;
             color: %(text)s;
+        }
+        QDialog QWidget {
+            font-size: %(settings_body_size)spx;
         }
         QLabel#launcher_title {
             color: %(text)s;
@@ -123,7 +143,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         }
         QLabel#settings_brand {
             color: %(text)s;
-            font-size: %(heading_size)spx;
+            font-size: %(settings_heading_size)spx;
             font-weight: 700;
         }
         QLabel#settings_sidebar_hint, QLabel#settings_description, QLabel#settings_hint {
@@ -134,7 +154,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border: 1px solid transparent;
             border-radius: 7px;
             color: %(muted_text)s;
-            padding: 14px 16px;
+            padding: 8px 16px;
             text-align: left;
         }
         QPushButton#settings_nav:hover, QPushButton#settings_nav:focus,
@@ -154,12 +174,12 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         }
         QLabel#settings_kicker {
             color: %(primary)s;
-            font-size: 12px;
+            font-size: %(settings_body_size)spx;
             font-weight: 700;
         }
         QLabel#settings_heading {
             color: %(text)s;
-            font-size: %(heading_size)spx;
+            font-size: %(settings_heading_size)spx;
             font-weight: 700;
         }
         QFrame#settings_row {
@@ -177,7 +197,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         }
         QLabel#settings_label {
             color: %(text)s;
-            font-size: %(body_size)spx;
+            font-size: %(settings_body_size)spx;
             font-weight: 700;
         }
         QComboBox#settings_control {
@@ -186,18 +206,26 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border-radius: 6px;
             combobox-popup: 0;
             color: %(text)s;
-            font-size: %(body_size)spx;
+            font-size: %(settings_body_size)spx;
             min-height: 42px;
             padding: 0 12px;
+            padding-right: 40px;
         }
         QComboBox#settings_control:focus {
             border: 2px solid %(focus)s;
+        }
+        QComboBox#settings_control::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 30px;
+            border: none;
+            background: transparent;
         }
         QComboBox#settings_control QAbstractItemView {
             background-color: %(surface)s;
             border: 1px solid %(focus)s;
             color: %(text)s;
-            font-size: %(body_size)spx;
+            font-size: %(settings_body_size)spx;
             selection-background-color: %(active_surface)s;
             selection-color: %(text)s;
         }
@@ -254,7 +282,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border: 1px solid %(border)s;
             border-radius: 8px;
             color: %(text)s;
-            font-size: %(body_size)spx;
+            font-size: %(settings_body_size)spx;
             outline: none;
             padding: 8px;
         }
@@ -327,6 +355,8 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             "error": colors["error"],
             "heading_size": theme.fonts.heading_size,
             "body_size": theme.fonts.body_size,
+            "settings_body_size": theme.fonts.settings_body_size,
+            "settings_heading_size": theme.fonts.settings_heading_size,
             "focus_surface": _blend(colors["surface"], colors["focus"], 0.16),
             "primary_surface": _blend(colors["surface"], colors["primary"], 0.24),
             "running_surface": _blend(colors["surface"], colors["running"], 0.20),

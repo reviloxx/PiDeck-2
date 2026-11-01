@@ -57,6 +57,13 @@ Home shortcut is not a global shortcut while another application has focus.
 In settings dropdowns, use the arrow keys to browse, Enter to confirm, or
 Escape to cancel.
 
+Settings typography can be adjusted per theme in the YAML configuration under
+`themes[].fonts`: `settings_body_size` and `settings_heading_size` are pixel
+sizes, defaulting to 22 and 30 respectively when omitted. These are separate
+from the launcher font sizes. Edit the active configuration and restart PiDeck
+to apply the changes. Older releases do not recognize custom settings font
+sizes; remove these two keys before rolling back to a release before v0.3.7.
+
 ## Settings
 
 **Settings > PiDeck** shows the installed PiDeck version, its application

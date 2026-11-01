@@ -58,6 +58,8 @@ themes:
     family: DejaVu Sans
     heading_size: 28
     body_size: 18
+    settings_body_size: 22
+    settings_heading_size: 30
   icons:
     settings: ../assets/icons/settings.svg
     power: ../assets/icons/power.svg

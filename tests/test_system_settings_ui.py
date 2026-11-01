@@ -21,7 +21,7 @@ from pideck.presentation.qt.display_window import DisplayWindow
 from pideck.presentation.qt.network_window import NetworkWindow
 from pideck.presentation.qt.power_dialog import PowerDialog
 from pideck.presentation.qt.settings_window import SettingsWindow
-from pideck.presentation.qt.theme import apply_theme, configure_combo_box
+from pideck.presentation.qt.theme import SettingsComboBox, apply_theme, configure_combo_box
 from tests.test_audio_window import Audio
 from tests.test_bluetooth_window import Agent, Gateway
 from tests.test_configuration import configuration_document
@@ -150,6 +150,42 @@ def test_long_dropdown_is_bounded_with_native_menu_style(application: QApplicati
     assert view.window().height() <= item_height * 6 + 20
     combo.hidePopup()
     combo.close()
+
+
+@pytest.mark.parametrize("focused", [False, True])
+@pytest.mark.parametrize("light", [False, True])
+def test_collapsed_dropdown_has_complete_frame_and_visible_arrow(
+    application: QApplication, focused: bool, light: bool,
+) -> None:
+    """The right border stays continuous and the arrow follows the theme."""
+    theme = DEFAULT_THEME
+    if light:
+        theme = replace(theme, colors={
+            **theme.colors, "surface": "#eeeeee", "text": "#172534",
+            "muted_text": "#3e505e", "focus": "#00665f",
+        })
+    parent = QWidget()
+    combo = SettingsComboBox(parent)
+    combo.setObjectName("settings_control")
+    configure_combo_box(combo)
+    combo.addItem("Display")
+    combo.setGeometry(10, 10, 240, 46)
+    button = QPushButton("Other", parent)
+    button.setGeometry(10, 70, 120, 46)
+    apply_theme(parent, theme)
+    parent.show()
+    (combo if focused else button).setFocus()
+    application.processEvents()
+    image = combo.grab().toImage()
+    border = QColor(theme.colors["focus" if focused else "muted_text"])
+    assert all(image.pixelColor(image.width() - 1, y) == border for y in range(8, image.height() - 8))
+    surface = QColor(theme.colors["surface"])
+    assert any(
+        image.pixelColor(x, y) != surface
+        for x in range(image.width() - 23, image.width() - 12)
+        for y in range(image.height() // 2 - 3, image.height() // 2 + 4)
+    )
+    parent.close()
 
 
 def test_appearance_row_mouse_click_still_only_moves_focus(application: QApplication) -> None:

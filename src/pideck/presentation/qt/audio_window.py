@@ -6,7 +6,7 @@ import logging
 
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication, QComboBox, QHBoxLayout, QLabel, QPushButton, QSlider, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QSlider, QWidget
 
 from pideck.application.ports.audio import AudioError, AudioGateway, AudioState
 from pideck.application.ports.input import InputAction, InputEvent
@@ -14,7 +14,7 @@ from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
 from .system_panel import create_system_panel
-from .theme import apply_theme, configure_combo_box
+from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperDialog
 
 
@@ -50,7 +50,7 @@ class AudioWindow(WallpaperDialog):
         output_label = QLabel(tr(language, "audio_output"), self)
         output_label.setObjectName("settings_label")
         layout.addWidget(output_label)
-        self.output = QComboBox(self)
+        self.output = SettingsComboBox(self)
         self.output.setObjectName("settings_control")
         configure_combo_box(self.output)
         self.output.installEventFilter(self)

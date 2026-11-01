@@ -7,20 +7,25 @@ from typing import Mapping
 
 from .errors import ThemeValidationError
 
+DEFAULT_SETTINGS_BODY_SIZE = 22
+DEFAULT_SETTINGS_HEADING_SIZE = 30
+
 
 @dataclass(frozen=True, slots=True)
 class FontSpec:
-    """Describe the font family and the launcher text sizes."""
+    """Describe the font family and launcher and settings text sizes."""
 
     family: str
     heading_size: int
     body_size: int
+    settings_body_size: int = DEFAULT_SETTINGS_BODY_SIZE
+    settings_heading_size: int = DEFAULT_SETTINGS_HEADING_SIZE
 
     def __post_init__(self) -> None:
         """Validate font values."""
         if not self.family.strip():
             raise ThemeValidationError("Font family must not be empty")
-        if self.heading_size <= 0 or self.body_size <= 0:
+        if min(self.heading_size, self.body_size, self.settings_body_size, self.settings_heading_size) <= 0:
             raise ThemeValidationError("Font sizes must be positive")
 
 

@@ -1,10 +1,12 @@
 """Console-style settings surface for Milestone 5."""
 
 from pathlib import Path
+from typing import TypeVar
 
 from PySide6.QtCore import QEvent, QSignalBlocker, QTimer, Qt, Signal
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QResizeEvent
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -32,10 +34,12 @@ from pideck.domain.configuration import ApplicationDefinition, Configuration
 from pideck.domain.theme import ThemeDefinition
 from pideck import __version__
 
-from .theme import apply_theme, configure_combo_box, icon_for_path
+from .theme import SettingsComboBox, apply_theme, configure_combo_box, icon_for_path
 from .wallpaper import WallpaperDialog, WallpaperWidget
 from .localization import tr
 from .power_dialog import PowerDialog
+
+_ControlT = TypeVar("_ControlT", bound=QWidget)
 
 
 class SettingsRow(QFrame):
@@ -112,7 +116,8 @@ class UpdateRow(QFrame):
         self.application_name = application_name
         self.setObjectName("update_row")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        layout = QHBoxLayout(self)
+        layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
+        self._layout = layout
         layout.setContentsMargins(20, 14, 20, 14)
         name = QLabel(application_name, self)
         name.setObjectName("settings_label")
@@ -151,6 +156,15 @@ class UpdateRow(QFrame):
         self._current_version: str | None = None
         self._current_build_date: str | None = None
         self._language = "en"
+
+    def set_compact(self, compact: bool) -> None:
+        """Stack update details when the settings content is narrow."""
+        self._layout.setDirection(
+            QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self.status_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft if compact else Qt.AlignmentFlag.AlignCenter
+        )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Activate or cancel this update with Enter or Space."""
@@ -423,6 +437,7 @@ class SettingsWindow(QDialog):
         }
         self._nav_buttons: list[QPushButton] = []
         self._page_controls: dict[int, list[QWidget]] = {}
+        self._appearance_row_layouts: list[QBoxLayout] = []
         self._current_page = 0
         self.setWindowTitle(tr(self._language, "settings"))
         self.setObjectName("settings_window")
@@ -455,6 +470,21 @@ class SettingsWindow(QDialog):
         self.apply_language(self._language)
         self._nav_buttons[0].setFocus(Qt.FocusReason.OtherFocusReason)
 
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Stack appearance controls when the available content width is narrow."""
+        super().resizeEvent(event)
+        direction = (
+            QBoxLayout.Direction.TopToBottom
+            if event.size().width() < 1080
+            else QBoxLayout.Direction.LeftToRight
+        )
+        for layout in self._appearance_row_layouts:
+            layout.setDirection(direction)
+        for row in self._update_rows.values():
+            row.set_compact(direction == QBoxLayout.Direction.TopToBottom)
+        if self._pideck_row is not None:
+            self._pideck_row.set_compact(direction == QBoxLayout.Direction.TopToBottom)
+
     def _build_ui(self) -> None:
         """Create the settings rail and content pages."""
         root = WallpaperWidget(self)
@@ -465,15 +495,15 @@ class SettingsWindow(QDialog):
         self.layout().addWidget(root)
 
         root_layout = QHBoxLayout(root)
-        root_layout.setContentsMargins(56, 44, 56, 44)
-        root_layout.setSpacing(32)
+        root_layout.setContentsMargins(32, 24, 32, 24)
+        root_layout.setSpacing(24)
         sidebar = self._build_sidebar(root)
         root_layout.addWidget(sidebar)
 
         content = QFrame(root)
         content.setObjectName("settings_content")
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(40, 34, 40, 28)
+        content_layout.setContentsMargins(18, 24, 18, 24)
         content_layout.setSpacing(18)
         self._page_kicker = QLabel("PIDECK / SETTINGS", content)
         self._page_kicker.setObjectName("settings_kicker")
@@ -511,15 +541,16 @@ class SettingsWindow(QDialog):
         sidebar.setObjectName("settings_sidebar")
         sidebar.setFixedWidth(270)
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(24, 28, 24, 28)
+        layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(8)
         brand = QLabel("PiDeck", sidebar)
         brand.setObjectName("settings_brand")
         subtitle = QLabel("Launcher settings", sidebar)
         subtitle.setObjectName("settings_sidebar_hint")
+        subtitle.setWordWrap(True)
         layout.addWidget(brand)
         layout.addWidget(subtitle)
-        layout.addSpacing(28)
+        layout.addSpacing(12)
         self._add_nav_button(layout, "Appearance", 0)
         self._add_nav_button(layout, "Home screen", 1)
         self._add_nav_button(layout, "Updates", 2)
@@ -577,7 +608,7 @@ class SettingsWindow(QDialog):
             page,
             "Theme",
             "Choose the visual style used throughout PiDeck.",
-            QComboBox(page),
+            SettingsComboBox(page),
         )
         self._theme_combo.setObjectName("settings_control")
         configure_combo_box(self._theme_combo)
@@ -614,7 +645,7 @@ class SettingsWindow(QDialog):
             page,
             "Language",
             "Choose the language used by PiDeck.",
-            QComboBox(page),
+            SettingsComboBox(page),
         )
         self._language_combo.setObjectName("settings_control")
         configure_combo_box(self._language_combo)
@@ -687,10 +718,11 @@ class SettingsWindow(QDialog):
         """Create the PiDeck release page independently of application updates."""
         assert self._pideck_info is not None
         assert self._pideck_page is not None
-        page = QWidget(self)
+        self._pideck_scroll, page = self._scroll_page()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 16, 0, 0)
         self._pideck_row = PiDeckUpdateRow(self._pideck_info, page)
+        self._pideck_row.installEventFilter(self)
         self._pideck_row.activation_requested.connect(self._activate_pideck_update)
         self._pideck_row.navigation_requested.connect(self._handle_update_navigation)
         layout.addWidget(self._pideck_row)
@@ -706,7 +738,7 @@ class SettingsWindow(QDialog):
         layout.addStretch()
         self._page_controls[self._pideck_page] = [self._pideck_row, self._pideck_check_button]
         self._set_pideck_check_enabled(self._pideck_info)
-        return page
+        return self._pideck_scroll
 
     def _build_network_page(self) -> QWidget:
         """Create the entry point to appliance wireless setup."""
@@ -790,10 +822,10 @@ class SettingsWindow(QDialog):
         parent: QWidget,
         title: str,
         description: str,
-        control: QWidget,
+        control: _ControlT,
         *,
         action: bool = False,
-    ) -> tuple[SettingsRow, QWidget]:
+    ) -> tuple[SettingsRow, _ControlT]:
         """Create a consistent labelled settings row."""
         row = ActionSettingsRow(parent) if action else SettingsRow(parent)
         row.setObjectName("settings_row")
@@ -803,7 +835,7 @@ class SettingsWindow(QDialog):
         row.activation_requested.connect(
             lambda settings_row=row: self._handle_row_activation(settings_row)
         )
-        layout = QHBoxLayout(row)
+        layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, row)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(20)
         text = QVBoxLayout()
@@ -823,6 +855,7 @@ class SettingsWindow(QDialog):
         layout.addLayout(text, stretch=1)
         if not action:
             control.setMinimumWidth(220)
+            self._appearance_row_layouts.append(layout)
         control.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(control)
         return row, control
@@ -1259,6 +1292,13 @@ class SettingsWindow(QDialog):
             and watched in self._page_controls.get(0, [])
         ):
             self._appearance_scroll.ensureWidgetVisible(watched)
+        if (
+            event.type() == QEvent.Type.FocusIn
+            and self._pideck_page is not None
+            and isinstance(watched, QWidget)
+            and watched in self._page_controls.get(self._pideck_page, [])
+        ):
+            self._pideck_scroll.ensureWidgetVisible(watched)
         if event.type() != QEvent.Type.KeyPress:
             return super().eventFilter(watched, event)
         key_event = event

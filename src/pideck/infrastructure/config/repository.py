@@ -11,6 +11,7 @@ import yaml
 
 from pideck.domain.configuration import Configuration
 from pideck.domain.errors import ConfigurationError
+from pideck.domain.theme import DEFAULT_SETTINGS_BODY_SIZE, DEFAULT_SETTINGS_HEADING_SIZE
 from pideck.infrastructure.config.defaults import default_configuration
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 
@@ -124,6 +125,14 @@ def _serialize_configuration(configuration: Configuration) -> dict[str, Any]:
                     "family": theme.fonts.family,
                     "heading_size": theme.fonts.heading_size,
                     "body_size": theme.fonts.body_size,
+                    **(
+                        {"settings_body_size": theme.fonts.settings_body_size}
+                        if theme.fonts.settings_body_size != DEFAULT_SETTINGS_BODY_SIZE else {}
+                    ),
+                    **(
+                        {"settings_heading_size": theme.fonts.settings_heading_size}
+                        if theme.fonts.settings_heading_size != DEFAULT_SETTINGS_HEADING_SIZE else {}
+                    ),
                 },
                 "icons": {key: str(path) for key, path in theme.icons.items()},
                 "wallpaper": str(theme.wallpaper) if theme.wallpaper is not None else None,
