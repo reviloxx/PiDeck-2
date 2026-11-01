@@ -2,11 +2,17 @@
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
-from PySide6.QtWidgets import QGraphicsDropShadowEffect, QWidget
+from PySide6.QtWidgets import QComboBox, QGraphicsDropShadowEffect, QStyledItemDelegate, QWidget
 
 from pideck.domain.theme import ThemeDefinition
 
 from .wallpaper import WallpaperDialog, WallpaperWidget
+
+
+def configure_combo_box(combo: QComboBox) -> None:
+    """Use a list delegate that renders the themed popup selection and item size."""
+    view = combo.view()
+    view.setItemDelegate(QStyledItemDelegate(view))
 
 
 def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:

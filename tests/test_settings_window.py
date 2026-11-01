@@ -334,6 +334,26 @@ def test_gamepad_language_dropdown_confirms_or_cancels_selection(application: QA
     window.close()
 
 
+def test_language_dropdown_renders_visible_selected_item(application: QApplication) -> None:
+    """The selected popup item is visibly distinct while navigating."""
+    window = settings_window(application)
+    window._select_page(0)
+    window._language_row.setFocus()
+    QTest.keyClick(window._language_row, Qt.Key.Key_Return)
+    view = window._language_combo.view()
+    QTest.keyClick(view, Qt.Key.Key_Down)
+    application.processEvents()
+    image = view.grab().toImage()
+    first = view.visualRect(view.model().index(0, 0))
+    selected = view.visualRect(view.model().index(1, 0))
+    assert selected.height() >= 42
+    assert image.pixelColor(first.right() - 10, first.center().y()) != image.pixelColor(
+        selected.right() - 10, selected.center().y()
+    )
+    window._language_combo.hidePopup()
+    window.close()
+
+
 def test_application_visibility_change_emits_immediately(application: QApplication) -> None:
     """Toggling a home-screen application emits a persisted settings update."""
     document = configuration_document()

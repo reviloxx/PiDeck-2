@@ -14,7 +14,7 @@ from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
 from .system_panel import create_system_panel
-from .theme import apply_theme
+from .theme import apply_theme, configure_combo_box
 from .wallpaper import WallpaperDialog
 
 
@@ -52,6 +52,7 @@ class AudioWindow(WallpaperDialog):
         layout.addWidget(output_label)
         self.output = QComboBox(self)
         self.output.setObjectName("settings_control")
+        configure_combo_box(self.output)
         self.output.installEventFilter(self)
         layout.addWidget(self.output)
         self.volume_label = QLabel("", self)

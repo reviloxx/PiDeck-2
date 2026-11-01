@@ -19,6 +19,7 @@ from pideck.presentation.qt.audio_window import AudioWindow
 from pideck.presentation.qt.bluetooth_window import BluetoothWindow
 from pideck.presentation.qt.display_window import DisplayWindow
 from pideck.presentation.qt.network_window import NetworkWindow
+from pideck.presentation.qt.power_dialog import PowerDialog
 from pideck.presentation.qt.settings_window import SettingsWindow
 from tests.test_audio_window import Audio
 from tests.test_bluetooth_window import Agent, Gateway
@@ -105,6 +106,21 @@ def test_clicking_power_row_still_requires_confirmation(application: QApplicatio
     window._power_dialog.accept()
     assert requests == [action]
     window.close()
+
+
+def test_power_confirmation_uses_themed_legible_text(application: QApplication) -> None:
+    """Power confirmation content is readable and uses PiDeck's own chrome."""
+    parent = QWidget()
+    dialog = PowerDialog("restart", DEFAULT_THEME, "de", parent)
+    dialog.show()
+    application.processEvents()
+    message = dialog.findChild(QLabel, "settings_label")
+    assert message is not None
+    assert message.palette().color(QPalette.ColorRole.WindowText) == QColor(DEFAULT_THEME.colors["text"])
+    assert dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert dialog.cancel.hasFocus()
+    dialog.close()
+    parent.close()
 
 
 def test_appearance_row_mouse_click_still_only_moves_focus(application: QApplication) -> None:

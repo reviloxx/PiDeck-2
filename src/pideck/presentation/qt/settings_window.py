@@ -32,7 +32,7 @@ from pideck.domain.configuration import ApplicationDefinition, Configuration
 from pideck.domain.theme import ThemeDefinition
 from pideck import __version__
 
-from .theme import apply_theme, icon_for_path
+from .theme import apply_theme, configure_combo_box, icon_for_path
 from .wallpaper import WallpaperDialog, WallpaperWidget
 from .localization import tr
 from .power_dialog import PowerDialog
@@ -580,6 +580,7 @@ class SettingsWindow(QDialog):
             QComboBox(page),
         )
         self._theme_combo.setObjectName("settings_control")
+        configure_combo_box(self._theme_combo)
         self._theme_row = theme_row
         self._theme_labels = theme_row.findChildren(QLabel)
         for theme in self._configuration.themes:
@@ -616,6 +617,7 @@ class SettingsWindow(QDialog):
             QComboBox(page),
         )
         self._language_combo.setObjectName("settings_control")
+        configure_combo_box(self._language_combo)
         self._language_row = language_row
         self._language_labels = language_row.findChildren(QLabel)
         self._language_combo.addItem("English", "en")
