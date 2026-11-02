@@ -155,6 +155,7 @@ class UpdateRow(QFrame):
         self.last_available_info: UpdateInfo | None = None
         self._current_version: str | None = None
         self._current_build_date: str | None = None
+        self._installed_commit: str | None = None
         self._language = "en"
 
     def set_compact(self, compact: bool) -> None:
@@ -186,12 +187,16 @@ class UpdateRow(QFrame):
     def set_info(self, info: UpdateInfo) -> None:
         """Render one update status without changing row geometry."""
         self.info = info
-        if info.current_version:
+        if info.status in (UpdateStatus.UP_TO_DATE, UpdateStatus.AVAILABLE, UpdateStatus.UNSUPPORTED) or (
+            info.current_version or info.installed_commit or info.build_date
+        ):
             self._current_version = info.current_version
             self._current_build_date = info.build_date
+            self._installed_commit = info.installed_commit
         elif info.status is UpdateStatus.UPDATED:
             self._current_version = None
             self._current_build_date = None
+            self._installed_commit = None
         if info.status is UpdateStatus.AVAILABLE:
             self.last_available_info = info
         labels = {
@@ -212,14 +217,20 @@ class UpdateRow(QFrame):
             UpdateStatus.CANCELLED: tr(self._language, "cancelled"),
         }
         self.status_label.setText(labels[info.status])
-        self.version_label.setText(tr(
-            self._language, "installed_version",
-            version=self._current_version or tr(self._language, "unknown"),
-        ))
-        self.build_label.setText(tr(
-            self._language, "build_date",
-            date=self._current_build_date or tr(self._language, "unknown"),
-        ))
+        if self._installed_commit and not self._current_version:
+            self.version_label.setText(tr(
+                self._language, "installed_commit", commit=self._installed_commit,
+            ))
+        else:
+            self.version_label.setText(tr(
+                self._language, "installed_version",
+                version=self._current_version or tr(self._language, "unknown"),
+            ))
+        self.build_label.setVisible(bool(self._current_build_date))
+        self.build_label.setText(
+            tr(self._language, "build_date", date=self._current_build_date)
+            if self._current_build_date else ""
+        )
         updating = info.status is UpdateStatus.UPDATING
         busy = updating or info.status is UpdateStatus.PREPARING
         self.spinner.setVisible(busy)
@@ -567,12 +578,7 @@ class SettingsWindow(QDialog):
         self._back_button.clicked.connect(self.reject)
         self._back_button.installEventFilter(self)
         layout.addWidget(self._back_button)
-        hint = QLabel("Use the arrow keys or controller to navigate", sidebar)
-        hint.setObjectName("settings_sidebar_hint")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
         self._sidebar_subtitle = subtitle
-        self._sidebar_hint = hint
         return sidebar
 
     def _add_nav_button(self, layout: QVBoxLayout, label: str, index: int) -> None:
@@ -1132,7 +1138,6 @@ class SettingsWindow(QDialog):
         self._reduced_motion.setText(tr(self._language, "on"))
         self._show_clock.setText(tr(self._language, "on"))
         self._sidebar_subtitle.setText(tr(self._language, "launcher_settings"))
-        self._sidebar_hint.setText(tr(self._language, "navigation_hint"))
         self._page_kicker.setText(tr(self._language, "appearance_kicker"))
         setting_rows = (
             (self._theme_labels, "theme", "theme_hint"),

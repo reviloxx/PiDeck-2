@@ -71,8 +71,10 @@ build time when available, and self-update status. Select **Check for updates**
 to check again without installing an update. Checks run automatically at startup
 and periodically; manual checks are unavailable while checking, preparing an
 update, awaiting a restart, or on unsupported installations. **Updates** lists configured
-applications separately. Versions and build times that the installation does
-not provide are shown as unknown. PiDeck self-updates update the application,
+applications separately. Missing application build dates are hidden. Installed
+Flatpak versions come from the selected installation; when no version is
+provided, its commit is shown as an identifier instead. Other unavailable
+versions are shown as unknown. PiDeck self-updates update the application,
 not the operating system or image dependencies.
 
 **Settings > Home screen** offers **YouTube** for installation. This is the

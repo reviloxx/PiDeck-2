@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication, QDialog, QLabel
 
 from pideck.application.settings import SettingsUpdate
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStatus
@@ -244,11 +244,40 @@ def test_versions_and_build_date_are_visible(application: QApplication) -> None:
     row = window._update_rows["browser"]
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE, "2.3"))
     assert "2.3" in row.version_label.text()
-    assert "Unknown" in row.build_label.text()
+    assert row.build_label.isHidden()
+    assert not row.build_label.text()
     row.set_info(UpdateInfo(
         "browser", "Browser", UpdateStatus.UP_TO_DATE, "2.3", build_date="2026-01-01",
     ))
     assert "2026-01-01" in row.build_label.text()
+    assert not row.build_label.isHidden()
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATING))
+    assert not row.build_label.isHidden()
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATED))
+    assert row.build_label.isHidden()
+    row.set_info(UpdateInfo(
+        "browser", "Browser", UpdateStatus.UP_TO_DATE, installed_commit="abcdef123456",
+    ))
+    assert row.version_label.text() == "Installed commit: abcdef123456"
+    window.apply_language("de")
+    assert row.version_label.text() == "Installierter Commit: abcdef123456"
+    assert row.build_label.isHidden()
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE))
+    assert "abcdef123456" not in row.version_label.text()
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE, build_date="2026-02-01"))
+    assert "2026-02-01" in row.build_label.text()
+    assert not row.build_label.isHidden()
+    window.close()
+
+
+def test_sidebar_navigation_hint_is_removed(application: QApplication) -> None:
+    """Only the redundant navigation instruction disappears in both languages."""
+    window = settings_window(application)
+    for language in ("en", "de"):
+        window.apply_language(language)
+        texts = [label.text() for label in window.findChildren(QLabel)]
+        assert "Use the arrow keys or controller to navigate" not in texts
+        assert "Mit Pfeiltasten oder Controller navigieren" not in texts
     window.close()
 
 
