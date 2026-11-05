@@ -14,7 +14,7 @@ from pideck.application.ports.input import InputAction, InputEvent
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
-from .system_panel import create_system_panel
+from .system_panel import add_action_button, build_system_window, set_status
 from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperDialog
 
@@ -42,14 +42,9 @@ class DisplayWindow(WallpaperDialog):
         self._notice: str | None = None
         self.setWindowTitle(tr(language, "display"))
         self.setModal(True)
-        layout = create_system_panel(self, max_height=600)
-        title = QLabel(tr(language, "display"), self)
-        title.setObjectName("settings_heading")
-        layout.addWidget(title)
-        self.status = QLabel("", self)
-        self.status.setObjectName("settings_description")
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        frame = build_system_window(self, tr(language, "display"), tr(language, "display_description"))
+        self.status = frame.status
+        layout = frame.content
         output_label = QLabel(tr(language, "display_output"), self)
         output_label.setObjectName("settings_label")
         layout.addWidget(output_label)
@@ -64,28 +59,15 @@ class DisplayWindow(WallpaperDialog):
         self.mode.setObjectName("settings_control")
         configure_combo_box(self.mode)
         layout.addWidget(self.mode)
-        self.apply = QPushButton(tr(language, "display_apply"), self)
-        self.apply.setObjectName("settings_footer")
-        self.keep = QPushButton(tr(language, "display_keep"), self)
-        self.keep.setObjectName("settings_footer")
-        self.revert = QPushButton(tr(language, "display_revert"), self)
-        self.revert.setObjectName("settings_footer")
         mode_actions = QHBoxLayout()
         mode_actions.addStretch()
-        mode_actions.addWidget(self.apply)
-        mode_actions.addWidget(self.keep)
-        mode_actions.addWidget(self.revert)
+        self.apply = add_action_button(self, mode_actions, tr(language, "display_apply"))
+        self.keep = add_action_button(self, mode_actions, tr(language, "display_keep"))
+        self.revert = add_action_button(self, mode_actions, tr(language, "display_revert"))
         layout.addLayout(mode_actions)
         layout.addStretch()
-        self.refresh = QPushButton(tr(language, "display_refresh"), self)
-        self.refresh.setObjectName("settings_footer")
-        self.back = QPushButton(tr(language, "back"), self)
-        self.back.setObjectName("settings_back")
-        actions = QHBoxLayout()
-        actions.addStretch()
-        actions.addWidget(self.refresh)
-        actions.addWidget(self.back)
-        layout.addLayout(actions)
+        self.refresh = add_action_button(self, frame.footer, tr(language, "display_refresh"))
+        self.back = add_action_button(self, frame.footer, tr(language, "back"), back=True)
         for control in (self.output, self.mode, self.apply, self.keep, self.revert, self.refresh, self.back):
             control.installEventFilter(self)
         self._timer = QTimer(self)
@@ -105,7 +87,7 @@ class DisplayWindow(WallpaperDialog):
         self._refresh()
 
     def _submit(self, kind: str, operation: Callable[[], object]) -> None:
-        self.status.setText(tr(self._language, "wifi_working"))
+        set_status(self.status, tr(self._language, "wifi_working"))
         for control in (self.output, self.mode, self.apply, self.keep, self.revert, self.refresh):
             control.setEnabled(False)
         future = self._executor.submit(operation)
@@ -138,12 +120,12 @@ class DisplayWindow(WallpaperDialog):
         try:
             result = future.result()
         except DisplayError as error:
-            self.status.setText(tr(self._language, "display_error", message=str(error)))
+            set_status(self.status, tr(self._language, "display_error", message=str(error)), error=True)
             self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         except Exception:
             _LOGGER.exception("Unexpected display operation failure")
-            self.status.setText(tr(self._language, "display_error", message=tr(self._language, "display_unavailable")))
+            set_status(self.status, tr(self._language, "display_error", message=tr(self._language, "display_unavailable")), error=True)
             self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         if kind == "begin":
@@ -156,7 +138,7 @@ class DisplayWindow(WallpaperDialog):
             self.keep.setEnabled(True)
             self.revert.setEnabled(True)
             self.refresh.setEnabled(False)
-            self.status.setText(tr(self._language, "display_confirm"))
+            set_status(self.status, tr(self._language, "display_confirm"))
             self.revert.setFocus(Qt.FocusReason.OtherFocusReason)
             self._timer.start(max(0, int((result.deadline - time.monotonic()) * 1000)))
             return
@@ -175,10 +157,12 @@ class DisplayWindow(WallpaperDialog):
         self.output.setEnabled(bool(self._outputs))
         self.mode.setEnabled(bool(self._outputs))
         self.apply.setEnabled(bool(self._outputs))
-        self.status.setText(self._notice or "")
+        set_status(self.status, self._notice or "")
         self._notice = None
         if self._outputs:
             self.output.setFocus(Qt.FocusReason.OtherFocusReason)
+        else:
+            self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _select_output(self, index: int) -> None:
         with QSignalBlocker(self.mode):
@@ -194,7 +178,7 @@ class DisplayWindow(WallpaperDialog):
         output = self.output.currentData()
         mode = self.mode.currentData()
         if not isinstance(output, str) or not isinstance(mode, DisplayMode):
-            self.status.setText(tr(self._language, "display_unavailable"))
+            set_status(self.status, tr(self._language, "display_unavailable"), error=True)
             return
         self._submit("begin", lambda: self._gateway.begin(output, mode))
 

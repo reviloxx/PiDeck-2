@@ -27,18 +27,38 @@ def build_metadata(timestamp: datetime | None = None) -> bytes:
     return (json.dumps({"built_at": value}, sort_keys=True) + "\n").encode("utf-8")
 
 
+def project_version(project_root: Path) -> str:
+    """Return the stable version declared identically by both project sources."""
+    with (project_root / "pyproject.toml").open("rb") as stream:
+        declared = tomllib.load(stream)["project"]["version"]
+    init_source = (project_root / "src/pideck/__init__.py").read_text(encoding="utf-8")
+    version_lines = re.findall(r'^__version__\s*=\s*["\']([^"\']+)["\']\s*$', init_source, re.MULTILINE)
+    if version_lines != [declared] or not VERSION_PATTERN.fullmatch(declared):
+        raise ValueError("Project version declarations must match and be MAJOR.MINOR.PATCH")
+    return declared
+
+
 def release_version(project_root: Path, tag: str) -> str:
     """Validate a stable release tag against both project version declarations."""
     version = tag.removeprefix("v")
     if tag != f"v{version}" or not VERSION_PATTERN.fullmatch(version):
         raise ValueError("Release tag must be vMAJOR.MINOR.PATCH")
-    with (project_root / "pyproject.toml").open("rb") as stream:
-        declared = tomllib.load(stream)["project"]["version"]
-    init_source = (project_root / "src/pideck/__init__.py").read_text(encoding="utf-8")
-    version_lines = re.findall(r'^__version__\s*=\s*["\']([^"\']+)["\']\s*$', init_source, re.MULTILINE)
-    if declared != version or version_lines != [version]:
+    try:
+        declared = project_version(project_root)
+    except ValueError as error:
+        raise ValueError("Release tag and project version declarations do not match") from error
+    if declared != version:
         raise ValueError("Release tag and project version declarations do not match")
     return version
+
+
+def image_version(project_root: Path, tag: str | None) -> str:
+    """Return the updatable release version installed into every image.
+
+    A tag additionally pins the version; without one the project version is used,
+    so development builds can also receive later published releases.
+    """
+    return release_version(project_root, tag) if tag is not None else project_version(project_root)
 
 
 def _sources(project_root: Path) -> list[tuple[Path, str]]:

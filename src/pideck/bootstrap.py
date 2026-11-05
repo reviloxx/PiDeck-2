@@ -713,21 +713,22 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return
         from pideck.presentation.qt.localization import tr
 
+        from pideck.infrastructure.bluetooth_unavailable import UnavailableBluetooth
+        from pideck.presentation.qt.bluetooth_window import BluetoothWindow
+
         bluetooth_opening = True
         try:
             from pideck.infrastructure.bluez import BluezGateway
             from pideck.infrastructure.bluez_agent import BluezAgent
-            from pideck.presentation.qt.bluetooth_window import BluetoothWindow
 
             agent = BluezAgent()
+            gateway = BluezGateway(agent.path)
         except (ImportError, BluetoothError) as error:
+            # Open the window anyway so the failure is reported inside it, like other errors.
             dependencies.logger.warning("Bluetooth settings unavailable: %s", error)
-            if settings_window is not None:
-                settings_window.show_error(tr(
-                    current_configuration.settings.language, "bluetooth_error",
-                    message=tr(current_configuration.settings.language, "bluetooth_unavailable"),
-                ))
-            return
+            agent = gateway = UnavailableBluetooth(
+                tr(current_configuration.settings.language, "bluetooth_service_unavailable"),
+            )
         finally:
             bluetooth_opening = False
         if settings_window is None or not settings_window.isVisible():
@@ -736,7 +737,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         parent = settings_window
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
         bluetooth_window = BluetoothWindow(
-            BluezGateway(agent.path), agent, theme, current_configuration.settings.language, parent,
+            gateway, agent, theme, current_configuration.settings.language, parent,
         )
         bluetooth_window.showFullScreen()
 

@@ -43,6 +43,8 @@ def theme_font(theme: ThemeDefinition, pixel_size: int) -> QFont:
 def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
     """Apply a theme palette, font, and widget stylesheet.
 
+    Only ``:focus`` is styled, never ``:hover``: the pointer moves focus
+    instead (see ``cursor_visibility``), so exactly one control is highlighted.
     Theme font sizes are pixels. The stylesheet's root rule sets the family
     and size for every widget, so re-applying a theme after a settings change
     yields exactly the same fonts as the first application.
@@ -123,7 +125,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             padding: 16px;
             text-align: left;
         }
-        QPushButton#launcher_tile:hover, QPushButton#launcher_tile:focus {
+        QPushButton#launcher_tile:focus {
             border-color: %(focus)s;
             background-color: %(focus_surface)s;
         }
@@ -152,9 +154,8 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             min-width: 130px;
             padding: 1px 19px;
         }
-        QPushButton#launcher_action:focus, QPushButton#launcher_action:hover,
-        QPushButton#settings_footer:focus, QPushButton#settings_footer:hover,
-        QPushButton#settings_back:focus, QPushButton#settings_back:hover {
+        QPushButton#launcher_action:focus, QPushButton#settings_footer:focus,
+        QPushButton#settings_back:focus {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
             padding: 0 18px;
@@ -173,7 +174,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             min-width: 42px;
             padding: 1px;
         }
-        QPushButton#network_key:focus, QPushButton#network_key:hover {
+        QPushButton#network_key:focus {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
             padding: 0;
@@ -199,7 +200,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             padding: 8px 16px;
             text-align: left;
         }
-        QPushButton#settings_nav:hover, QPushButton#settings_nav:focus,
+        QPushButton#settings_nav:focus,
         QPushButton#settings_nav[active="true"] {
             background-color: %(active_surface)s;
             border-color: %(focus)s;
@@ -353,7 +354,10 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             background-color: %(primary)s;
             border-color: %(primary)s;
         }
-        QLabel#settings_error {
+        QLabel#system_status {
+            color: %(text)s;
+        }
+        QLabel#system_status[error="true"], QLabel#settings_error {
             color: %(error)s;
             font-weight: 700;
         }
@@ -397,7 +401,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             min-width: 92px;
             padding: 1px;
         }
-        QPushButton#update_action:focus, QPushButton#update_action:hover {
+        QFrame#update_row:focus QPushButton#update_action {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
             padding: 0;

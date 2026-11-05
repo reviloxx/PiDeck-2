@@ -502,3 +502,14 @@ def test_getty_requires_provisioned_unlocked_user(
         ]
     else:
         assert "requires a user" in result.stderr
+
+
+def test_untagged_image_is_also_update_enabled(tmp_path: Path) -> None:
+    """Development images install the project version as an updatable release."""
+    from image.update_bundle import project_version
+
+    pi_gen = tmp_path / "pi-gen"
+    make_fake_pi_gen(pi_gen)
+    stage = image_build.prepare_stage(ROOT, pi_gen)
+    release_file = stage / "00-pideck/files/project/release-version"
+    assert release_file.read_text() == project_version(ROOT) + "\n"

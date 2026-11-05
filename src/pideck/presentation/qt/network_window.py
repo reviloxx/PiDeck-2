@@ -17,7 +17,7 @@ from pideck.application.ports.network import NetworkError, NetworkGateway, Wirel
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
-from .system_panel import create_system_panel
+from .system_panel import add_action_button, build_system_window, set_status
 from .theme import apply_theme
 from .wallpaper import WallpaperDialog
 
@@ -141,48 +141,32 @@ class NetworkWindow(WallpaperDialog):
         self._key_dialog: WirelessKeyDialog | None = None
         self.setWindowTitle(tr(language, "network"))
         self.setModal(True)
-        layout = create_system_panel(self)
-        title = QLabel(tr(language, "network"), self)
-        title.setObjectName("settings_heading")
-        layout.addWidget(title)
-        description = QLabel(tr(language, "wifi_description"), self)
-        description.setObjectName("settings_description")
-        description.setWordWrap(True)
-        layout.addWidget(description)
+        frame = build_system_window(self, tr(language, "network"), tr(language, "wifi_description"))
+        self.status = frame.status
+        layout = frame.content
         self.connection_status = QLabel(
             tr(language, "network_connection_status", status=tr(language, "checking")), self,
         )
-        self.connection_status.setObjectName("settings_description")
+        self.connection_status.setObjectName("settings_label")
         layout.addWidget(self.connection_status)
-        self.status = QLabel("", self)
-        self.status.setObjectName("settings_description")
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
         self.networks = QListWidget(self)
         self.networks.setObjectName("settings_applications")
         self.networks.itemActivated.connect(self._activate)
         self.networks.installEventFilter(self)
         layout.addWidget(self.networks, stretch=1)
-        actions = QHBoxLayout()
-        actions.addStretch()
-        self.rescan = QPushButton(tr(language, "wifi_rescan"), self)
-        self.rescan.setObjectName("settings_footer")
+        self.rescan = add_action_button(self, frame.footer, tr(language, "wifi_rescan"))
         self.rescan.clicked.connect(self.scan)
         self.rescan.installEventFilter(self)
-        self.back = QPushButton(tr(language, "back"), self)
-        self.back.setObjectName("settings_back")
+        self.back = add_action_button(self, frame.footer, tr(language, "back"), back=True)
         self.back.clicked.connect(self.reject)
         self.back.installEventFilter(self)
-        actions.addWidget(self.rescan)
-        actions.addWidget(self.back)
-        layout.addLayout(actions)
         apply_theme(self, theme)
         self.operation_finished.connect(self._finish_operation)
         self.finished.connect(self._finish)
         self.scan()
 
     def _submit(self, operation: str, function: Callable[..., object], *arguments: object) -> None:
-        self.status.setText(tr(self._language, "wifi_working"))
+        set_status(self.status, tr(self._language, "wifi_working"))
         self.networks.setEnabled(False)
         self.rescan.setEnabled(False)
         future = self._executor.submit(function, *arguments)
@@ -207,7 +191,7 @@ class NetworkWindow(WallpaperDialog):
         try:
             result = future.result()
         except NetworkError as error:
-            self.status.setText(tr(self._language, "wifi_error", message=str(error)))
+            set_status(self.status, tr(self._language, "wifi_error", message=str(error)), error=True)
             if operation == "scan":
                 self.connection_status.setText(tr(
                     self._language, "network_connection_status",
@@ -217,7 +201,7 @@ class NetworkWindow(WallpaperDialog):
             return
         except Exception as error:
             _LOGGER.error("Unexpected network operation failure: %s", type(error).__name__)
-            self.status.setText(tr(self._language, "wifi_error", message=tr(self._language, "wifi_unavailable")))
+            set_status(self.status, tr(self._language, "wifi_error", message=tr(self._language, "wifi_unavailable")), error=True)
             if operation == "scan":
                 self.connection_status.setText(tr(
                     self._language, "network_connection_status",
@@ -226,7 +210,7 @@ class NetworkWindow(WallpaperDialog):
             self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         if operation == "connect":
-            self.status.setText(tr(self._language, "wifi_connected"))
+            set_status(self.status, tr(self._language, "wifi_connected"))
             self.connection_status.setText(tr(
                 self._language, "network_connection_status",
                 status=tr(self._language, "wifi_connected"),
@@ -244,7 +228,7 @@ class NetworkWindow(WallpaperDialog):
                 text += f" - {tr(self._language, 'wifi_connected')}"
             item = QListWidgetItem(text, self.networks)
             item.setData(Qt.ItemDataRole.UserRole, network)
-        self.status.setText(tr(self._language, "wifi_select" if networks else "wifi_empty"))
+        set_status(self.status, tr(self._language, "wifi_select" if networks else "wifi_empty"))
         self.networks.setFocusPolicy(Qt.FocusPolicy.StrongFocus if networks else Qt.FocusPolicy.NoFocus)
         if networks:
             self.networks.setCurrentRow(0)
@@ -255,10 +239,10 @@ class NetworkWindow(WallpaperDialog):
     def _activate(self, item: QListWidgetItem) -> None:
         network = item.data(Qt.ItemDataRole.UserRole)
         if not isinstance(network, WirelessNetwork):
-            self.status.setText(tr(self._language, "wifi_unavailable"))
+            set_status(self.status, tr(self._language, "wifi_unavailable"), error=True)
             return
         if not network.supported:
-            self.status.setText(tr(self._language, "wifi_unsupported"))
+            set_status(self.status, tr(self._language, "wifi_unsupported"), error=True)
             return
         if not network.requires_key:
             self._submit("connect", self._gateway.connect, network, None)

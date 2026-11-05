@@ -67,8 +67,9 @@ sudo udevadm control --reload-rules
 sudo reboot
 ```
 
-The current development image cannot self-update; it needs a new build or a
-separately installed application update before these files are available.
+Untagged images built before v0.3.10 cannot self-update; they need a new
+build or a separately installed application update before these files are
+available.
 `input.yaml` is initialized once with CEC enabled even if the old main YAML
 disabled it. Subsequent choices are preserved; use Settings → Input to disable
 CEC. Older releases do not read this file when rolling back. On reboot into an
@@ -134,10 +135,12 @@ permissions. It also does this after a failed build if its mounts were
 successfully released. A direct root invocation without an invoking-user
 identity leaves the output owned by root.
 
-Release images can also be built with `--release-tag vMAJOR.MINOR.PATCH`.
-The tag, checked-out commit and project versions must agree, and the image
-inputs must be clean. Without the tag the image is a development image and
-cannot self-update. See
+Every image supports PiDeck application updates. Without a tag, the image
+installs the version declared in `pyproject.toml` and `src/pideck/__init__.py`
+(both must agree) and later receives any newer published release; local
+changes are included as built. Release images can be built with
+`--release-tag vMAJOR.MINOR.PATCH`; the tag, checked-out commit and project
+versions must then agree, and the image inputs must be clean. See
 [unsigned update details](raspberry-pi-image.md#application-release-artifacts);
 the x86 image does not use Raspberry Pi Imager provisioning.
 

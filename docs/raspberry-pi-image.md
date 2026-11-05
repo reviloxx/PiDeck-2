@@ -135,9 +135,11 @@ Downloads use HTTPS and check the bundle's size and SHA-256 against the
 downloaded metadata. These checks detect corruption but do not authenticate
 the publisher: anyone able to replace both files can distribute altered code.
 
-To build an update-enabled image, select the matching release tag when starting
-the image workflow. A branch build is a development image and cannot
-self-update. For a native build, use a clean checkout of the matching tag:
+Every image supports application updates. A branch build installs the
+project version declared in `pyproject.toml` and `src/pideck/__init__.py` and
+updates to any newer published release. To build an exact release image,
+select the matching release tag when starting the image workflow. For a native
+release build, use a clean checkout of the matching tag:
 
 ```bash
 sudo python3 image/build.py --work-dir /var/tmp/pideck-release-build \
@@ -147,8 +149,8 @@ sudo python3 image/build.py --work-dir /var/tmp/pideck-release-build \
 Replace the example tag with the actual release tag. The builder requires the
 tag, both project version declarations and the checked-out commit to agree.
 Release inputs must have no local modifications. Older signed-update images
-cannot accept this unsigned protocol; development images cannot self-update.
-Reflash with an unsigned update-enabled release image or perform a separate
+cannot accept this unsigned protocol, and untagged images built before
+v0.3.10 cannot self-update. Reflash with a current image or perform a separate
 system migration.
 
 New image and application builds record the PiDeck application build

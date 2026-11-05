@@ -6,14 +6,14 @@ import logging
 
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QSlider, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSlider, QWidget
 
 from pideck.application.ports.audio import AudioError, AudioGateway, AudioState
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
-from .system_panel import create_system_panel
+from .system_panel import add_action_button, build_system_window, set_status
 from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperDialog
 
@@ -39,14 +39,9 @@ class AudioWindow(WallpaperDialog):
         self._focus_before_operation: QWidget | None = None
         self.setWindowTitle(tr(language, "audio"))
         self.setModal(True)
-        layout = create_system_panel(self, max_height=600)
-        title = QLabel(tr(language, "audio"), self)
-        title.setObjectName("settings_heading")
-        layout.addWidget(title)
-        self.status = QLabel("", self)
-        self.status.setObjectName("settings_description")
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        frame = build_system_window(self, tr(language, "audio"), tr(language, "audio_description"))
+        self.status = frame.status
+        layout = frame.content
         output_label = QLabel(tr(language, "audio_output"), self)
         output_label.setObjectName("settings_label")
         layout.addWidget(output_label)
@@ -65,17 +60,10 @@ class AudioWindow(WallpaperDialog):
         self.volume.installEventFilter(self)
         layout.addWidget(self.volume)
         layout.addStretch()
-        self.refresh = QPushButton(tr(language, "audio_refresh"), self)
-        self.refresh.setObjectName("settings_footer")
+        self.refresh = add_action_button(self, frame.footer, tr(language, "audio_refresh"))
         self.refresh.installEventFilter(self)
-        self.back = QPushButton(tr(language, "back"), self)
-        self.back.setObjectName("settings_back")
+        self.back = add_action_button(self, frame.footer, tr(language, "back"), back=True)
         self.back.installEventFilter(self)
-        actions = QHBoxLayout()
-        actions.addStretch()
-        actions.addWidget(self.refresh)
-        actions.addWidget(self.back)
-        layout.addLayout(actions)
         self._volume_timer = QTimer(self)
         self._volume_timer.setSingleShot(True)
         self._volume_timer.setInterval(200)
@@ -91,7 +79,7 @@ class AudioWindow(WallpaperDialog):
 
     def _submit(self, operation: Callable[[], AudioState]) -> None:
         self._focus_before_operation = self.focusWidget()
-        self.status.setText(tr(self._language, "wifi_working"))
+        set_status(self.status, tr(self._language, "wifi_working"))
         self.output.setEnabled(False)
         self.volume.setEnabled(False)
         self.refresh.setEnabled(False)
@@ -114,12 +102,12 @@ class AudioWindow(WallpaperDialog):
         try:
             state = future.result()
         except AudioError as error:
-            self.status.setText(tr(self._language, "audio_error", message=str(error)))
+            set_status(self.status, tr(self._language, "audio_error", message=str(error)), error=True)
             self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         except Exception:
             _LOGGER.exception("Unexpected audio operation failure")
-            self.status.setText(tr(self._language, "audio_error", message=tr(self._language, "audio_unavailable")))
+            set_status(self.status, tr(self._language, "audio_error", message=tr(self._language, "audio_unavailable")), error=True)
             self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         with QSignalBlocker(self.output), QSignalBlocker(self.volume):
@@ -129,7 +117,7 @@ class AudioWindow(WallpaperDialog):
             self.output.setCurrentIndex(self.output.findData(state.current))
             self.volume.setValue(state.volume)
         self.volume_label.setText(tr(self._language, "audio_volume", volume=state.volume))
-        self.status.clear()
+        set_status(self.status, "")
         self.output.setEnabled(True)
         self.volume.setEnabled(True)
         focus = self._focus_before_operation
@@ -140,7 +128,7 @@ class AudioWindow(WallpaperDialog):
     def _apply_output(self, index: int) -> None:
         identifier = self.output.itemData(index)
         if type(identifier) is not int:
-            self.status.setText(tr(self._language, "audio_unavailable"))
+            set_status(self.status, tr(self._language, "audio_unavailable"), error=True)
             return
         self._volume_timer.stop()
 

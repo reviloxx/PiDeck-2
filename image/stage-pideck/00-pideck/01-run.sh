@@ -32,14 +32,13 @@ install -m 644 files/userconfig-override.conf \
 install -m 644 files/pideck-updater.service files/pideck-activate.service \
     "${ROOTFS_DIR}/etc/systemd/system/"
 
-if [ -f files/project/release-version ]; then
-    version="$(cat files/project/release-version)"
-    release="${ROOTFS_DIR}/usr/lib/pideck/releases/$version"
-    install -d "$release/python" "$release/assets" "$release/config"
-    cp -a files/project/src/pideck "$release/python/"
-    cp -a files/project/assets/. "$release/assets/"
-    ln -s "releases/$version" "${ROOTFS_DIR}/usr/lib/pideck/current"
-fi
+# Every image installs an updatable release tree; the builder always writes release-version.
+version="$(cat files/project/release-version)"
+release="${ROOTFS_DIR}/usr/lib/pideck/releases/$version"
+install -d "$release/python" "$release/assets" "$release/config"
+cp -a files/project/src/pideck "$release/python/"
+cp -a files/project/assets/. "$release/assets/"
+ln -s "releases/$version" "${ROOTFS_DIR}/usr/lib/pideck/current"
 
 on_chroot <<'EOF'
 plymouth-set-default-theme pideck

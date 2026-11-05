@@ -62,7 +62,7 @@ The adapter, TV, cabling and active local session must support CEC. The Debian
 libCEC backend only opens `/dev/cec0`, and some hardware cannot override its
 automatically detected HDMI address. Existing images need a one-time system
 setup; the application updater cannot install system packages or udev rules.
-The development image cannot self-update. See the image guides for setup,
+Images built before v0.3.10 without a release tag cannot self-update. See the image guides for setup,
 Kodi configuration and limitations. Hardware operation is not yet verified.
 
 Use the arrow keys or Tab to select an application, then Enter or Space to open
@@ -74,7 +74,9 @@ Escape to cancel. Escape, controller B and the remote's Back button go back
 in Settings and dialogs; on the home screen they do nothing, so PiDeck cannot
 be shut down by an accidental Back press. The mouse pointer is hidden while
 you navigate with the keyboard, a controller or the TV remote, and reappears
-when the mouse moves or is clicked.
+when the mouse moves or is clicked. Pointing at a control selects it, so only
+one item is highlighted regardless of the input device. If Bluetooth is
+unavailable, **Settings > System > Bluetooth** still opens and shows the reason.
 
 Typography can be adjusted per theme in the YAML configuration under
 `themes[].fonts`. All sizes are pixels: `heading_size` and `body_size` apply

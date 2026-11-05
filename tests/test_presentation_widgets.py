@@ -83,3 +83,59 @@ def test_spinner_only_animates_while_running(application: QApplication) -> None:
     spinner.set_running(False)
     assert not spinner.running and not spinner.isVisible()
     parent.close()
+
+
+def test_hover_moves_focus_so_only_one_control_is_highlighted(application: QApplication) -> None:
+    """Pointer hover focuses a control; a stationary pointer cannot steal focus later."""
+    from PySide6.QtWidgets import QPushButton, QVBoxLayout
+
+    window = QWidget()
+    layout = QVBoxLayout(window)
+    first, second = QPushButton("First", window), QPushButton("Second", window)
+    layout.addWidget(first)
+    layout.addWidget(second)
+    window.show()
+    application.processEvents()
+    window.activateWindow()
+    second.setFocus()
+    cursor = CursorVisibility()
+
+    cursor.eventFilter(first, QEvent(QEvent.Type.Enter))
+    assert first.hasFocus()
+
+    second.setFocus()
+    cursor.eventFilter(first, QEvent(QEvent.Type.Enter))
+    assert second.hasFocus()
+    window.close()
+
+
+def test_hover_is_ignored_while_the_pointer_is_hidden(application: QApplication) -> None:
+    """Keyboard, controller and remote navigation keep their focus target."""
+    from PySide6.QtWidgets import QPushButton, QVBoxLayout
+
+    window = QWidget()
+    layout = QVBoxLayout(window)
+    first, second = QPushButton("First", window), QPushButton("Second", window)
+    layout.addWidget(first)
+    layout.addWidget(second)
+    window.show()
+    application.processEvents()
+    second.setFocus()
+    cursor = CursorVisibility()
+    cursor.hide_cursor()
+
+    cursor.eventFilter(first, QEvent(QEvent.Type.Enter))
+
+    assert second.hasFocus()
+    cursor.show_cursor()
+    window.close()
+
+
+def test_theme_never_styles_hover() -> None:
+    """Only focus is highlighted, so a hovered and a focused item cannot both glow."""
+    from pathlib import Path
+
+    from pideck.presentation.qt import theme
+
+    stylesheet = Path(theme.__file__).read_text(encoding="utf-8")
+    assert ":hover" not in stylesheet.split('widget.setStyleSheet(', 1)[1]

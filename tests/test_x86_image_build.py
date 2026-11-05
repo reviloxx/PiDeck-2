@@ -247,7 +247,11 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     ).read_text()
     assert (tmp_path / "usr/lib/pideck-updater/python/pideck/infrastructure/image_update_daemon.py").is_file()
     assert (tmp_path / "usr/lib/pideck/pideck-getty").stat().st_mode & 0o111
-    assert not (tmp_path / "usr/lib/pideck/current").exists()
+    from image.update_bundle import project_version
+
+    version = project_version(x86_build.ROOT)
+    assert os.readlink(tmp_path / "usr/lib/pideck/current") == f"releases/{version}"
+    assert (tmp_path / f"usr/lib/pideck/releases/{version}/python/pideck/bootstrap.py").is_file()
     override = (tmp_path / "etc/systemd/system/getty@tty1.service.d/pideck.conf").read_text()
     assert "userconfig.service" not in override
     assert "PIDECK_NETWORK=1" in (tmp_path / "etc/profile.d/00-pideck-network.sh").read_text()

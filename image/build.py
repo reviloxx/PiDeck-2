@@ -14,10 +14,10 @@ import sys
 
 if __package__:
     from .imager_repo import write_repository
-    from .update_bundle import build_metadata, release_version
+    from .update_bundle import build_metadata, image_version, release_version
 else:
     from imager_repo import write_repository
-    from update_bundle import build_metadata, release_version
+    from update_bundle import build_metadata, image_version, release_version
 
 PI_GEN_URL = "https://github.com/RPi-Distro/pi-gen.git"
 PI_GEN_COMMIT = "c851f00178c64b87a86c06c2be216bd89d62e55b"
@@ -51,9 +51,8 @@ def prepare_stage(
     shutil.copytree(project_root / "src", project / "src", ignore=ignore)
     (project / "src/pideck/_build_info.json").write_bytes(build_metadata())
     shutil.copytree(project_root / "assets", project / "assets", ignore=ignore)
-    if release_tag is not None:
-        version = release_version(project_root, release_tag)
-        (project / "release-version").write_text(version + "\n", encoding="utf-8")
+    version = image_version(project_root, release_tag)
+    (project / "release-version").write_text(version + "\n", encoding="utf-8")
     shutil.copyfile(
         project_root / "image" / "export" / "02-run-chroot.sh",
         pi_gen / "export-image" / "01-user-rename" / "02-run-chroot.sh",

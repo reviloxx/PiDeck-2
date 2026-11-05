@@ -8,7 +8,7 @@ from typing import Protocol
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QTimer, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QWidget,
+    QApplication, QDialog, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QWidget,
 )
 
 from pideck.application.ports.bluetooth import BluetoothDevice, BluetoothError, BluetoothGateway, BluetoothState, PairingRequest
@@ -18,7 +18,7 @@ from pideck.domain.theme import ThemeDefinition
 from .localization import tr
 from .network_window import WirelessKeyDialog
 from .power_dialog import ConfirmationDialog
-from .system_panel import create_system_panel
+from .system_panel import add_action_button, build_system_window, set_status
 from .theme import apply_theme
 from .wallpaper import WallpaperDialog
 
@@ -75,14 +75,9 @@ class BluetoothWindow(WallpaperDialog):
         self._cancel_discovery = Event()
         self.setWindowTitle(tr(language, "bluetooth"))
         self.setModal(True)
-        layout = create_system_panel(self)
-        title = QLabel(tr(language, "bluetooth"), self)
-        title.setObjectName("settings_heading")
-        layout.addWidget(title)
-        self.status = QLabel("", self)
-        self.status.setObjectName("settings_description")
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        frame = build_system_window(self, tr(language, "bluetooth"), tr(language, "bluetooth_description"))
+        self.status = frame.status
+        layout = frame.content
         self.devices = QListWidget(self)
         self.devices.setObjectName("settings_applications")
         self.devices.installEventFilter(self)
@@ -98,11 +93,8 @@ class BluetoothWindow(WallpaperDialog):
         self.connect_device = self._button(actions, "bluetooth_connect")
         self.disconnect_device = self._button(actions, "bluetooth_disconnect")
         layout.addLayout(actions)
-        footer = QHBoxLayout()
-        footer.addStretch()
-        self.refresh = self._button(footer, "bluetooth_refresh")
-        self.back = self._button(footer, "back")
-        layout.addLayout(footer)
+        self.refresh = self._button(frame.footer, "bluetooth_refresh")
+        self.back = self._button(frame.footer, "back", back=True)
         self.devices.currentItemChanged.connect(self._selection_changed)
         self.power.clicked.connect(self._toggle_power)
         self.scan.clicked.connect(self._discover)
@@ -118,18 +110,16 @@ class BluetoothWindow(WallpaperDialog):
         apply_theme(self, theme)
         self._run("inspect", self._gateway.inspect)
 
-    def _button(self, layout: QHBoxLayout, key: str) -> QPushButton:
-        button = QPushButton(tr(self._language, key), self)
-        button.setObjectName("settings_footer")
+    def _button(self, layout: QHBoxLayout, key: str, *, back: bool = False) -> QPushButton:
+        button = add_action_button(self, layout, tr(self._language, key), back=back)
         button.installEventFilter(self)
-        layout.addWidget(button)
         return button
 
     def _run(self, kind: str, operation: Callable[[], BluetoothState]) -> None:
         if self._busy is not None or self._closed:
             return
         self._busy = kind
-        self.status.setText(tr(self._language, "wifi_working"))
+        set_status(self.status, tr(self._language, "wifi_working"))
         self._set_controls()
 
         def execute() -> None:
@@ -141,11 +131,11 @@ class BluetoothWindow(WallpaperDialog):
                 result = operation()
             except BluetoothError as error:
                 if not self._closed:
-                    self.status.setText(tr(self._language, "bluetooth_error", message=str(error)))
+                    self._show_error(str(error))
             except Exception:
                 _LOGGER.exception("Unexpected Bluetooth operation failure")
                 if not self._closed:
-                    self.status.setText(tr(self._language, "bluetooth_error", message=tr(self._language, "bluetooth_unavailable")))
+                    self._show_error(tr(self._language, "bluetooth_unavailable"))
             else:
                 if not self._closed:
                     self._show_state(result)
@@ -158,6 +148,7 @@ class BluetoothWindow(WallpaperDialog):
                     self._agent.close()
                 else:
                     self._set_controls()
+                    self._ensure_visible_focus()
 
         QTimer.singleShot(0, execute)
 
@@ -174,12 +165,28 @@ class BluetoothWindow(WallpaperDialog):
                     self.devices.setCurrentItem(item)
             if self.devices.currentRow() < 0 and state.devices:
                 self.devices.setCurrentRow(0)
-        self.status.setText(tr(self._language, "bluetooth_select" if state.powered else "bluetooth_off"))
+        set_status(self.status, tr(self._language, "bluetooth_select" if state.powered else "bluetooth_off"))
         self.power.setText(tr(self._language, "bluetooth_disable" if state.powered else "bluetooth_enable"))
         if state.devices:
             self.devices.setFocus(Qt.FocusReason.OtherFocusReason)
         else:
             self.power.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _show_error(self, message: str) -> None:
+        set_status(self.status, tr(self._language, "bluetooth_error", message=message), error=True)
+
+    def _ensure_visible_focus(self) -> None:
+        """Keep focus on an enabled control after operations disable the focused one."""
+        focus = self.focusWidget()
+        if focus is not None and focus.isEnabled() and focus.isVisible():
+            return
+        if self.devices.isEnabled() and self.devices.count():
+            self.devices.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        for button in (self.power, self.scan, self.refresh, self.back):
+            if button.isEnabled():
+                button.setFocus(Qt.FocusReason.OtherFocusReason)
+                return
 
     def _selected(self) -> BluetoothDevice | None:
         item = self.devices.currentItem()
@@ -277,7 +284,7 @@ class BluetoothWindow(WallpaperDialog):
 
     def _show_pairing_notice(self, request: PairingRequest) -> None:
         if request.kind in {"display_pin", "display_passkey"}:
-            self.status.setText(tr(self._language, "bluetooth_enter_on_device", code=request.value))
+            set_status(self.status, tr(self._language, "bluetooth_enter_on_device", code=request.value))
 
     def _cancel_prompt(self) -> None:
         if self._pair_dialog is not None:

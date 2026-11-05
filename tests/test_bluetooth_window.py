@@ -224,3 +224,20 @@ def test_pairing_pin_keyboard_accepts_gamepad_input(application: QApplication) -
     assert agent.response == "a"
     window.close()
     parent.close()
+
+
+def test_missing_bluetooth_service_is_reported_inside_the_window(application: QApplication) -> None:
+    """Without BlueZ the window still opens, shows an error and keeps focus usable."""
+    from pideck.infrastructure.bluetooth_unavailable import UnavailableBluetooth
+
+    parent = QWidget()
+    unavailable = UnavailableBluetooth("No Bluetooth adapter or Bluetooth service was found.")
+    window = BluetoothWindow(unavailable, unavailable, DEFAULT_THEME, "en", parent)
+    window.show()
+    _wait(application, lambda: "No Bluetooth adapter" in window.status.text())
+
+    assert window.status.property("error") is True
+    assert window.focusWidget() is window.refresh
+    assert window.back.objectName() == "settings_back"
+    window.close()
+    parent.close()

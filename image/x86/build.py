@@ -17,11 +17,11 @@ from typing import Generator
 
 if __package__:
     from ..build import _validate_release_checkout, file_hash
-    from ..update_bundle import build_metadata, release_version
+    from ..update_bundle import build_metadata, image_version
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from image.build import _validate_release_checkout, file_hash
-    from image.update_bundle import build_metadata, release_version
+    from image.update_bundle import build_metadata, image_version
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -218,14 +218,13 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     for name in ("pideck-updater.service", "pideck-activate.service"):
         _install(PI_FILES / name, root / "etc/systemd/system" / name)
     _install(INPUTS / "pideck-grow-root.service", root / "etc/systemd/system/pideck-grow-root.service")
-    if tag is not None:
-        version = release_version(ROOT, tag)
-        release = lib / "releases" / version
-        shutil.copytree(ROOT / "src/pideck", release / "python/pideck", ignore=ignore)
-        (release / "python/pideck/_build_info.json").write_bytes(metadata)
-        shutil.copytree(ROOT / "assets", release / "assets")
-        (release / "config").mkdir()
-        (lib / "current").symlink_to(f"releases/{version}")
+    version = image_version(ROOT, tag)
+    release = lib / "releases" / version
+    shutil.copytree(ROOT / "src/pideck", release / "python/pideck", ignore=ignore)
+    (release / "python/pideck/_build_info.json").write_bytes(metadata)
+    shutil.copytree(ROOT / "assets", release / "assets")
+    (release / "config").mkdir()
+    (lib / "current").symlink_to(f"releases/{version}")
 
 
 def _configure(
