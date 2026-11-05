@@ -29,7 +29,8 @@ class CursorVisibility(QObject):
         super().__init__(parent)
         self._hidden = False
         self._hidden_at = QPoint()
-        self._last_hover_at: QPoint | None = None
+        # A pointer resting where it was at startup must not take focus from the first tile.
+        self._last_hover_at = QCursor.pos()
 
     @property
     def hidden(self) -> bool:
@@ -79,15 +80,17 @@ class CursorVisibility(QObject):
 
 
 def _focusable_ancestor(widget: QWidget | None) -> QWidget | None:
-    """Return ``widget`` or its closest same-window parent that accepts click focus."""
-    while widget is not None:
+    """Return ``widget`` or its closest parent control that accepts click focus.
+
+    Top-level windows are never returned: focusing a window itself would leave
+    no control visibly selected.
+    """
+    while widget is not None and not widget.isWindow():
         if (
             widget.focusPolicy() & Qt.FocusPolicy.ClickFocus
             and widget.isEnabled()
             and widget.isVisible()
         ):
             return widget
-        if widget.isWindow():
-            return None
         widget = widget.parentWidget()
     return None

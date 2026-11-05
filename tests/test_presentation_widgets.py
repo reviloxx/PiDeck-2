@@ -99,6 +99,7 @@ def test_hover_moves_focus_so_only_one_control_is_highlighted(application: QAppl
     window.activateWindow()
     second.setFocus()
     cursor = CursorVisibility()
+    cursor._last_hover_at = None
 
     cursor.eventFilter(first, QEvent(QEvent.Type.Enter))
     assert first.hasFocus()
@@ -139,3 +140,47 @@ def test_theme_never_styles_hover() -> None:
 
     stylesheet = Path(theme.__file__).read_text(encoding="utf-8")
     assert ":hover" not in stylesheet.split('widget.setStyleSheet(', 1)[1]
+
+
+def test_hover_never_focuses_the_window_itself(application: QApplication) -> None:
+    """Pointing at a window's background keeps the selected control focused."""
+    from PySide6.QtCore import Qt as QtNamespace
+    from PySide6.QtWidgets import QPushButton, QVBoxLayout
+
+    window = QWidget()
+    window.setFocusPolicy(QtNamespace.FocusPolicy.StrongFocus)
+    background = QWidget(window)
+    button = QPushButton("Tile", window)
+    layout = QVBoxLayout(window)
+    layout.addWidget(background)
+    layout.addWidget(button)
+    window.show()
+    application.processEvents()
+    button.setFocus()
+    cursor = CursorVisibility()
+    cursor._last_hover_at = None
+
+    cursor.eventFilter(background, QEvent(QEvent.Type.Enter))
+    cursor.eventFilter(window, QEvent(QEvent.Type.Enter))
+
+    assert button.hasFocus()
+    window.close()
+
+
+def test_resting_pointer_at_startup_does_not_take_focus(application: QApplication) -> None:
+    """The first Enter event without pointer movement leaves keyboard focus alone."""
+    from PySide6.QtWidgets import QPushButton, QVBoxLayout
+
+    window = QWidget()
+    layout = QVBoxLayout(window)
+    first, second = QPushButton("First", window), QPushButton("Second", window)
+    layout.addWidget(first)
+    layout.addWidget(second)
+    window.show()
+    application.processEvents()
+    second.setFocus()
+
+    CursorVisibility().eventFilter(first, QEvent(QEvent.Type.Enter))
+
+    assert second.hasFocus()
+    window.close()
