@@ -86,6 +86,18 @@ class SessionObserver(Protocol):
         ...
 
 
+class SessionInputResource(Protocol):
+    """Exclusive input resource released while an application is running."""
+
+    def suspend(self) -> None:
+        """Release the resource before an application starts."""
+        ...
+
+    def resume(self) -> None:
+        """Reacquire the resource when the launcher becomes idle."""
+        ...
+
+
 class ApplicationSessionService:
     """Coordinate launch requests, process supervision, and launcher return."""
 
@@ -94,11 +106,15 @@ class ApplicationSessionService:
         supervisor: ProcessSupervisor,
         observer: SessionObserver,
         visibility_detector: ProcessVisibilityDetector | None = None,
+        input_resource: SessionInputResource | None = None,
     ) -> None:
         """Create a session service with injected process and presentation ports."""
         self._supervisor = supervisor
         self._observer = observer
         self._visibility_detector = visibility_detector
+        self._input_resource = input_resource
+        self._closed = False
+        self._lifecycle_lock = threading.RLock()
         self._snapshot = SessionSnapshot(state=SessionState.IDLE)
         self._pending_launch: tuple[ApplicationDefinition, ApplicationProfile | None] | None = None
 
@@ -171,10 +187,12 @@ class ApplicationSessionService:
 
     def close(self) -> None:
         """Stop the active session and close the injected supervisor."""
-        self.stop()
-        if self._visibility_detector is not None:
-            self._visibility_detector.close()
-        self._supervisor.close()
+        with self._lifecycle_lock:
+            self._closed = True
+            self.stop()
+            if self._visibility_detector is not None:
+                self._visibility_detector.close()
+            self._supervisor.close()
 
     def _start(
         self,
@@ -197,24 +215,32 @@ class ApplicationSessionService:
             self._on_process_exit(event)
 
         try:
-            handle = self._supervisor.start(
-                self._command_for(application, profile),
-                token,
-                handle_process_exit,
-            )
+            with self._lifecycle_lock:
+                if self._closed:
+                    raise ProcessError("Application session is closed")
+                if self._input_resource is not None:
+                    self._input_resource.suspend()
+                handle = self._supervisor.start(
+                    self._command_for(application, profile),
+                    token,
+                    handle_process_exit,
+                )
+                self._snapshot = SessionSnapshot(
+                    state=SessionState.STARTING,
+                    application=application,
+                    profile=profile,
+                    handle=handle,
+                    session_token=token,
+                )
         except PiDeckError as error:
             start_ready.set()
             self._snapshot = SessionSnapshot(state=SessionState.IDLE)
+            with self._lifecycle_lock:
+                if self._input_resource is not None and not self._closed:
+                    self._input_resource.resume()
             message = str(error)
             self._observer.failed(application, message)
             return LaunchResult(LaunchStatus.FAILED, application, message=message)
-        self._snapshot = SessionSnapshot(
-            state=SessionState.STARTING,
-            application=application,
-            profile=profile,
-            handle=handle,
-            session_token=token,
-        )
         self._observer.started(application, profile)
         start_ready.set()
         if self._visibility_detector is None:
@@ -316,9 +342,12 @@ class ApplicationSessionService:
         pending_launch = self._pending_launch
         self._pending_launch = None
         self._snapshot = SessionSnapshot(state=SessionState.IDLE)
-        if pending_launch is not None:
+        if pending_launch is not None and not self._closed:
             self._start(*pending_launch)
             return
+        with self._lifecycle_lock:
+            if self._input_resource is not None and not self._closed:
+                self._input_resource.resume()
         self._observer.finished(application, event.return_code)
 
 

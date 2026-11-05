@@ -250,3 +250,135 @@ def test_launch_failure_returns_to_idle_and_notifies_observer() -> None:
     assert result.status is LaunchStatus.FAILED
     assert service.snapshot.state is SessionState.IDLE
     assert observer.failed_applications == [("missing", "executable is unavailable")]
+
+
+def test_input_resource_handoff_and_replacement_order() -> None:
+    """Release before each start and never reacquire between replacements."""
+    events: list[str] = []
+
+    class InputResource:
+        def suspend(self) -> None:
+            events.append("suspend")
+
+        def resume(self) -> None:
+            events.append("resume")
+
+    class Supervisor(FakeSupervisor):
+        def start(self, command: ProcessCommand, token: str, on_exit: object) -> ProcessHandle:
+            events.append("start")
+            return super().start(command, token, on_exit)
+
+    supervisor = Supervisor()
+    service = ApplicationSessionService(supervisor, RecordingObserver(), input_resource=InputResource())
+    first = ApplicationDefinition("first", "First", sys.executable)
+    second = ApplicationDefinition("second", "Second", sys.executable)
+    service.request_launch(first)
+    first_token = next(iter(supervisor.handles))
+    service.replace_running(second)
+    supervisor.emit(first_token)
+    assert events == ["suspend", "start", "suspend", "start"]
+    second_token = next(token for token in supervisor.handles if token != first_token)
+    supervisor.emit(first_token)
+    assert events == ["suspend", "start", "suspend", "start"]
+    supervisor.emit(second_token)
+    assert events == ["suspend", "start", "suspend", "start", "resume"]
+    service.close()
+
+
+def test_input_resource_resumes_after_failed_launch_but_not_shutdown() -> None:
+    """Failure restores CEC; a late exit after shutdown does not restart it."""
+    events: list[str] = []
+
+    class InputResource:
+        def suspend(self) -> None:
+            events.append("suspend")
+
+        def resume(self) -> None:
+            events.append("resume")
+
+    application = ApplicationDefinition("app", "App", "app")
+    failed = ApplicationSessionService(FailingSupervisor(), RecordingObserver(), input_resource=InputResource())
+    assert failed.request_launch(application).status is LaunchStatus.FAILED
+    assert events == ["suspend", "resume"]
+    supervisor = FakeSupervisor()
+    service = ApplicationSessionService(supervisor, RecordingObserver(), input_resource=InputResource())
+    service.request_launch(application)
+    token = next(iter(supervisor.handles))
+    service.close()
+    supervisor.emit(token)
+    assert events == ["suspend", "resume", "suspend"]
+
+
+def test_input_resource_is_not_released_for_profile_selection() -> None:
+    """A selection prompt does not transfer CEC ownership prematurely."""
+    events: list[str] = []
+
+    class InputResource:
+        def suspend(self) -> None:
+            events.append("suspend")
+
+        def resume(self) -> None:
+            events.append("resume")
+
+    application = ApplicationDefinition(
+        "profiles", "Profiles", sys.executable,
+        profiles=(ApplicationProfile("one", "One"), ApplicationProfile("two", "Two")),
+    )
+    service = ApplicationSessionService(FakeSupervisor(), RecordingObserver(), input_resource=InputResource())
+    assert service.request_launch(application).status is LaunchStatus.PROFILE_SELECTION_REQUIRED
+    assert events == []
+    service.close()
+
+
+def test_input_resource_release_failure_prevents_launch() -> None:
+    """Do not start a competing application if the CEC client cannot exit."""
+    from pideck.domain.errors import ProcessError
+
+    events: list[str] = []
+
+    class InputResource:
+        def suspend(self) -> None:
+            events.append("suspend")
+            raise ProcessError("CEC client could not be stopped")
+
+        def resume(self) -> None:
+            events.append("resume")
+
+    supervisor = FakeSupervisor()
+    service = ApplicationSessionService(supervisor, RecordingObserver(), input_resource=InputResource())
+    result = service.request_launch(ApplicationDefinition("app", "App", "app"))
+    assert result.status is LaunchStatus.FAILED
+    assert not supervisor.handles
+    assert events == ["suspend", "resume"]
+    service.close()
+
+
+def test_shutdown_waits_for_in_progress_handoff() -> None:
+    """Shutdown cannot miss a process created during CEC release."""
+    entered = threading.Event()
+    release = threading.Event()
+
+    class InputResource:
+        def suspend(self) -> None:
+            entered.set()
+            assert release.wait(2)
+
+        def resume(self) -> None:
+            raise AssertionError("CEC must not resume during shutdown")
+
+    supervisor = FakeSupervisor()
+    service = ApplicationSessionService(supervisor, RecordingObserver(), input_resource=InputResource())
+    application = ApplicationDefinition("app", "App", "app")
+    launching = threading.Thread(target=service.request_launch, args=(application,))
+    launching.start()
+    assert entered.wait(2)
+    closing = threading.Thread(target=service.close)
+    closing.start()
+    release.set()
+    launching.join(2)
+    closing.join(2)
+    assert not launching.is_alive() and not closing.is_alive()
+    assert supervisor.stopped == list(supervisor.handles)
+    supervisor.emit(next(iter(supervisor.handles)))
+    assert service.request_launch(application).status is LaunchStatus.FAILED
+    assert len(supervisor.handles) == 1

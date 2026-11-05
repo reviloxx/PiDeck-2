@@ -129,6 +129,7 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     shutil.copytree(ROOT / "src/pideck", updater / "pideck", ignore=ignore)
     shutil.copytree(ROOT / "assets", root / "usr/share/pideck/assets")
     _install(PI_FILES / "pideck.yaml", root / "usr/share/pideck/config/pideck.yaml")
+    _install(PI_FILES / "70-pideck-cec.rules", root / "etc/udev/rules.d/70-pideck-cec.rules")
     _install(PI_FILES / "window-modes.yaml", root / "usr/share/pideck/config/window-modes.yaml")
     for name in ("pideck-session", "pideck-xsession"):
         _install(PI_FILES / name, lib / name, 0o755)

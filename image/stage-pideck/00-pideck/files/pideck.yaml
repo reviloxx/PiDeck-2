@@ -63,7 +63,7 @@ home:
   visible_applications: [kodi, chromium, firefox, retroarch]
   theme: default
 input:
-  enabled_sources: [gamepad, keyboard, mouse]
+  enabled_sources: [cec, gamepad, keyboard, mouse]
   bindings:
     home: Ctrl+Alt+H
 settings:

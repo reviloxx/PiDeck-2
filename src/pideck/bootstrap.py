@@ -24,7 +24,7 @@ from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
 from pideck.application.ports.input import InputEvent
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, Configuration, WindowMode
-from pideck.domain.errors import ConfigurationError, PowerError
+from pideck.domain.errors import ConfigurationError, PowerError, ProcessError
 from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.build_info import installed_build_date
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
@@ -37,6 +37,7 @@ from pideck.infrastructure.platform_updates import NativeUpdateGateway
 from pideck.infrastructure.image_update_client import ImageUpdateError, request as image_update_request
 from pideck.infrastructure.pideck_releases import find_latest_release, version_key
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
+from pideck.infrastructure.input_cec import CecClientAdapter
 from pideck.infrastructure.network_manager import NetworkManagerGateway
 from pideck.application.ports.network import NetworkError
 from pideck.application.ports.bluetooth import BluetoothError
@@ -209,6 +210,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         NativeUpdateGateway(image_mode=image_mode), allow_password_prompt=not image_mode
     )
     gamepad_adapter = EvdevGamepadAdapter()
+    cec_adapter = CecClientAdapter() if "cec" in current_configuration.input.enabled_sources else None
     power = SystemPower() if parsed_arguments.power_off_on_shutdown else None
     settings_window: SettingsWindow | None = None
     installer: FlatpakInstaller | None = None
@@ -295,10 +297,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
         dependencies.process_supervisor,
         session_observer,
         visibility_detector,
+        cec_adapter,
     )
 
     class GamepadBridge(QObject):
-        """Marshal gamepad reader-thread events onto the Qt event loop."""
+        """Marshal input reader-thread events onto the Qt event loop."""
 
         event_received = Signal(object)
 
@@ -309,7 +312,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     gamepad_bridge = GamepadBridge()
 
     def handle_gamepad_event(event: InputEvent) -> None:
-        """Route gamepad input to the active launcher/settings surface."""
+        """Route normalized input to the active launcher/settings surface."""
         if bluetooth_window is not None and bluetooth_window.isVisible():
             bluetooth_window.handle_input(event)
         elif display_window is not None and display_window.isVisible():
@@ -329,6 +332,27 @@ def main(arguments: Sequence[str] | None = None) -> int:
     )
     if "gamepad" in current_configuration.input.enabled_sources:
         gamepad_adapter.start(gamepad_bridge)
+    if cec_adapter is not None:
+        class CecBridge(QObject):
+            """Reject CEC events queued before an application handoff."""
+
+            event_received = Signal(object, int)
+
+            def __init__(self, adapter: CecClientAdapter) -> None:
+                super().__init__()
+                self._adapter = adapter
+
+            def handle_input(self, event: InputEvent) -> None:
+                self.event_received.emit(event, self._adapter.generation)
+
+        cec_bridge = CecBridge(cec_adapter)
+
+        def handle_cec_event(event: InputEvent, generation: int) -> None:
+            if cec_adapter is not None and cec_adapter.accepts(generation):
+                handle_gamepad_event(event)
+
+        cec_bridge.event_received.connect(handle_cec_event, Qt.ConnectionType.QueuedConnection)
+        cec_adapter.start(cec_bridge)
 
     def handle_application_request(application_definition: ApplicationDefinition) -> None:
         """Resolve profile and replacement decisions for a tile activation."""
@@ -367,6 +391,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
         session_service.close()
         update_service.close()
         gamepad_adapter.close()
+        if cec_adapter is not None:
+            try:
+                cec_adapter.close()
+            except ProcessError:
+                dependencies.logger.exception("Unable to stop CEC client during shutdown")
         application.quit()
 
     def handle_shutdown_request() -> None:

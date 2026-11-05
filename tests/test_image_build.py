@@ -137,7 +137,8 @@ def test_image_configuration_and_assets(tmp_path: Path) -> None:
     assert set(config.home.visible_applications) == set(applications)
     packages = (STAGE / "00-pideck" / "00-packages-nr").read_text().split()
     assert {app.executable for app in applications.values()} <= set(packages)
-    assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils"} <= set(packages)
+    assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "cec-utils"} <= set(packages)
+    assert "cec" in config.input.enabled_sources
 
     shutil.copytree(ROOT / "assets", tmp_path / "assets")
     asset_root = tmp_path / "config"
@@ -302,6 +303,9 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     assert (rootfs / "usr/lib/pideck/python/pideck/bootstrap.py").is_file()
     assert (rootfs / "usr/share/pideck/assets/icons/kodi.svg").is_file()
     assert (rootfs / "usr/share/pideck/config/pideck.yaml").is_file()
+    assert (rootfs / "etc/udev/rules.d/70-pideck-cec.rules").read_text() == (
+        FILES / "70-pideck-cec.rules"
+    ).read_text()
     assert (rootfs / "usr/share/pideck/config/window-modes.yaml").read_text() == (
         FILES / "window-modes.yaml"
     ).read_text()

@@ -15,6 +15,28 @@ in boot.
 Existing installations need a separately applied system update or a newly
 built image, since PiDeck application updates do not replace boot components.
 
+## HDMI-CEC
+
+New images enable CEC navigation and include `cec-utils`. Connect the Pi
+directly to a CEC-capable TV over HDMI and enable the TV's HDMI-CEC setting.
+PiDeck uses the Pi's built-in Linux CEC interface and the active local seat's
+device access. It releases CEC before starting any application, including
+Kodi, and reconnects when the application exits. Kodi controls its own CEC
+settings. PiDeck does not intentionally change TV power or input.
+
+Remove `cec` from `input.enabled_sources` in the user's
+`~/.config/pideck/pideck.yaml` and restart the session to disable it. If CEC
+does not work, inspect the PiDeck journal, check the TV and HDMI cable, and use
+`cec-client -l` from a local session; a second client must not compete with
+PiDeck or Kodi for the device. Confirm that the active user can access the
+`/dev/cec0` device. The Debian libCEC Linux backend used here discovers
+`/dev/cec0`, not an arbitrary additional CEC device; verify the HDMI connector
+and device mapping on the target Pi.
+
+CEC is intended for newly built images. Existing image configurations and
+system packages are not migrated by a normal PiDeck application update.
+The built-in CEC interface and Kodi handoff still require hardware testing.
+
 Wallpaper scales proportionally to fill the window, cropping edges when
 necessary. The default policies in `/usr/share/pideck/config/window-modes.yaml`
 request maximized main windows for Chromium, Firefox, RetroArch and NoMachine
@@ -235,6 +257,10 @@ minimum storage capacity. On a Pi 5, verify:
   navigation and hot-plug behavior.
 - Kodi, Chromium, Firefox ESR and RetroArch including mGBA core loading, with
   external-window detection, closing the app and returning to PiDeck.
+- Built-in CEC discovery and local-seat access; remote navigation and repeats
+  in PiDeck and settings; Kodi remote operation; release/reacquisition on
+  launch, failure, replacement and exit; unplug/reconnect and no unwanted
+  TV power or input changes. Check keyboard and controller operation too.
 - Settings persistence, passwordless application and unsigned PiDeck updates,
   reboot activation and rollback, shutdown, error handling and console recovery.
 
@@ -242,7 +268,5 @@ No Pi 5 hardware acceptance has yet been performed. PiDeck's application
 readiness detector currently uses X11 and `wmctrl`; compatibility with each
 application's real window and process lifecycle remains a release gate.
 
-HDMI-CEC input and full system network, Bluetooth, audio and display settings
-are not currently implemented by PiDeck; installing their dependencies alone
-would not add those features. The configured Home key binding is not currently
-implemented as a global shortcut while another application has focus.
+The configured Home key binding is not currently implemented as a global
+shortcut while another application has focus.

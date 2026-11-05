@@ -18,6 +18,28 @@ The installed size and package inventories are recorded by the build.
 One private test build including NoMachine used approximately 5.3 GiB in the
 root filesystem and compressed to approximately 2.4 GiB; later builds may vary.
 
+## HDMI-CEC
+
+New images include `cec-utils` and enable CEC in their default configuration.
+Connect the Pulse-Eight adapter between the computer's HDMI output and the TV,
+and connect its USB cable to the computer. Enable HDMI-CEC on the TV (the name
+varies by manufacturer). PiDeck uses the active local seat's device access;
+it releases the adapter before starting any application, including Kodi, and
+reconnects when that application exits. Configure Kodi's own CEC settings
+separately. PiDeck itself only uses remote navigation and does not request TV
+power or input switching.
+
+To disable CEC, remove `cec` from `input.enabled_sources` in the user's
+`~/.config/pideck/pideck.yaml` and restart the session. For troubleshooting,
+inspect the PiDeck journal and run `cec-client -l` from a local session; do
+not run a second client while PiDeck or Kodi owns the adapter. Check device
+permissions, the TV's CEC setting and HDMI connections. LibCEC may save adapter
+configuration such as its device name and address to Pulse-Eight hardware.
+
+CEC is intended for newly built images and has not been validated on physical
+hardware. Existing image configurations and system packages are not migrated
+by the PiDeck application updater.
+
 ## Private build
 
 Use a trusted native x86-64 Linux build machine with Python 3.12 or newer,
@@ -138,8 +160,12 @@ privileges, verify `SHA256SUMS`, then replace `/dev/DESTINATION` below with the
 verified target disk:
 
 ```bash
-set -o pipefail
-xz -dc pideck-x86_64.img.xz | sudo dd of=/dev/DESTINATION bs=4M conv=fsync status=progress
+sudo -v
+sudo bash -c 'set -euo pipefail
+cd /var/tmp/pideck-x86-build
+sha256sum -c SHA256SUMS
+umount /dev/sda1
+xz -dc pideck-x86_64.img.xz | dd of=/dev/sda bs=4M conv=fsync status=progress'
 ```
 
 Boot the target from that disk with Secure Boot disabled. On a larger disk,
@@ -148,6 +174,46 @@ partition 3 before attempting expansion. Failures are recorded in
 `journalctl -u pideck-grow-root`; no successful resize is assumed when the
 service fails. Do not connect multiple clones of the same image simultaneously:
 they retain matching filesystem identifiers.
+
+### NVIDIA graphics recovery
+
+Some NVIDIA GPUs require `firmware-nvidia-graphics` for the Nouveau kernel
+driver. Without it, the kernel may report missing `nvidia/...` firmware and
+X may fail with `no screens found`. New builds include this package; existing
+images need the package installed and their initramfs regenerated.
+
+To repair an existing image, boot another trusted Linux system, connect the
+image disk, and mount its ext4 root partition. Identify it with `lsblk` and
+set `ROOT` to its absolute mount point below. The host needs internet access;
+the image's `/etc/resolv.conf` must contain a working DNS server reachable
+from the host. This procedure modifies the mounted image, not the host.
+
+```bash
+ROOT=/path/to/mounted/pideck-root
+sudo bash -s -- "$ROOT" <<'EOF'
+set -euo pipefail
+root=$1
+mountpoint -q "$root"
+mounts=()
+cleanup() {
+    for ((i=${#mounts[@]}-1; i>=0; i--)); do
+        umount "${mounts[i]}"
+    done
+}
+trap cleanup EXIT
+for name in dev proc sys; do
+    mount --bind "/$name" "$root/$name"
+    mounts+=("$root/$name")
+done
+chroot "$root" apt-get update
+chroot "$root" apt-get install -y --no-install-recommends firmware-nvidia-graphics
+chroot "$root" update-initramfs -u -k all
+EOF
+```
+
+After a successful repair, unmount the root partition and boot the image
+again. If graphics still fail, inspect the kernel journal for Nouveau and
+firmware errors; support for a particular GPU is not guaranteed.
 
 ## First use, network and security
 
@@ -199,6 +265,10 @@ partition and package manifests, and test:
   video, updates, and persistence across reboot.
 - The same boot, display, audio, network and input checks on the target
   physical hardware, including its specific firmware.
+- Pulse-Eight detection and local-seat access; remote navigation and repeats
+  in PiDeck and settings; Kodi remote operation; release/reacquisition on
+  launch, failure, replacement and exit; unplug/reconnect and no unwanted
+  TV power or input changes. Check keyboard and controller operation too.
 - On a release image, unsigned update staging, reboot activation and rollback.
 
 These are release gates, not claims that the current experimental builder

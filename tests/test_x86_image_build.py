@@ -62,7 +62,12 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     config = YamlConfigurationParser().load(tmp_path / "usr/share/pideck/config/pideck.yaml")
     packages = set((x86_build.INPUTS / "packages.txt").read_text().split())
     assert {app.executable for app in config.applications} <= packages
-    assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils"} <= packages
+    assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "cec-utils"} <= packages
+    assert "cec" in config.input.enabled_sources
+    assert (tmp_path / "etc/udev/rules.d/70-pideck-cec.rules").read_text() == (
+        x86_build.PI_FILES / "70-pideck-cec.rules"
+    ).read_text()
+    assert "firmware-nvidia-graphics" in packages
     assert (tmp_path / "usr/lib/pideck/python/pideck/bootstrap.py").is_file()
     metadata = tmp_path / "usr/lib/pideck/python/pideck/_build_info.json"
     assert json.loads(metadata.read_text())["built_at"]

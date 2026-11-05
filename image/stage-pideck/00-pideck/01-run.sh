@@ -5,6 +5,7 @@ install -d "${ROOTFS_DIR}/usr/lib/pideck/python" \
     "${ROOTFS_DIR}/usr/share/pideck/config" \
     "${ROOTFS_DIR}/usr/share/pideck/assets" \
     "${ROOTFS_DIR}/etc/profile.d" \
+    "${ROOTFS_DIR}/etc/udev/rules.d" \
     "${ROOTFS_DIR}/usr/share/plymouth/themes/pideck" \
     "${ROOTFS_DIR}/etc/systemd/system/getty@tty1.service.d" \
     "${ROOTFS_DIR}/etc/systemd/system/userconfig.service.d"
@@ -13,6 +14,7 @@ cp -a files/project/src/pideck "${ROOTFS_DIR}/usr/lib/pideck/python/"
 cp -a files/project/src/pideck "${ROOTFS_DIR}/usr/lib/pideck-updater/python/"
 cp -a files/project/assets/. "${ROOTFS_DIR}/usr/share/pideck/assets/"
 install -m 644 files/pideck.yaml "${ROOTFS_DIR}/usr/share/pideck/config/pideck.yaml"
+install -m 644 files/70-pideck-cec.rules "${ROOTFS_DIR}/etc/udev/rules.d/70-pideck-cec.rules"
 install -m 644 files/window-modes.yaml "${ROOTFS_DIR}/usr/share/pideck/config/window-modes.yaml"
 install -m 755 files/pideck-getty files/pideck-session files/pideck-xsession \
     "${ROOTFS_DIR}/usr/lib/pideck/"

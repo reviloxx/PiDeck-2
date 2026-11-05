@@ -50,6 +50,18 @@ pideck --validate-only --config config/pideck.yaml
 
 On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and Start maps to Home. Controllers can be connected or removed while PiDeck is running.
 
+New appliance images include HDMI-CEC remote navigation through `cec-client`:
+use a Pulse-Eight USB adapter on x86 or the built-in HDMI CEC interface on
+Raspberry Pi. Direction, select and back work on the launcher and supported
+settings screens. PiDeck releases CEC before starting an application and
+reconnects after it exits; Kodi handles its own CEC configuration and playback
+controls. PiDeck does not intentionally control TV power or input selection.
+The adapter, TV, cabling and Kodi settings must support CEC, and the active
+local session needs device access. CEC on these images has not yet been
+hardware-verified. Existing images are not automatically migrated or given
+new system packages by a normal PiDeck update. See the relevant image guide
+for setup and validation.
+
 Use the arrow keys or Tab to select an application, then Enter or Space to open
 it. Close the application to return to PiDeck; Alt+F4 works for most X11
 applications. Some applications provide their own exit action. The configured

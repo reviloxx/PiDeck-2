@@ -13,6 +13,7 @@ cloud-guest-utils
 chromium
 firefox-esr
 kodi
+cec-utils
 retroarch
 libretro-mgba
 python3-pyside6.qtwidgets
@@ -45,6 +46,7 @@ ca-certificates
 openssl
 flatpak
 firmware-linux
+firmware-nvidia-graphics
 firmware-iwlwifi
 firmware-realtek
 firmware-atheros
