@@ -1,11 +1,13 @@
 """Qt styling derived from immutable PiDeck theme tokens."""
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPaintEvent, QPainter, QPalette, QPolygon
-from PySide6.QtWidgets import QComboBox, QGraphicsDropShadowEffect, QPushButton, QStyledItemDelegate, QWidget
+from PySide6.QtWidgets import QComboBox, QGraphicsDropShadowEffect, QStyledItemDelegate, QWidget
 
 from pideck.domain.theme import ThemeDefinition
 
+from .spinner import BusySpinner
+from .toggle_switch import ToggleSwitch
 from .wallpaper import WallpaperDialog, WallpaperWidget
 
 
@@ -31,8 +33,20 @@ def configure_combo_box(combo: QComboBox) -> None:
     combo.setMaxVisibleItems(6)
 
 
+def theme_font(theme: ThemeDefinition, pixel_size: int) -> QFont:
+    """Return the theme font family at an exact pixel size."""
+    font = QFont(theme.fonts.family)
+    font.setPixelSize(pixel_size)
+    return font
+
+
 def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
-    """Apply a theme palette, font, and widget stylesheet."""
+    """Apply a theme palette, font, and widget stylesheet.
+
+    Theme font sizes are pixels. The stylesheet's root rule sets the family
+    and size for every widget, so re-applying a theme after a settings change
+    yields exactly the same fonts as the first application.
+    """
     colors = theme.colors
     palette = widget.palette()
     palette.setColor(QPalette.ColorRole.Window, QColor(colors["background"]))
@@ -40,16 +54,46 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
     palette.setColor(QPalette.ColorRole.Base, QColor(colors["surface"]))
     palette.setColor(QPalette.ColorRole.Button, QColor(colors["surface"]))
     palette.setColor(QPalette.ColorRole.ButtonText, QColor(colors["text"]))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(colors["primary"]))
     widget.setPalette(palette)
-    widget.setFont(QFont(theme.fonts.family, theme.fonts.body_size))
-    for button in widget.findChildren(QPushButton, "settings_nav"):
-        button.setFont(QFont(theme.fonts.family, theme.fonts.body_size))
+    widget.setFont(theme_font(theme, theme.fonts.body_size))
     for background in widget.findChildren(WallpaperWidget):
         background.set_wallpaper(theme.wallpaper, colors["background"])
     if isinstance(widget, WallpaperDialog):
         widget.set_wallpaper(theme.wallpaper, colors["background"])
+    switch_off = _blend(colors["surface"], colors["text"], 0.22)
+    for switch in widget.findChildren(ToggleSwitch):
+        switch.set_colors(colors["primary"], switch_off, colors["text"], colors["text"])
+    for spinner in widget.findChildren(BusySpinner):
+        spinner.set_color(colors["primary"])
     widget.setStyleSheet(
         """
+        QWidget {
+            font-family: "%(font_family)s";
+            font-size: %(body_size)spx;
+        }
+        QPushButton {
+            outline: none;
+        }
+        QScrollBar:vertical {
+            background: transparent;
+            border: none;
+            margin: 0;
+            width: 10px;
+        }
+        QScrollBar::handle:vertical {
+            background-color: %(scroll_handle)s;
+            border-radius: 5px;
+            min-height: 48px;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            border: none;
+            background: none;
+            height: 0;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: none;
+        }
         QMainWindow, QDialog#settings_window, QDialog#password_prompt {
             background-color: %(background)s;
             color: %(text)s;
@@ -96,18 +140,8 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             font-size: %(body_size)spx;
             font-weight: 700;
         }
-        QLabel#tile_input {
-            color: %(muted_text)s;
-            font-size: 12px;
-        }
-        QLabel#tile_icon {
+        QLabel#tile_input, QLabel#tile_icon {
             background: transparent;
-        }
-        QLabel#tile_spinner {
-            color: %(primary)s;
-            font-size: %(body_size)spx;
-            font-weight: 700;
-            min-width: 20px;
         }
         QPushButton#launcher_action, QPushButton#settings_footer, QPushButton#settings_back {
             background-color: %(surface)s;
@@ -116,25 +150,33 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             color: %(text)s;
             min-height: 42px;
             min-width: 130px;
-            padding: 0 18px;
+            padding: 1px 19px;
         }
         QPushButton#launcher_action:focus, QPushButton#launcher_action:hover,
         QPushButton#settings_footer:focus, QPushButton#settings_footer:hover,
         QPushButton#settings_back:focus, QPushButton#settings_back:hover {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
+            padding: 0 18px;
+        }
+        QPushButton#launcher_action:disabled, QPushButton#settings_footer:disabled,
+        QPushButton#settings_back:disabled {
+            border-color: %(border)s;
+            color: %(muted_text)s;
         }
         QPushButton#network_key {
             background-color: %(surface)s;
             border: 1px solid %(muted_text)s;
             border-radius: 6px;
             color: %(text)s;
-            min-height: 36px;
-            min-width: 36px;
+            min-height: 42px;
+            min-width: 42px;
+            padding: 1px;
         }
         QPushButton#network_key:focus, QPushButton#network_key:hover {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
+            padding: 0;
         }
         QFrame#settings_sidebar {
             background-color: %(surface)s;
@@ -186,14 +228,16 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             background-color: %(surface)s;
             border: 1px solid %(border)s;
             border-radius: 8px;
+            padding: 1px;
         }
         QFrame#settings_row:focus {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
+            padding: 0;
         }
         QLabel#settings_chevron {
             color: %(muted_text)s;
-            font-size: 30px;
+            font-size: %(settings_heading_size)spx;
         }
         QLabel#settings_label {
             color: %(text)s;
@@ -295,6 +339,19 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         QListWidget#settings_applications::item:focus {
             background-color: %(active_surface)s;
             border-color: %(focus)s;
+            color: %(text)s;
+        }
+        QListWidget#settings_applications::indicator {
+            background-color: %(background)s;
+            border: 2px solid %(muted_text)s;
+            border-radius: 4px;
+            height: 22px;
+            margin-right: 12px;
+            width: 22px;
+        }
+        QListWidget#settings_applications::indicator:checked {
+            background-color: %(primary)s;
+            border-color: %(primary)s;
         }
         QLabel#settings_error {
             color: %(error)s;
@@ -316,10 +373,12 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border: 1px solid %(border)s;
             border-radius: 8px;
             min-height: 54px;
+            padding: 1px;
         }
         QFrame#update_row:focus {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
+            padding: 0;
         }
         QLabel#update_status {
             color: %(muted_text)s;
@@ -336,10 +395,15 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             color: %(text)s;
             min-height: 34px;
             min-width: 92px;
+            padding: 1px;
         }
         QPushButton#update_action:focus, QPushButton#update_action:hover {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
+            padding: 0;
+        }
+        QLabel#tile_name, QLabel#launcher_title, QLabel#launcher_clock, QLabel#launcher_subtitle {
+            background: transparent;
         }
         """
         % {
@@ -353,6 +417,8 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             "primary": colors["primary"],
             "running": colors["running"],
             "error": colors["error"],
+            "font_family": theme.fonts.family.replace('"', ""),
+            "scroll_handle": _blend(colors["surface"], colors["text"], 0.30),
             "heading_size": theme.fonts.heading_size,
             "body_size": theme.fonts.body_size,
             "settings_body_size": theme.fonts.settings_body_size,
@@ -365,28 +431,53 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
     )
 
 
-def configure_tile_effect(
-    tile: QWidget,
-    theme: ThemeDefinition,
-    reduced_motion: bool = False,
-) -> None:
-    """Add an animated focus glow using the theme focus color."""
-    effect = QGraphicsDropShadowEffect(tile)
-    effect.setBlurRadius(8)
-    effect.setOffset(0, 0)
-    effect.setColor(QColor(theme.colors["focus"]))
-    effect.setEnabled(False)
-    tile.setGraphicsEffect(effect)
-    tile.setProperty("focus_effect", effect)
-    animation = QPropertyAnimation(effect, b"blurRadius", tile)
-    duration = (
-        theme.animation.reduced_motion_duration_ms
-        if reduced_motion
-        else theme.animation.duration_ms
-    )
-    animation.setDuration(duration)
-    animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-    tile.setProperty("focus_animation", animation)
+class FocusGlow(QObject):
+    """Animate a theme-colored glow while the watched widget has focus.
+
+    Launcher tiles and launcher footer actions share this behaviour so every
+    focusable home-screen control signals focus the same way.
+    """
+
+    _RESTING_RADIUS = 8
+    _FOCUSED_RADIUS = 26
+
+    def __init__(self, widget: QWidget, theme: ThemeDefinition, reduced_motion: bool = False) -> None:
+        """Attach a disabled drop shadow and its animation to ``widget``."""
+        super().__init__(widget)
+        self._effect = QGraphicsDropShadowEffect(widget)
+        self._effect.setBlurRadius(self._RESTING_RADIUS)
+        self._effect.setOffset(0, 0)
+        self._effect.setColor(QColor(theme.colors["focus"]))
+        self._effect.setEnabled(False)
+        widget.setGraphicsEffect(self._effect)
+        self._animation = QPropertyAnimation(self._effect, b"blurRadius", widget)
+        self._animation.setDuration(
+            theme.animation.reduced_motion_duration_ms if reduced_motion else theme.animation.duration_ms
+        )
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation.finished.connect(self._disable_when_resting)
+        widget.setProperty("focus_effect", self._effect)
+        widget.setProperty("focus_animation", self._animation)
+        widget.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """Grow the glow on focus-in and fade it on focus-out."""
+        if event.type() == QEvent.Type.FocusIn:
+            self._effect.setEnabled(True)
+            self._animate_to(self._FOCUSED_RADIUS)
+        elif event.type() == QEvent.Type.FocusOut:
+            self._animate_to(self._RESTING_RADIUS)
+        return False
+
+    def _animate_to(self, radius: int) -> None:
+        self._animation.stop()
+        self._animation.setStartValue(self._effect.blurRadius())
+        self._animation.setEndValue(radius)
+        self._animation.start()
+
+    def _disable_when_resting(self) -> None:
+        if self._animation.endValue() == self._RESTING_RADIUS:
+            self._effect.setEnabled(False)
 
 
 def icon_for_path(path: object) -> QIcon:

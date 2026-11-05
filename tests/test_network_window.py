@@ -186,3 +186,32 @@ def test_system_category_includes_network_and_scrolls_to_focused_row(application
     if scrollbar.maximum() > 0:
         assert scrollbar.value() > 0
     window.close()
+
+
+class EmptyNetwork(FakeNetwork):
+    """Report no visible wireless networks."""
+
+    def scan(self) -> tuple[WirelessNetwork, ...]:
+        return ()
+
+
+def test_empty_network_list_never_takes_invisible_focus(application: QApplication) -> None:
+    """Vertical navigation stays on the visible actions when no networks exist."""
+    parent = QWidget()
+    parent.show()
+    window = NetworkWindow(EmptyNetwork(), DEFAULT_THEME, "en", parent)
+    window.show()
+    for _ in range(100):
+        application.processEvents()
+        if window.rescan.hasFocus():
+            break
+        QTest.qWait(5)
+    assert window.rescan.hasFocus()
+
+    QTest.keyClick(window.rescan, Qt.Key.Key_Down)
+    QTest.keyClick(window.rescan, Qt.Key.Key_Up)
+
+    assert window.rescan.hasFocus()
+    assert window.networks.focusPolicy() == Qt.FocusPolicy.NoFocus
+    window.close()
+    parent.close()

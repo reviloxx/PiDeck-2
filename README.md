@@ -36,7 +36,8 @@ Start the fullscreen launcher:
 pideck --config config/pideck.yaml
 ```
 
-By default, the shutdown button exits PiDeck without powering off the host.
+The home screen's shutdown button asks for confirmation first. By default,
+confirming exits PiDeck without powering off the host.
 For an appliance session, add `--power-off-on-shutdown` to request a
 noninteractive systemd power-off instead. The active user must be authorized
 to power off the system; if the request fails, PiDeck remains open and shows
@@ -69,18 +70,23 @@ it. Close the application to return to PiDeck; Alt+F4 works for most X11
 applications. Some applications provide their own exit action. The configured
 Home shortcut is not a global shortcut while another application has focus.
 In settings dropdowns, use the arrow keys to browse, Enter to confirm, or
-Escape to cancel.
+Escape to cancel. Escape, controller B and the remote's Back button go back
+in Settings and dialogs; on the home screen they do nothing, so PiDeck cannot
+be shut down by an accidental Back press. The mouse pointer is hidden while
+you navigate with the keyboard, a controller or the TV remote, and reappears
+when the mouse moves or is clicked.
 
-Settings typography can be adjusted per theme in the YAML configuration under
-`themes[].fonts`: `settings_body_size` and `settings_heading_size` are pixel
-sizes, defaulting to 22 and 30 respectively when omitted. These are separate
-from the launcher font sizes. Edit the active configuration and restart PiDeck
+Typography can be adjusted per theme in the YAML configuration under
+`themes[].fonts`. All sizes are pixels: `heading_size` and `body_size` apply
+to the home screen, while `settings_body_size` and `settings_heading_size`
+apply to Settings and its dialogs, defaulting to 22 and 30 respectively when
+omitted. The `family` applies everywhere. Edit the active configuration and restart PiDeck
 to apply the changes. Older releases do not recognize custom settings font
 sizes; remove these two keys before rolling back to a release before v0.3.7.
 
 ## Settings
 
-**Settings > PiDeck** shows the installed PiDeck version, its application
+**Settings > About** shows the installed PiDeck version, its application
 build time when available, and self-update status. Select **Check for updates**
 to check again without installing an update. Checks run automatically at startup
 and periodically; manual checks are unavailable while checking, preparing an

@@ -2,12 +2,13 @@
 
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
+from .system_panel import create_system_panel
 from .theme import apply_theme
 from .wallpaper import WallpaperDialog
 
@@ -24,8 +25,8 @@ class ConfirmationDialog(WallpaperDialog):
         self.setModal(True)
         self.setWindowTitle(title)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 32, 40, 32)
+        self.setWindowState(Qt.WindowState.WindowFullScreen)
+        layout = create_system_panel(self, max_width=760, max_height=320)
         title_label = QLabel(title, self)
         title_label.setObjectName("settings_heading")
         layout.addWidget(title_label)
@@ -33,11 +34,15 @@ class ConfirmationDialog(WallpaperDialog):
         message_label.setObjectName("settings_label")
         message_label.setWordWrap(True)
         layout.addWidget(message_label)
+        layout.addStretch()
         buttons = QHBoxLayout()
+        buttons.addStretch()
         self.cancel = QPushButton(cancel, self)
+        self.cancel.setObjectName("settings_back")
         self.confirm = QPushButton(confirm, self)
+        self.confirm.setObjectName("settings_footer")
         for button in (self.cancel, self.confirm):
-            button.setObjectName("settings_footer")
+            button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             button.installEventFilter(self)
             buttons.addWidget(button)
         layout.addLayout(buttons)

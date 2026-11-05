@@ -178,7 +178,7 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     row = window._pideck_row
     assert row is not None
     assert row.hasFocus()
-    assert "1.0.0" in row.status_label.text()
+    assert "1.0.0" in row.version_label.text()
     assert "1.1.0" in row.status_label.text()
     QTest.keyClick(row, Qt.Key.Key_Return)
     assert requests == [True]
@@ -266,7 +266,8 @@ def test_versions_and_build_date_are_visible(application: QApplication) -> None:
     )
     window.show()
     window._select_page(3)
-    assert "2026-01-01" in window._build_date_label.text()
+    assert "January 2026" in window._build_date_label.text()
+    assert "T10:00" not in window._build_date_label.text()
     assert "1.2.3" in window._pideck_row.version_label.text()
     row = window._update_rows["browser"]
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE, "2.3"))
@@ -362,8 +363,8 @@ def test_german_language_updates_settings_labels(application: QApplication) -> N
     assert window._nav_buttons[2].text() == "Aktualisierungen"
     assert window._clock_labels[0].text() == "Uhr"
     assert window._language_labels[0].text() == "Sprache"
-    assert window._show_clock.text() == "Ein"
-    assert window._reduced_motion.text() == "Ein"
+    assert window._show_clock.state_text() == "Ein"
+    assert window._reduced_motion.state_text() == ("Ein" if window._reduced_motion.isChecked() else "Aus")
     window.close()
 
 

@@ -245,6 +245,7 @@ class NetworkWindow(WallpaperDialog):
             item = QListWidgetItem(text, self.networks)
             item.setData(Qt.ItemDataRole.UserRole, network)
         self.status.setText(tr(self._language, "wifi_select" if networks else "wifi_empty"))
+        self.networks.setFocusPolicy(Qt.FocusPolicy.StrongFocus if networks else Qt.FocusPolicy.NoFocus)
         if networks:
             self.networks.setCurrentRow(0)
             self.networks.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -316,6 +317,9 @@ class NetworkWindow(WallpaperDialog):
         if watched in (self.rescan, self.back):
             if key == Qt.Key.Key_Up and self.networks.count():
                 self.networks.setFocus(Qt.FocusReason.OtherFocusReason)
+                return True
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                # Never let Qt's focus chain move into an empty, invisible list selection.
                 return True
             if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
                 target = self.back if watched is self.rescan else self.rescan

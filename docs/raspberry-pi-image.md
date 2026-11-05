@@ -168,7 +168,7 @@ hardware; these image changes have not been hardware-certified.
 On a release image, PiDeck checks for stable releases at startup and every six
 hours while running. The check interval can be set with
 `settings.update_check_interval_hours` in the user YAML (a whole number from
-1 to 596). In **Settings > PiDeck**, select the PiDeck row to download and
+1 to 596). In **Settings > About**, select the PiDeck row to download and
 verify an available update. The update is activated at the next boot; user
 configuration and data are not replaced. If the new launcher does not reach
 readiness, the previous release is restored on the following boot and the
@@ -230,8 +230,8 @@ If Imager does not provide a user, the image does not automatically log in and
 the console reports that customization is required. If the graphical session
 fails, it does not restart continuously. Use a second console (Ctrl+Alt+F2) or
 an explicitly enabled SSH connection for recovery and inspect `journalctl`.
-The shutdown button requests system power-off; an authorization or systemd
-failure is displayed in PiDeck.
+After confirmation, the shutdown button requests system power-off; an
+authorization or systemd failure is displayed in PiDeck.
 
 ## Application inventory
 

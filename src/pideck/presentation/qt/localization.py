@@ -1,9 +1,12 @@
 """Small runtime translation catalog for PiDeck's Qt presentation."""
 
 from datetime import datetime
+import logging
 
 from PySide6.QtCore import QDate, QDateTime, QLocale, QTime
 
+
+_LOGGER = logging.getLogger(__name__)
 
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
@@ -21,8 +24,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "appearance": "Appearance",
         "home_screen": "Home screen",
         "updates": "Updates",
-        "pideck_updates": "PiDeck",
-        "pideck_updates_description": "Check the installed PiDeck release and install updates.",
+        "pideck_updates": "About",
+        "pideck_updates_description": "Installed PiDeck version and PiDeck updates.",
         "installed_version": "Installed: {version}",
         "installed_commit": "Installed commit: {commit}",
         "build_date": "Build date: {date}",
@@ -100,11 +103,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "power_action_failed": "Power request failed: {message}",
         "back": "Back",
         "launcher_settings": "Launcher settings",
-        "appearance_kicker": "PIDECK / SETTINGS",
         "appearance_description": "Personalize the look and motion of your launcher.",
         "home_description": "Choose which applications are available from the home screen.",
-        "install_application": "{name} - Install",
-        "installing_application": "{name} - Installing... Select to cancel",
+        "install_application": "Install {name}",
+        "installing_application": "Installing {name}... Select to cancel",
         "install_password_message": "Enter your administrator password to install Flatpak for {name}.",
         "install_cancel_deferred": "Cancellation will take effect after the system package operation finishes: {message}",
         "updates_description": "Check and install updates for configured applications.",
@@ -115,6 +117,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "clock": "Clock",
         "clock_hint": "Show the current date and time on the home screen.",
         "on": "On",
+        "off": "Off",
+        "input_hint_cec": "Best with a TV remote (HDMI-CEC)",
+        "input_hint_gamepad": "Best with a game controller",
+        "input_hint_keyboard": "Best with a keyboard",
+        "input_hint_mouse": "Best with a mouse",
         "checking": "Checking...",
         "check_for_updates": "Check for updates",
         "up_to_date": "Up to date",
@@ -124,7 +131,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "updating": "Updating...",
         "preparing_update": "Preparing update...",
         "restart_required": "Restart PiDeck to apply",
-        "pideck_version_status": "Installed {version} - {status}",
         "retry": "Retry",
         "updated": "Updated",
         "authentication_required": "Authentication required",
@@ -167,8 +173,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "keyboard_delete": "Delete",
     },
     "de": {
-        "install_application": "{name} - Installieren",
-        "installing_application": "{name} - Installation läuft... Zum Abbrechen auswählen",
+        "install_application": "{name} installieren",
+        "installing_application": "{name} wird installiert... Zum Abbrechen auswählen",
         "install_password_message": "Administratorpasswort eingeben, um Flatpak für {name} zu installieren.",
         "install_cancel_deferred": "Der Abbruch erfolgt nach Abschluss der Systempaket-Installation: {message}",
         "choose_application": "Anwendung auswählen",
@@ -185,8 +191,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "appearance": "Darstellung",
         "home_screen": "Startbildschirm",
         "updates": "Aktualisierungen",
-        "pideck_updates": "PiDeck",
-        "pideck_updates_description": "Die installierte PiDeck-Version prüfen und aktualisieren.",
+        "pideck_updates": "Info",
+        "pideck_updates_description": "Installierte PiDeck-Version und PiDeck-Updates.",
         "installed_version": "Installiert: {version}",
         "installed_commit": "Installierter Commit: {commit}",
         "build_date": "Erstellt am: {date}",
@@ -264,7 +270,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "power_action_failed": "Energieaktion fehlgeschlagen: {message}",
         "back": "Zurück",
         "launcher_settings": "Launcher-Einstellungen",
-        "appearance_kicker": "PIDECK / EINSTELLUNGEN",
         "appearance_description": "Darstellung und Bewegung des Launchers anpassen.",
         "home_description": "Anwendungen für den Startbildschirm auswählen.",
         "updates_description": "Aktualisierungen für konfigurierte Anwendungen prüfen und installieren.",
@@ -275,6 +280,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "clock": "Uhr",
         "clock_hint": "Datum und Uhrzeit auf dem Startbildschirm anzeigen.",
         "on": "Ein",
+        "off": "Aus",
+        "input_hint_cec": "Am besten mit TV-Fernbedienung (HDMI-CEC)",
+        "input_hint_gamepad": "Am besten mit Controller",
+        "input_hint_keyboard": "Am besten mit Tastatur",
+        "input_hint_mouse": "Am besten mit Maus",
         "checking": "Prüfe...",
         "check_for_updates": "Nach Aktualisierungen suchen",
         "up_to_date": "Aktuell",
@@ -284,7 +294,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "updating": "Wird aktualisiert...",
         "preparing_update": "Aktualisierung wird vorbereitet...",
         "restart_required": "PiDeck zum Anwenden neu starten",
-        "pideck_version_status": "Installiert {version} - {status}",
         "retry": "Erneut versuchen",
         "updated": "Aktualisiert",
         "authentication_required": "Authentifizierung erforderlich",
@@ -331,8 +340,30 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
 def tr(language: str, key: str, **values: object) -> str:
     """Return a translated presentation string with safe English fallback."""
-    text = TRANSLATIONS.get(language, TRANSLATIONS["en"]).get(key, key)
+    text = TRANSLATIONS.get(language, TRANSLATIONS["en"]).get(key)
+    if text is None:
+        text = TRANSLATIONS["en"].get(key)
+        if text is None:
+            _LOGGER.warning("Missing translation key: %s", key)
+            text = key
     return text.format(**values)
+
+
+def format_timestamp(language: str, value: str) -> str:
+    """Format an ISO 8601 timestamp in local time for display, or return it unchanged."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone()
+    locale = QLocale(QLocale.Language.German if language == "de" else QLocale.Language.English)
+    pattern = "dd. MMMM yyyy, HH:mm" if language == "de" else "d MMMM yyyy, HH:mm"
+    qt_value = QDateTime(
+        QDate(parsed.year, parsed.month, parsed.day),
+        QTime(parsed.hour, parsed.minute),
+    )
+    return locale.toString(qt_value, pattern)
 
 
 def clock_text(language: str, value: datetime | None = None) -> str:

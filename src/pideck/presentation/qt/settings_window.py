@@ -1,13 +1,12 @@
-"""Console-style settings surface for Milestone 5."""
+"""Fullscreen, controller-friendly settings surface with a category rail."""
 
 from pathlib import Path
 from typing import TypeVar
 
-from PySide6.QtCore import QEvent, QSignalBlocker, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QBoxLayout,
-    QCheckBox,
     QComboBox,
     QDialog,
     QApplication,
@@ -35,10 +34,14 @@ from pideck.domain.input_settings import CecSettings
 from pideck.domain.theme import ThemeDefinition
 from pideck import __version__
 
-from .theme import SettingsComboBox, apply_theme, configure_combo_box, icon_for_path
+from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperDialog, WallpaperWidget
-from .localization import tr
+from .localization import format_timestamp, tr
 from .power_dialog import PowerDialog
+from .spinner import BusySpinner
+from .toggle_switch import ToggleSwitch
+
+_UPDATE_SPINNER_SIZE = 22
 
 _ControlT = TypeVar("_ControlT", bound=QWidget)
 
@@ -123,9 +126,9 @@ class UpdateRow(QFrame):
         name = QLabel(application_name, self)
         name.setObjectName("settings_label")
         name.setWordWrap(True)
-        self.status_label = QLabel("Checking...", self)
+        self.status_label = QLabel(tr("en", "checking"), self)
         self.status_label.setObjectName("update_status")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.status_label.setWordWrap(True)
         self.version_label = QLabel("", self)
         self.version_label.setObjectName("settings_hint")
@@ -133,25 +136,23 @@ class UpdateRow(QFrame):
         self.build_label = QLabel("", self)
         self.build_label.setObjectName("settings_hint")
         self.build_label.setWordWrap(True)
-        self.spinner = QLabel("", self)
+        self.spinner = BusySpinner(_UPDATE_SPINNER_SIZE, self)
         self.spinner.setObjectName("update_spinner")
-        self.spinner.setFixedWidth(24)
+        self.spinner.set_running(False)
         self.action = QPushButton("", self)
         self.action.setObjectName("update_action")
         self.action.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.action.clicked.connect(self.activation_requested)
-        layout.addWidget(name, stretch=1)
+        # Fixed stretch ratios keep the name, version and status columns aligned across rows.
+        layout.setSpacing(16)
+        layout.addWidget(name, stretch=2)
         version_layout = QVBoxLayout()
         version_layout.addWidget(self.version_label)
         version_layout.addWidget(self.build_label)
-        layout.addLayout(version_layout)
-        layout.addWidget(self.status_label, stretch=1)
+        layout.addLayout(version_layout, stretch=4)
+        layout.addWidget(self.status_label, stretch=3)
         layout.addWidget(self.spinner)
         layout.addWidget(self.action)
-        self._spinner_timer = QTimer(self)
-        self._spinner_timer.timeout.connect(self._advance_spinner)
-        self._spinner_frames = ("|", "/", "-", "\\")
-        self._spinner_index = 0
         self.info = UpdateInfo(application_id, application_name, UpdateStatus.CHECKING)
         self.last_available_info: UpdateInfo | None = None
         self._current_version: str | None = None
@@ -163,9 +164,6 @@ class UpdateRow(QFrame):
         """Stack update details when the settings content is narrow."""
         self._layout.setDirection(
             QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight
-        )
-        self.status_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft if compact else Qt.AlignmentFlag.AlignCenter
         )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -234,7 +232,7 @@ class UpdateRow(QFrame):
         )
         updating = info.status is UpdateStatus.UPDATING
         busy = updating or info.status is UpdateStatus.PREPARING
-        self.spinner.setVisible(busy)
+        self.spinner.set_running(busy)
         self.action.setText(
             tr(self._language, "cancel")
             if updating
@@ -245,21 +243,11 @@ class UpdateRow(QFrame):
         actionable = info.status in (UpdateStatus.AVAILABLE, UpdateStatus.UPDATING)
         self.action.setEnabled(actionable)
         self.action.setVisible(actionable)
-        if busy:
-            self._spinner_timer.start(120)
-        else:
-            self._spinner_timer.stop()
-            self.spinner.clear()
 
     def set_language(self, language: str) -> None:
         """Re-render the current update status in the selected language."""
         self._language = language if language in {"en", "de"} else "en"
         self.set_info(self.info)
-
-    def _advance_spinner(self) -> None:
-        """Advance the update row spinner."""
-        self.spinner.setText(self._spinner_frames[self._spinner_index])
-        self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
 
 
 class PiDeckUpdateRow(UpdateRow):
@@ -290,8 +278,6 @@ class PiDeckUpdateRow(UpdateRow):
         ))
         if info.status is PiDeckUpdateStatus.AVAILABLE and info.message:
             self.status_label.setText(f"{self.status_label.text()} - {info.message}")
-        if info.current_version:
-            self.status_label.setText(tr(self._language, "pideck_version_status", version=info.current_version, status=self.status_label.text()))
         if info.status is PiDeckUpdateStatus.FAILED:
             self.action.setText(tr(self._language, "retry"))
             self.action.setEnabled(True)
@@ -524,16 +510,13 @@ class SettingsWindow(QDialog):
         content = QFrame(root)
         content.setObjectName("settings_content")
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(18, 24, 18, 24)
-        content_layout.setSpacing(18)
-        self._page_kicker = QLabel("PIDECK / SETTINGS", content)
-        self._page_kicker.setObjectName("settings_kicker")
+        content_layout.setContentsMargins(24, 24, 24, 24)
+        content_layout.setSpacing(12)
         self._page_title = QLabel(content)
         self._page_title.setObjectName("settings_heading")
         self._page_description = QLabel(content)
         self._page_description.setObjectName("settings_description")
         self._page_description.setWordWrap(True)
-        content_layout.addWidget(self._page_kicker)
         content_layout.addWidget(self._page_title)
         content_layout.addWidget(self._page_description)
 
@@ -555,6 +538,7 @@ class SettingsWindow(QDialog):
         self._error_label = QLabel("", content)
         self._error_label.setObjectName("settings_error")
         self._error_label.setWordWrap(True)
+        self._error_label.hide()
         content_layout.addWidget(self._error_label)
         root_layout.addWidget(content, stretch=1)
 
@@ -568,25 +552,25 @@ class SettingsWindow(QDialog):
         layout.setSpacing(8)
         brand = QLabel("PiDeck", sidebar)
         brand.setObjectName("settings_brand")
-        subtitle = QLabel("Launcher settings", sidebar)
+        subtitle = QLabel(tr(self._language, "launcher_settings"), sidebar)
         subtitle.setObjectName("settings_sidebar_hint")
         subtitle.setWordWrap(True)
         layout.addWidget(brand)
         layout.addWidget(subtitle)
         layout.addSpacing(12)
-        self._add_nav_button(layout, "Appearance", 0)
-        self._add_nav_button(layout, "Home screen", 1)
-        self._add_nav_button(layout, "Updates", 2)
+        self._add_nav_button(layout, tr(self._language, "appearance"), 0)
+        self._add_nav_button(layout, tr(self._language, "home_screen"), 1)
+        self._add_nav_button(layout, tr(self._language, "updates"), 2)
         if self._pideck_page is not None:
-            self._add_nav_button(layout, "PiDeck", self._pideck_page)
+            self._add_nav_button(layout, tr(self._language, "pideck_updates"), self._pideck_page)
         if self._network_page is not None:
-            self._add_nav_button(layout, "Network", self._network_page)
+            self._add_nav_button(layout, tr(self._language, "network"), self._network_page)
         if self._system_page is not None:
-            self._add_nav_button(layout, "System", self._system_page)
+            self._add_nav_button(layout, tr(self._language, "system"), self._system_page)
         if self._input_page is not None:
-            self._add_nav_button(layout, "Input", self._input_page)
+            self._add_nav_button(layout, tr(self._language, "input"), self._input_page)
         layout.addStretch()
-        self._back_button = QPushButton("Back", sidebar)
+        self._back_button = QPushButton(tr(self._language, "back"), sidebar)
         self._back_button.setObjectName("settings_back")
         self._back_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._back_button.clicked.connect(self.reject)
@@ -618,12 +602,18 @@ class SettingsWindow(QDialog):
         scroll.setWidget(page)
         return scroll, page
 
+    @staticmethod
+    def _page_layout(page: QWidget) -> QVBoxLayout:
+        """Use identical insets on every page; the right inset leaves room for the scrollbar."""
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 12, 14, 0)
+        layout.setSpacing(12)
+        return layout
+
     def _build_appearance_page(self) -> QWidget:
         """Create theme and motion controls."""
         self._appearance_scroll, page = self._scroll_page()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 16, 0, 0)
-        layout.setSpacing(12)
+        layout = self._page_layout(page)
         theme_row, self._theme_combo = self._control_row(
             page,
             "Theme",
@@ -643,23 +633,21 @@ class SettingsWindow(QDialog):
             page,
             "Reduced motion",
             "Use shorter focus animations for a calmer interface.",
-            QCheckBox(page),
+            ToggleSwitch(page),
         )
         self._reduced_motion.setObjectName("settings_control")
         self._motion_row = motion_row
         self._motion_labels = motion_row.findChildren(QLabel)
-        self._reduced_motion.setText("On")
         self._reduced_motion.setChecked(self._configuration.settings.reduced_motion)
         clock_row, self._show_clock = self._control_row(
             page,
             "Clock",
             "Show the current date and time on the home screen.",
-            QCheckBox(page),
+            ToggleSwitch(page),
         )
         self._show_clock.setObjectName("settings_control")
         self._clock_row = clock_row
         self._clock_labels = clock_row.findChildren(QLabel)
-        self._show_clock.setText("On")
         self._show_clock.setChecked(self._configuration.settings.show_clock)
         language_row, self._language_combo = self._control_row(
             page,
@@ -687,9 +675,7 @@ class SettingsWindow(QDialog):
     def _build_home_page(self) -> QWidget:
         """Create the home-screen application visibility list."""
         page = QWidget(self)
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 16, 0, 0)
-        layout.setSpacing(12)
+        layout = self._page_layout(page)
         self._applications = QListWidget(page)
         self._applications.setObjectName("settings_applications")
         self._applications.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -716,9 +702,7 @@ class SettingsWindow(QDialog):
     def _build_updates_page(self) -> QWidget:
         """Create one update entry for every configured application."""
         self._update_scroll, page = self._scroll_page()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 16, 0, 0)
-        layout.setSpacing(10)
+        layout = self._page_layout(page)
         controls: list[QWidget] = []
         for application in self._configuration.applications:
             row = UpdateRow(application.identifier, application.name, page)
@@ -739,8 +723,7 @@ class SettingsWindow(QDialog):
         assert self._pideck_info is not None
         assert self._pideck_page is not None
         self._pideck_scroll, page = self._scroll_page()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 16, 0, 0)
+        layout = self._page_layout(page)
         self._pideck_row = PiDeckUpdateRow(self._pideck_info, page)
         self._pideck_row.installEventFilter(self)
         self._pideck_row.activation_requested.connect(self._activate_pideck_update)
@@ -763,7 +746,7 @@ class SettingsWindow(QDialog):
     def _build_network_page(self) -> QWidget:
         """Create the entry point to appliance wireless setup."""
         page = QWidget(self)
-        layout = QVBoxLayout(page)
+        layout = self._page_layout(page)
         row = self._action_row(
             page, tr(self._language, "wifi_open"), tr(self._language, "network_description"),
         )
@@ -779,7 +762,7 @@ class SettingsWindow(QDialog):
         """Create entry points for host system settings."""
         assert self._system_page is not None
         self._system_scroll, page = self._scroll_page()
-        layout = QVBoxLayout(page)
+        layout = self._page_layout(page)
         display_row = self._action_row(
             page, tr(self._language, "display"), tr(self._language, "display_description"),
         )
@@ -826,12 +809,12 @@ class SettingsWindow(QDialog):
         assert self._input_settings is not None
         assert self._input_page is not None
         self._input_scroll, page = self._scroll_page()
-        layout = QVBoxLayout(page)
+        layout = self._page_layout(page)
         self._input_rows: dict[str, SettingsRow] = {}
         self._input_labels: dict[str, list[QLabel]] = {}
-        self._input_enabled = QCheckBox(page)
-        self._input_auto = QCheckBox(page)
-        self._input_switch = QCheckBox(page)
+        self._input_enabled = ToggleSwitch(page)
+        self._input_auto = ToggleSwitch(page)
+        self._input_switch = ToggleSwitch(page)
         self._input_port = SettingsComboBox(page)
         configure_combo_box(self._input_port)
         self._input_port.addItem("", None)
@@ -969,6 +952,7 @@ class SettingsWindow(QDialog):
         """Select a category and update active styling and content."""
         if index != self._current_page:
             self._clear_home_selection()
+            self._clear_error()
         self._current_page = index
         self._pages.setCurrentIndex(index)
         page_titles = {
@@ -1224,7 +1208,7 @@ class SettingsWindow(QDialog):
             self._nav_buttons[self._input_page].setText(tr(self._language, "input"))
             self._input_port.setItemText(0, tr(self._language, "cec_auto_port"))
             for control in (self._input_enabled, self._input_auto, self._input_switch):
-                control.setText(tr(self._language, "on"))
+                control.set_state_texts(tr(self._language, "on"), tr(self._language, "off"))
             for key, labels in self._input_labels.items():
                 labels[0].setText(tr(self._language, key))
                 labels[1].setText(tr(self._language, f"{key}_hint"))
@@ -1256,10 +1240,9 @@ class SettingsWindow(QDialog):
                 self._power_rows[action].setAccessibleName(self._power_labels[action][0].text())
                 self._power_rows[action].setAccessibleDescription(self._power_labels[action][1].text())
         self._back_button.setText(tr(self._language, "back"))
-        self._reduced_motion.setText(tr(self._language, "on"))
-        self._show_clock.setText(tr(self._language, "on"))
+        for switch in (self._reduced_motion, self._show_clock):
+            switch.set_state_texts(tr(self._language, "on"), tr(self._language, "off"))
         self._sidebar_subtitle.setText(tr(self._language, "launcher_settings"))
-        self._page_kicker.setText(tr(self._language, "appearance_kicker"))
         setting_rows = (
             (self._theme_labels, "theme", "theme_hint"),
             (self._motion_labels, "reduced_motion", "reduced_motion_hint"),
@@ -1285,7 +1268,8 @@ class SettingsWindow(QDialog):
             self._pideck_check_button.setText(tr(self._language, "check_for_updates"))
             self._build_date_label.setText(tr(
                 self._language, "build_date",
-                date=self._build_date or tr(self._language, "unknown"),
+                date=format_timestamp(self._language, self._build_date) if self._build_date
+                else tr(self._language, "unknown"),
             ))
 
     def set_pideck_update_info(self, info: PiDeckUpdateInfo) -> None:
@@ -1522,7 +1506,7 @@ class SettingsWindow(QDialog):
                 item.setCheckState(Qt.CheckState.Checked)
             self.show_error(tr(self._language, "at_least_one"))
             return
-        self._error_label.clear()
+        self._clear_error()
         self._emit_current_settings()
 
     def _build_update(self) -> SettingsUpdate | None:
@@ -1536,7 +1520,7 @@ class SettingsWindow(QDialog):
         if not selected_applications:
             self.show_error(tr(self._language, "at_least_one"))
             return None
-        self._error_label.clear()
+        self._clear_error()
         return SettingsUpdate(
             theme=self._theme_combo.currentData(),
             reduced_motion=self._reduced_motion.isChecked(),
@@ -1579,3 +1563,9 @@ class SettingsWindow(QDialog):
     def show_error(self, message: str) -> None:
         """Display a recoverable error inside the settings content area."""
         self._error_label.setText(message)
+        self._error_label.setVisible(bool(message))
+
+    def _clear_error(self) -> None:
+        """Remove a previously shown error and its reserved space."""
+        self._error_label.clear()
+        self._error_label.hide()

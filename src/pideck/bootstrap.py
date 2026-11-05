@@ -199,8 +199,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
     from PySide6.QtWidgets import QApplication
     from PySide6.QtCore import QObject, QTimer, Qt, Signal
 
+    from pideck.presentation.qt.cursor_visibility import CursorVisibility
+
     application = QApplication(["pideck"])
     application.setApplicationName("PiDeck")
+    cursor_visibility = CursorVisibility(application)
+    application.installEventFilter(cursor_visibility)
     asset_root = parsed_arguments.asset_root or parsed_arguments.config.parent
     window = build_launcher_window(dependencies, asset_root)
     current_configuration = dependencies.configuration
@@ -338,6 +342,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     def handle_gamepad_event(event: InputEvent) -> None:
         """Route normalized input to the active launcher/settings surface."""
+        if event.pressed:
+            cursor_visibility.hide_cursor()
         if bluetooth_window is not None and bluetooth_window.isVisible():
             bluetooth_window.handle_input(event)
         elif display_window is not None and display_window.isVisible():
@@ -348,7 +354,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
             network_window.handle_input(event)
         elif settings_window is not None and settings_window.isVisible():
             settings_window.handle_input(event)
-        elif session_service.snapshot.state is SessionState.IDLE and window.isVisible():
+        elif window.has_open_dialog() or (
+            session_service.snapshot.state is SessionState.IDLE and window.isVisible()
+        ):
             window.handle_input(event)
 
     gamepad_bridge.event_received.connect(
@@ -777,6 +785,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
     try:
         return application.exec()
     finally:
+        application.removeEventFilter(cursor_visibility)
+        cursor_visibility.show_cursor()
         cleanup_services()
 
 

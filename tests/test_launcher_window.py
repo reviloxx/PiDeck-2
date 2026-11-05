@@ -17,6 +17,8 @@ from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.presentation.qt.launcher_window import LauncherWindow, calculate_tile_columns
+from pideck.presentation.qt.power_dialog import PowerDialog
+from pideck.presentation.qt.spinner import BusySpinner
 from tests.test_configuration import configuration_document
 
 
@@ -26,17 +28,21 @@ def application() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
-def launcher_window(application: QApplication) -> LauncherWindow:
-    """Build a launcher with three configurable application tiles."""
+def three_application_configuration():
+    """Return a configuration with three visible applications."""
     document = configuration_document()
     document["applications"] = [
         {"id": identifier, "name": identifier.title(), "executable": identifier}
         for identifier in ("one", "two", "three")
     ]
     document["home"]["visible_applications"] = []
-    configuration = YamlConfigurationParser().parse(document)
+    return YamlConfigurationParser().parse(document)
+
+
+def launcher_window(application: QApplication) -> LauncherWindow:
+    """Build a launcher with three configurable application tiles."""
     window = LauncherWindow(
-        LauncherController(configuration),
+        LauncherController(three_application_configuration()),
         DEFAULT_THEME,
         Path.cwd(),
     )
@@ -208,7 +214,7 @@ def test_launcher_waits_for_visibility_before_hiding(application: QApplication) 
     application.processEvents()
 
     assert window.isVisible()
-    spinner = window._tiles[0].findChild(type(window._status_label), "tile_spinner")
+    spinner = window._tiles[0].findChild(BusySpinner, "tile_spinner")
     assert spinner.isVisible()
     assert spinner.geometry().left() == window._tiles[0].width() - 32
     assert spinner.geometry().top() == 8
@@ -287,6 +293,14 @@ def test_gamepad_down_from_last_tile_row_focuses_settings(application: QApplicat
     activated: list[bool] = []
     window.shutdown_requested.connect(lambda: activated.append(True))
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    application.processEvents()
+    assert activated == []
+    dialog = window.findChild(PowerDialog)
+    assert dialog is not None and dialog.cancel.hasFocus()
+    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
+    assert dialog.confirm.hasFocus()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    application.processEvents()
     assert activated == [True]
     window.close()
 
@@ -326,6 +340,10 @@ def test_enter_activates_focused_footer_without_launching_an_application(
     QTest.keyClick(window._settings_button, Qt.Key.Key_Return)
     QTest.keyClick(window._settings_button, Qt.Key.Key_Right)
     QTest.keyClick(window._shutdown_button, Qt.Key.Key_Enter)
+    application.processEvents()
+    assert requested == ["settings"]
+    window.findChild(PowerDialog).confirm.click()
+    application.processEvents()
 
     assert requested == ["settings", "shutdown"]
     window.close()
@@ -349,8 +367,58 @@ def test_settings_and_shutdown_are_intents(application: QApplication) -> None:
     action_buttons = [button for button in buttons if button.objectName() == "launcher_action"]
     action_buttons[0].click()
     action_buttons[1].click()
+    application.processEvents()
+    assert shutdown_requested == []
+    window.findChild(PowerDialog).confirm.click()
+    application.processEvents()
 
     assert settings_requested == [True]
     assert shutdown_requested == [True]
 
+    window.close()
+
+
+def test_escape_and_back_never_shut_down_from_home(application: QApplication) -> None:
+    """Back is a no-op on the home screen, so a remote cannot power off by accident."""
+    window = launcher_window(application)
+    shutdown_requested: list[bool] = []
+    window.shutdown_requested.connect(lambda: shutdown_requested.append(True))
+
+    QTest.keyClick(window._tiles[0], Qt.Key.Key_Escape)
+    window.handle_input(InputEvent(InputAction.BACK, "cec"))
+    application.processEvents()
+
+    assert shutdown_requested == []
+    assert window.findChild(PowerDialog) is None
+    window.close()
+
+
+def test_cancelled_shutdown_returns_focus_to_shutdown(application: QApplication) -> None:
+    """Cancelling the confirmation keeps PiDeck running and restores footer focus."""
+    window = launcher_window(application)
+    shutdown_requested: list[bool] = []
+    window.shutdown_requested.connect(lambda: shutdown_requested.append(True))
+
+    window.request_shutdown()
+    application.processEvents()
+    window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
+    application.processEvents()
+
+    assert shutdown_requested == []
+    assert window.focusWidget() is window._shutdown_button
+    window.close()
+
+
+def test_reapplying_configuration_keeps_launcher_fonts(application: QApplication) -> None:
+    """Saving any setting must not change the launcher's typography."""
+    window = launcher_window(application)
+    labels = (window._subtitle_label, window._close_hint_label, window._settings_button)
+    before = [(label.font().family(), label.fontInfo().pixelSize()) for label in labels]
+
+    window.apply_configuration(three_application_configuration(), DEFAULT_THEME)
+    application.processEvents()
+
+    after = [(label.font().family(), label.fontInfo().pixelSize()) for label in labels]
+    assert after == before
+    assert before[0][1] == DEFAULT_THEME.fonts.body_size
     window.close()

@@ -1,11 +1,12 @@
-"""Fullscreen Qt launcher window for Milestone 2."""
+"""Fullscreen Qt launcher window: application tiles plus Settings and Shutdown."""
 
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtGui import QKeyEvent, QPixmap
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
+    QDialog,
     QGridLayout,
     QHBoxLayout,
     QApplication,
@@ -13,7 +14,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QInputDialog,
-    QMessageBox,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -25,9 +25,15 @@ from pideck.domain.configuration import Configuration
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, PreferredInput
 from pideck.domain.theme import ThemeDefinition
 
-from .theme import apply_theme, configure_tile_effect, icon_for_path
+from .theme import FocusGlow, apply_theme, icon_for_path
 from .localization import clock_text, tr
+from .power_dialog import ConfirmationDialog, PowerDialog
+from .spinner import BusySpinner
 from .wallpaper import WallpaperWidget
+
+_TILE_ICON_SIZE = 56
+_TILE_INPUT_ICON_SIZE = 24
+_TILE_SPINNER_SIZE = 20
 
 
 class LauncherTile(QPushButton):
@@ -45,6 +51,7 @@ class LauncherTile(QPushButton):
         input_icon: Path | None = None,
         reduced_motion: bool = False,
         parent: QWidget | None = None,
+        language: str = "en",
     ) -> None:
         """Create one themed tile for an application definition."""
         super().__init__(parent)
@@ -54,18 +61,14 @@ class LauncherTile(QPushButton):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setFixedSize(theme.tile.width, theme.tile.height)
         self.setText("")
-        self._build_content(application, asset_root, input_icon)
-        self._spinner = QLabel(self)
+        self.setAccessibleName(application.name)
+        self._build_content(application, asset_root, input_icon, language)
+        self._spinner = BusySpinner(_TILE_SPINNER_SIZE, self)
         self._spinner.setObjectName("tile_spinner")
-        self._spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._spinner.setGeometry(self.width() - 32, 8, 20, 20)
-        self._spinner.setVisible(False)
-        self._spinner_timer = QTimer(self)
-        self._spinner_timer.timeout.connect(self._advance_spinner)
-        self._spinner_frames = ("|", "/", "-", "\\")
-        self._spinner_index = 0
+        self._spinner.move(self.width() - 32, 8)
+        self._spinner.set_running(False)
         self.clicked.connect(lambda: self.activated.emit(application))
-        configure_tile_effect(self, theme, reduced_motion)
+        FocusGlow(self, theme, reduced_motion)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Forward directional keys to the launcher's grid controller."""
@@ -87,6 +90,7 @@ class LauncherTile(QPushButton):
         application: ApplicationDefinition,
         asset_root: Path,
         input_icon: Path | None,
+        language: str,
     ) -> None:
         """Build the compact icon, title, and input-indicator tile content."""
         content = QVBoxLayout(self)
@@ -94,9 +98,9 @@ class LauncherTile(QPushButton):
         content.setSpacing(6)
         application_icon = QLabel(self)
         application_icon.setObjectName("tile_icon")
-        application_icon.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        application_icon.setFixedSize(_TILE_ICON_SIZE, _TILE_ICON_SIZE)
         application_icon.setPixmap(
-            icon_for_path(_resolve_asset(application.icon, asset_root)).pixmap(56, 56)
+            icon_for_path(_resolve_asset(application.icon, asset_root)).pixmap(_TILE_ICON_SIZE, _TILE_ICON_SIZE)
         )
         content.addWidget(application_icon)
 
@@ -109,39 +113,22 @@ class LauncherTile(QPushButton):
         input_indicator = QLabel(self)
         input_indicator.setObjectName("tile_input")
         input_indicator.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
-        input_indicator.setToolTip(_preferred_input_tooltip(application.preferred_input))
+        input_indicator.setAccessibleName(tr(language, _preferred_input_key(application.preferred_input)))
         if input_icon is not None:
-            input_indicator.setPixmap(icon_for_path(input_icon).pixmap(24, 24))
+            input_indicator.setPixmap(
+                icon_for_path(input_icon).pixmap(_TILE_INPUT_ICON_SIZE, _TILE_INPUT_ICON_SIZE)
+            )
         content.addWidget(input_indicator)
+
     def resizeEvent(self, event: object) -> None:
         """Keep the spinner anchored to the tile's top-right corner."""
         super().resizeEvent(event)
-        self._spinner.setGeometry(self.width() - 32, 8, 20, 20)
+        self._spinner.move(self.width() - 32, 8)
 
     def focusInEvent(self, event: object) -> None:
-        """Enable the theme glow when the tile receives keyboard focus."""
+        """Report keyboard focus so the controller follows mouse and Tab focus."""
         super().focusInEvent(event)
         self.focused.emit()
-        effect = self.property("focus_effect")
-        animation = self.property("focus_animation")
-        if effect is not None and animation is not None:
-            effect.setEnabled(True)
-            animation.stop()
-            animation.setStartValue(effect.blurRadius())
-            animation.setEndValue(26)
-            animation.start()
-
-    def focusOutEvent(self, event: object) -> None:
-        """Disable the theme glow when the tile loses keyboard focus."""
-        super().focusOutEvent(event)
-        effect = self.property("focus_effect")
-        animation = self.property("focus_animation")
-        if effect is not None and animation is not None:
-            animation.stop()
-            animation.setStartValue(effect.blurRadius())
-            animation.setEndValue(8)
-            animation.finished.connect(lambda: effect.setEnabled(False), Qt.ConnectionType.SingleShotConnection)
-            animation.start()
 
     def set_running(self, running: bool) -> None:
         """Apply the theme's running state to this tile."""
@@ -151,16 +138,7 @@ class LauncherTile(QPushButton):
 
     def set_loading(self, loading: bool) -> None:
         """Show or hide the animated loading spinner on this tile."""
-        self._spinner.setVisible(loading)
-        if loading:
-            self._spinner_timer.start(120)
-        else:
-            self._spinner_timer.stop()
-
-    def _advance_spinner(self) -> None:
-        """Advance the spinner without changing the tile geometry."""
-        self._spinner.setText(self._spinner_frames[self._spinner_index])
-        self._spinner_index = (self._spinner_index + 1) % len(self._spinner_frames)
+        self._spinner.set_running(loading)
 
 
 class LauncherAction(QPushButton):
@@ -221,6 +199,7 @@ class LauncherWindow(QMainWindow):
         self._running_identifier: str | None = None
         self._has_been_shown = False
         self._tiles: list[LauncherTile] = []
+        self._dialog: ConfirmationDialog | None = None
         self.setObjectName("launcher_window")
         self.setWindowTitle("PiDeck")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -285,14 +264,17 @@ class LauncherWindow(QMainWindow):
             event.accept()
             return
         if event.key() == Qt.Key.Key_Escape:
-            self.shutdown_requested.emit()
+            # Back is a no-op on the home screen; shutting down needs confirmation.
             event.accept()
             return
         super().keyPressEvent(event)
 
     def handle_input(self, event: InputEvent) -> None:
-        """Handle normalized gamepad actions on the launcher event loop."""
+        """Handle normalized gamepad and CEC actions on the launcher event loop."""
         if not event.pressed:
+            return
+        if self._dialog is not None:
+            self._dialog.handle_input(event)
             return
         directions = {
             InputAction.LEFT: NavigationDirection.LEFT,
@@ -312,7 +294,7 @@ class LauncherWindow(QMainWindow):
             if self._settings_button.hasFocus():
                 self.settings_requested.emit()
             elif self._shutdown_button.hasFocus():
-                self.shutdown_requested.emit()
+                self.request_shutdown()
             else:
                 application = self._controller.activate()
                 if application is not None:
@@ -376,6 +358,7 @@ class LauncherWindow(QMainWindow):
         settings.setObjectName("launcher_action")
         settings.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         settings.setIcon(icon_for_path(self._theme.icons.get("settings")))
+        FocusGlow(settings, self._theme, self._reduced_motion)
         settings.clicked.connect(self.settings_requested)
         settings.navigation_requested.connect(
             lambda direction: self._handle_action_navigation(settings, direction)
@@ -384,15 +367,46 @@ class LauncherWindow(QMainWindow):
         shutdown.setObjectName("launcher_action")
         shutdown.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         shutdown.setIcon(icon_for_path(self._theme.icons.get("power")))
-        shutdown.clicked.connect(self.shutdown_requested)
+        FocusGlow(shutdown, self._theme, self._reduced_motion)
+        shutdown.clicked.connect(self.request_shutdown)
         shutdown.navigation_requested.connect(
             lambda direction: self._handle_action_navigation(shutdown, direction)
         )
         self._settings_button = settings
         self._shutdown_button = shutdown
+        self._apply_footer_icon_size()
         footer.addWidget(settings)
         footer.addWidget(shutdown)
         self._root_layout.addLayout(footer)
+
+    def _apply_footer_icon_size(self) -> None:
+        """Scale footer icons with the theme's body text."""
+        size = self._theme.fonts.body_size + 6
+        for action in (self._settings_button, self._shutdown_button):
+            action.setIconSize(QSize(size, size))
+
+    def has_open_dialog(self) -> bool:
+        """Return whether a launcher confirmation currently owns the input."""
+        return self._dialog is not None
+
+    def request_shutdown(self) -> None:
+        """Ask for confirmation, then emit ``shutdown_requested``."""
+        if self._dialog is not None:
+            return
+        dialog = PowerDialog("shutdown", self._theme, self._language, self)
+        self._dialog = dialog
+
+        def finish(result: int) -> None:
+            self._dialog = None
+            dialog.deleteLater()
+            if result == QDialog.DialogCode.Accepted:
+                self.shutdown_requested.emit()
+            else:
+                self.activateWindow()
+                self._shutdown_button.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        dialog.finished.connect(finish)
+        dialog.open()
 
     def _rebuild_tiles(self) -> None:
         """Rebuild the responsive grid while preserving the current selection."""
@@ -419,6 +433,7 @@ class LauncherWindow(QMainWindow):
                 self._theme.icons.get(_preferred_input_icon_key(application.preferred_input)),
                 self._reduced_motion,
                 self._grid_container,
+                self._language,
             )
             tile.set_running(application.identifier == self._running_identifier)
             tile.activated.connect(self.application_requested)
@@ -506,6 +521,7 @@ class LauncherWindow(QMainWindow):
         self._grid_layout.setVerticalSpacing(theme.tile.gap)
         self._settings_button.setIcon(icon_for_path(theme.icons.get("settings")))
         self._shutdown_button.setIcon(icon_for_path(theme.icons.get("power")))
+        self._apply_footer_icon_size()
         apply_theme(self, theme)
         self._rebuild_tiles()
 
@@ -571,14 +587,20 @@ class LauncherWindow(QMainWindow):
 
     def confirm_application_replacement(self, application: ApplicationDefinition) -> bool:
         """Ask whether the running application should be stopped."""
-        answer = QMessageBox.question(
-            self,
+        dialog = ConfirmationDialog(
             tr(self._language, "replacement_title"),
             tr(self._language, "replacement_message", name=application.name),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            tr(self._language, "continue"),
+            tr(self._language, "cancel"),
+            self._theme,
+            self,
         )
-        return answer == QMessageBox.StandardButton.Yes
+        self._dialog = dialog
+        try:
+            return dialog.exec() == QDialog.DialogCode.Accepted
+        finally:
+            self._dialog = None
+            dialog.deleteLater()
 
     def _handle_session_started(
         self,
@@ -634,13 +656,13 @@ def _preferred_input_icon_key(preferred_input: PreferredInput) -> str:
     }[preferred_input]
 
 
-def _preferred_input_tooltip(preferred_input: PreferredInput) -> str:
-    """Return an accessible description for the input indicator icon."""
+def _preferred_input_key(preferred_input: PreferredInput) -> str:
+    """Return the localization key describing the input indicator icon."""
     return {
-        PreferredInput.CEC: "HDMI-CEC remote",
-        PreferredInput.GAMEPAD: "Game controller",
-        PreferredInput.KEYBOARD: "Keyboard",
-        PreferredInput.MOUSE: "Mouse",
+        PreferredInput.CEC: "input_hint_cec",
+        PreferredInput.GAMEPAD: "input_hint_gamepad",
+        PreferredInput.KEYBOARD: "input_hint_keyboard",
+        PreferredInput.MOUSE: "input_hint_mouse",
     }[preferred_input]
 
 
