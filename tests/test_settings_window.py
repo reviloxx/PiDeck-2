@@ -17,6 +17,7 @@ from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStat
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
+from pideck.domain.input_settings import CecSettings
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.presentation.qt.settings_window import PasswordPrompt, SettingsWindow
@@ -37,6 +38,32 @@ def settings_window(application: QApplication) -> SettingsWindow:
     window.show()
     application.processEvents()
     return window
+
+
+def test_input_settings_are_accessible_and_immediate(application: QApplication) -> None:
+    """CEC controls emit updates and manual requests from controller navigation."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), input_settings=CecSettings())
+    changes: list[CecSettings] = []
+    requests: list[bool] = []
+    window.input_settings_changed.connect(changes.append)
+    window.cec_connection_requested.connect(requests.append)
+    window.show()
+    application.processEvents()
+    assert window._input_page is not None
+    window._select_page(window._input_page)
+    window._input_rows["cec_auto"].setFocus()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert changes[-1].auto_connect is False
+    window._input_port.setCurrentIndex(window._input_port.findData(2))
+    assert changes[-1].hdmi_port == 2
+    window._input_rows["cec_connect"].setFocus()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert requests == [True]
+    window.apply_language("de")
+    window.set_cec_status("Connected")
+    assert window._input_status.text() == "Verbunden"
+    window.close()
 
 
 def test_catalog_item_installs_without_changing_visibility(application: QApplication) -> None:

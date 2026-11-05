@@ -1,0 +1,11 @@
+[Unit]
+Description=Attach Pulse-Eight CEC adapter %I to the Linux CEC driver
+BindsTo=dev-%i.device
+Wants=pideck-activate.service
+After=dev-%i.device pideck-activate.service
+
+[Service]
+ExecCondition=/bin/sh -c 'test -f /usr/lib/pideck/current/python/pideck/infrastructure/cec_kernel.py || { test ! -e /usr/lib/pideck/current && test -f /usr/lib/pideck/python/pideck/infrastructure/cec_kernel.py; }'
+ExecStart=/usr/bin/inputattach --pulse8-cec /dev/%I
+Restart=on-failure
+RestartSec=3

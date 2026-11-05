@@ -25,6 +25,7 @@ from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateServ
 from pideck.application.ports.input import InputEvent
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, Configuration, WindowMode
 from pideck.domain.errors import ConfigurationError, PowerError, ProcessError
+from pideck.domain.input_settings import CecSettings
 from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.build_info import installed_build_date
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
@@ -38,6 +39,7 @@ from pideck.infrastructure.image_update_client import ImageUpdateError, request 
 from pideck.infrastructure.pideck_releases import find_latest_release, version_key
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
 from pideck.infrastructure.input_cec import CecClientAdapter
+from pideck.infrastructure.input_settings import InputPreferences, InputSettingsError
 from pideck.infrastructure.network_manager import NetworkManagerGateway
 from pideck.application.ports.network import NetworkError
 from pideck.application.ports.bluetooth import BluetoothError
@@ -210,7 +212,24 @@ def main(arguments: Sequence[str] | None = None) -> int:
         NativeUpdateGateway(image_mode=image_mode), allow_password_prompt=not image_mode
     )
     gamepad_adapter = EvdevGamepadAdapter()
-    cec_adapter = CecClientAdapter() if "cec" in current_configuration.input.enabled_sources else None
+    input_preferences = InputPreferences(parsed_arguments.config.parent / "input.yaml")
+    try:
+        input_settings = input_preferences.load()
+        input_settings_error: str | None = None
+    except InputSettingsError as error:
+        dependencies.logger.error("Unable to load HDMI-CEC preferences: %s", error)
+        input_settings = CecSettings(enabled=False, auto_connect=False)
+        input_settings_error = str(error)
+
+    class CecStatusBridge(QObject):
+        """Forward CEC worker status changes to the Qt thread."""
+
+        status_received = Signal(str)
+
+    cec_status_bridge = CecStatusBridge()
+    cec_adapter = CecClientAdapter(
+        settings=input_settings, status_changed=cec_status_bridge.status_received.emit,
+    )
     power = SystemPower() if parsed_arguments.power_off_on_shutdown else None
     settings_window: SettingsWindow | None = None
     installer: FlatpakInstaller | None = None
@@ -227,6 +246,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
     display_window: DisplayWindow | None = None
     bluetooth_window: BluetoothWindow | None = None
     bluetooth_opening = False
+
+    def handle_cec_status(status: str) -> None:
+        if settings_window is not None:
+            settings_window.set_cec_status(status)
+
+    cec_status_bridge.status_received.connect(handle_cec_status, Qt.ConnectionType.QueuedConnection)
     display_gateway = X11DisplayGateway(DisplayPreferences(parsed_arguments.config.parent / "display.yaml"))
 
     class PiDeckUpdateBridge(QObject):
@@ -386,16 +411,27 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 result.status,
             )
 
-    def cleanup_session() -> None:
-        """Stop active services before ending the Qt event loop."""
+    services_closed = False
+
+    def cleanup_services() -> None:
+        """Stop active services once, before their Qt bridges are destroyed."""
+        nonlocal services_closed
+        if services_closed:
+            return
+        services_closed = True
         session_service.close()
         update_service.close()
         gamepad_adapter.close()
-        if cec_adapter is not None:
-            try:
-                cec_adapter.close()
-            except ProcessError:
-                dependencies.logger.exception("Unable to stop CEC client during shutdown")
+        try:
+            cec_adapter.close()
+        except ProcessError:
+            dependencies.logger.exception("Unable to stop CEC client during shutdown")
+
+    application.aboutToQuit.connect(cleanup_services)
+
+    def cleanup_session() -> None:
+        """Stop active services before ending the Qt event loop."""
+        cleanup_services()
         application.quit()
 
     def handle_shutdown_request() -> None:
@@ -485,6 +521,27 @@ def main(arguments: Sequence[str] | None = None) -> int:
             system_enabled=True,
             build_date=installed_build_date(),
             catalog=catalog,
+            input_settings=input_settings,
+        )
+        settings_window.set_cec_status(input_settings_error or cec_adapter.status)
+
+        def handle_input_settings_changed(settings: CecSettings) -> None:
+            nonlocal input_settings, input_settings_error
+            try:
+                input_preferences.save(settings)
+            except InputSettingsError as error:
+                dependencies.logger.error("Unable to save input settings: %s", error)
+                if settings_window is not None:
+                    settings_window.set_input_settings(input_settings)
+                    settings_window.show_error(str(error))
+                return
+            input_settings = settings
+            input_settings_error = None
+            cec_adapter.configure(settings)
+
+        settings_window.input_settings_changed.connect(handle_input_settings_changed)
+        settings_window.cec_connection_requested.connect(
+            lambda connect: cec_adapter.connect() if connect else cec_adapter.disconnect()
         )
         def handle_pideck_update_request() -> None:
             if pideck_update_service.state.status is PiDeckUpdateStatus.FAILED:
@@ -717,7 +774,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
     QTimer.singleShot(0, pideck_update_service.check_async)
     if network_gateway is not None and network_setup_enabled:
         threading.Thread(target=check_initial_network, name="pideck-network-check", daemon=True).start()
-    return application.exec()
+    try:
+        return application.exec()
+    finally:
+        cleanup_services()
 
 
 if __name__ == "__main__":

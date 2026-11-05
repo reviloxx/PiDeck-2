@@ -31,6 +31,7 @@ from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import ApplicationDefinition, Configuration
+from pideck.domain.input_settings import CecSettings
 from pideck.domain.theme import ThemeDefinition
 from pideck import __version__
 
@@ -403,6 +404,8 @@ class SettingsWindow(QDialog):
     bluetooth_requested = Signal()
     power_requested = Signal(str)
     application_install_requested = Signal(str)
+    input_settings_changed = Signal(object)
+    cec_connection_requested = Signal(bool)
 
     def __init__(
         self,
@@ -416,6 +419,7 @@ class SettingsWindow(QDialog):
         system_enabled: bool = False,
         build_date: str | None = None,
         catalog: tuple[ApplicationDefinition, ...] = (),
+        input_settings: CecSettings | None = None,
     ) -> None:
         """Build the settings menu from the current validated configuration."""
         super().__init__(parent)
@@ -438,6 +442,12 @@ class SettingsWindow(QDialog):
         )
         self._system_page = (
             3 + int(self._pideck_page is not None) + int(self._network_page is not None) if system_enabled else None
+        )
+        self._input_settings = input_settings
+        self._input_page = (
+            3 + int(self._pideck_page is not None) + int(self._network_page is not None)
+            + int(self._system_page is not None)
+            if input_settings is not None else None
         )
         self._pideck_row: PiDeckUpdateRow | None = None
         self._power_dialog: PowerDialog | None = None
@@ -538,6 +548,8 @@ class SettingsWindow(QDialog):
             self._pages.addWidget(self._build_network_page())
         if self._system_page is not None:
             self._pages.addWidget(self._build_system_page())
+        if self._input_page is not None:
+            self._pages.addWidget(self._build_input_page())
         content_layout.addWidget(self._pages, stretch=1)
 
         self._error_label = QLabel("", content)
@@ -571,6 +583,8 @@ class SettingsWindow(QDialog):
             self._add_nav_button(layout, "Network", self._network_page)
         if self._system_page is not None:
             self._add_nav_button(layout, "System", self._system_page)
+        if self._input_page is not None:
+            self._add_nav_button(layout, "Input", self._input_page)
         layout.addStretch()
         self._back_button = QPushButton("Back", sidebar)
         self._back_button.setObjectName("settings_back")
@@ -807,6 +821,82 @@ class SettingsWindow(QDialog):
         self._page_controls[self._system_page] = [*system_rows, *self._power_rows.values()]
         return self._system_scroll
 
+    def _build_input_page(self) -> QWidget:
+        """Create immediately applied HDMI-CEC controls."""
+        assert self._input_settings is not None
+        assert self._input_page is not None
+        self._input_scroll, page = self._scroll_page()
+        layout = QVBoxLayout(page)
+        self._input_rows: dict[str, SettingsRow] = {}
+        self._input_labels: dict[str, list[QLabel]] = {}
+        self._input_enabled = QCheckBox(page)
+        self._input_auto = QCheckBox(page)
+        self._input_switch = QCheckBox(page)
+        self._input_port = SettingsComboBox(page)
+        configure_combo_box(self._input_port)
+        self._input_port.addItem("", None)
+        for port in range(1, 16):
+            self._input_port.addItem(f"HDMI {port}", port)
+        self._input_enabled.setChecked(self._input_settings.enabled)
+        self._input_auto.setChecked(self._input_settings.auto_connect)
+        self._input_switch.setChecked(self._input_settings.switch_input)
+        self._input_port.setCurrentIndex(self._input_port.findData(self._input_settings.hdmi_port))
+        for key, control in (
+            ("cec_enabled", self._input_enabled), ("cec_auto", self._input_auto),
+            ("cec_port", self._input_port), ("cec_switch", self._input_switch),
+        ):
+            control.setObjectName("settings_control")
+            row, _ = self._control_row(page, tr(self._language, key), tr(self._language, f"{key}_hint"), control)
+            self._input_rows[key] = row
+            self._input_labels[key] = row.findChildren(QLabel)
+            layout.addWidget(row)
+        for key in ("cec_connect", "cec_disconnect"):
+            row = self._action_row(page, tr(self._language, key), tr(self._language, f"{key}_hint"))
+            self._input_rows[key] = row
+            self._input_labels[key] = row.findChildren(QLabel)
+            layout.addWidget(row)
+        self._input_status = QLabel(page)
+        self._input_status.setObjectName("settings_hint")
+        self._input_status.setWordWrap(True)
+        layout.addWidget(self._input_status)
+        layout.addStretch()
+        self._page_controls[self._input_page] = list(self._input_rows.values())
+        self._input_enabled.toggled.connect(self._emit_input_settings)
+        self._input_auto.toggled.connect(self._emit_input_settings)
+        self._input_switch.toggled.connect(self._emit_input_settings)
+        self._input_port.currentIndexChanged.connect(self._emit_input_settings)
+        return self._input_scroll
+
+    def _emit_input_settings(self, *_: object) -> None:
+        """Emit the current CEC preferences when a control changes."""
+        self.input_settings_changed.emit(CecSettings(
+            enabled=self._input_enabled.isChecked(),
+            auto_connect=self._input_auto.isChecked(),
+            hdmi_port=self._input_port.currentData(),
+            switch_input=self._input_switch.isChecked(),
+        ))
+
+    def set_input_settings(self, settings: CecSettings) -> None:
+        """Restore controls after a rejected or externally applied change."""
+        controls = (self._input_enabled, self._input_auto, self._input_switch, self._input_port)
+        blockers = [QSignalBlocker(control) for control in controls]
+        self._input_enabled.setChecked(settings.enabled)
+        self._input_auto.setChecked(settings.auto_connect)
+        self._input_switch.setChecked(settings.switch_input)
+        self._input_port.setCurrentIndex(self._input_port.findData(settings.hdmi_port))
+        del blockers
+
+    def set_cec_status(self, status: str) -> None:
+        """Show the current connection state or an actionable error."""
+        self._cec_status = status
+        keys = {
+            "Connected": "cec_status_connected",
+            "Connecting": "cec_status_connecting",
+            "Disconnected": "cec_status_disconnected",
+            "Enable HDMI-CEC before connecting": "cec_status_enable_first",
+        }
+        self._input_status.setText(tr(self._language, keys[status]) if status in keys else status)
+
     def _confirm_power(self, action: str) -> None:
         """Ask for explicit confirmation before emitting a host power request."""
         if self._power_dialog is not None:
@@ -900,6 +990,9 @@ class SettingsWindow(QDialog):
         if self._system_page is not None:
             page_titles[self._system_page] = tr(self._language, "system")
             page_descriptions[self._system_page] = tr(self._language, "system_description")
+        if self._input_page is not None:
+            page_titles[self._input_page] = tr(self._language, "input")
+            page_descriptions[self._input_page] = tr(self._language, "input_description")
         self._page_title.setText(page_titles[index])
         self._page_description.setText(
             page_descriptions[index]
@@ -1056,12 +1149,17 @@ class SettingsWindow(QDialog):
                 self.network_requested.emit()
             elif self._system_page is not None and isinstance(current, SettingsRow) and current in self._page_controls[self._system_page]:
                 self._handle_row_activation(current)
+            elif self._input_page is not None and isinstance(current, SettingsRow) and current in self._page_controls[self._input_page]:
+                self._handle_row_activation(current)
         elif event.action is InputAction.BACK:
             self.reject()
 
     def _open_dropdown(self) -> QComboBox | None:
         """Return the currently open Appearance combo box, if any."""
-        for combo in (self._theme_combo, self._language_combo):
+        combos = [self._theme_combo, self._language_combo]
+        if self._input_page is not None:
+            combos.append(self._input_port)
+        for combo in combos:
             if combo.view().isVisible():
                 return combo
         return None
@@ -1076,6 +1174,19 @@ class SettingsWindow(QDialog):
             self._show_clock.toggle()
         elif row is self._language_row:
             self._language_combo.showPopup()
+        elif self._input_page is not None and row in self._input_rows.values():
+            if row is self._input_rows["cec_enabled"]:
+                self._input_enabled.toggle()
+            elif row is self._input_rows["cec_auto"]:
+                self._input_auto.toggle()
+            elif row is self._input_rows["cec_switch"]:
+                self._input_switch.toggle()
+            elif row is self._input_rows["cec_port"]:
+                self._input_port.showPopup()
+            elif row is self._input_rows["cec_connect"]:
+                self.cec_connection_requested.emit(True)
+            elif row is self._input_rows["cec_disconnect"]:
+                self.cec_connection_requested.emit(False)
         elif self._network_enabled and row is self._network_row:
             self.network_requested.emit()
         elif self._system_page is not None and row is self._audio_row:
@@ -1109,6 +1220,16 @@ class SettingsWindow(QDialog):
             self._nav_buttons[self._pideck_page].setText(tr(self._language, "pideck_updates"))
         if self._network_page is not None:
             self._nav_buttons[self._network_page].setText(tr(self._language, "network"))
+        if self._input_page is not None:
+            self._nav_buttons[self._input_page].setText(tr(self._language, "input"))
+            self._input_port.setItemText(0, tr(self._language, "cec_auto_port"))
+            for control in (self._input_enabled, self._input_auto, self._input_switch):
+                control.setText(tr(self._language, "on"))
+            for key, labels in self._input_labels.items():
+                labels[0].setText(tr(self._language, key))
+                labels[1].setText(tr(self._language, f"{key}_hint"))
+            if hasattr(self, "_cec_status"):
+                self.set_cec_status(self._cec_status)
         if self._network_enabled:
             self._network_labels[0].setText(tr(self._language, "network" if self._system_page is not None else "wifi_open"))
             self._network_labels[1].setText(tr(self._language, "network_description"))
@@ -1285,6 +1406,13 @@ class SettingsWindow(QDialog):
             and watched in self._page_controls.get(self._system_page, [])
         ):
             self._system_scroll.ensureWidgetVisible(watched)
+        if (
+            event.type() == QEvent.Type.FocusIn
+            and self._input_page is not None
+            and isinstance(watched, QWidget)
+            and watched in self._page_controls.get(self._input_page, [])
+        ):
+            self._input_scroll.ensureWidgetVisible(watched)
         if (
             event.type() == QEvent.Type.FocusIn
             and isinstance(watched, QWidget)

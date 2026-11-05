@@ -9,6 +9,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from pideck.application.ports.input import InputAction, InputEvent
+from pideck.domain.input_settings import CecSettings
+from pideck.infrastructure.cec_kernel import CecKernelError
 from pideck.infrastructure.input_cec import CecClientAdapter
 
 
@@ -172,3 +174,158 @@ def test_cec_retries_after_failed_connection(
     finally:
         adapter.close()
     assert all(child.poll() is not None for child in children)
+
+
+@pytest.mark.parametrize("switch_input", [False, True])
+def test_kernel_client_applies_address_before_connect_and_switches_only_when_requested(
+    monkeypatch: pytest.MonkeyPatch, switch_input: bool,
+) -> None:
+    """The selected address precedes process startup and source activation is opt-in."""
+    real_popen = subprocess.Popen
+    calls: list[object] = []
+    connected = threading.Event()
+    received = threading.Event()
+    children: list[subprocess.Popen[str]] = []
+
+    def prepare(settings: CecSettings) -> str:
+        calls.append(settings.hdmi_port)
+        return "Linux"
+
+    def start_client(command: list[str], **kwargs: object) -> subprocess.Popen[str]:
+        calls.append(command)
+        child = real_popen(
+            [sys.executable, "-u", "-c",
+             "import sys; print('waiting for input', flush=True); "
+             "line = sys.stdin.readline(); "
+             "print('DEBUG: [1] key pressed: up (1, 0)', flush=True) if line == 'as\\n' else None; "
+             "sys.stdin.read()"],
+            **kwargs,
+        )
+        children.append(child)
+        return child
+
+    monkeypatch.setattr("pideck.infrastructure.input_cec.prepare_kernel_cec", prepare)
+    monkeypatch.setattr("pideck.infrastructure.input_cec.subprocess.Popen", start_client)
+
+    def status(value: str) -> None:
+        if value == "Connected":
+            connected.set()
+
+    sink = RecordingSink()
+    adapter = CecClientAdapter(
+        settings=CecSettings(hdmi_port=2, switch_input=switch_input), status_changed=status,
+    )
+    adapter.start(sink)
+    try:
+        assert connected.wait(3)
+        assert calls[0] == 2
+        assert calls[1][-1] == "Linux"
+        assert sink.received.wait(0.3) is switch_input
+    finally:
+        adapter.close()
+    assert all(child.poll() is not None for child in children)
+
+
+def test_manual_connection_survives_handoff_but_does_not_retry_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Manual mode starts disconnected and restores its connection after an app."""
+    real_popen = subprocess.Popen
+    started = threading.Event()
+    children: list[subprocess.Popen[str]] = []
+
+    monkeypatch.setattr("pideck.infrastructure.input_cec.prepare_kernel_cec", lambda settings: "Linux")
+
+    def start_client(command: list[str], **kwargs: object) -> subprocess.Popen[str]:
+        child = real_popen(
+            [sys.executable, "-u", "-c",
+             "import time; print('waiting for input', flush=True); time.sleep(60)"],
+            **kwargs,
+        )
+        children.append(child)
+        started.set()
+        return child
+
+    monkeypatch.setattr("pideck.infrastructure.input_cec.subprocess.Popen", start_client)
+    adapter = CecClientAdapter(settings=CecSettings(auto_connect=False), retry_interval=0.01)
+    adapter.start(RecordingSink())
+    try:
+        assert not started.wait(0.1)
+        adapter.connect()
+        assert started.wait(3)
+        adapter.suspend()
+        assert children[0].poll() is not None
+        started.clear()
+        adapter.resume()
+        assert started.wait(3)
+        adapter.disconnect()
+        assert len(children) == 2
+    finally:
+        adapter.close()
+
+
+def test_manual_connection_reports_error_without_automatic_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed manual connection remains disconnected until another request."""
+    failed = threading.Event()
+    attempts: list[bool] = []
+
+    def prepare(settings: CecSettings) -> str:
+        attempts.append(True)
+        raise CecKernelError("HDMI address unavailable")
+
+    def status(value: str) -> None:
+        if "HDMI address unavailable" in value:
+            failed.set()
+
+    monkeypatch.setattr("pideck.infrastructure.input_cec.prepare_kernel_cec", prepare)
+    adapter = CecClientAdapter(
+        settings=CecSettings(auto_connect=False), retry_interval=0.01, status_changed=status,
+    )
+    adapter.start(RecordingSink())
+    try:
+        adapter.connect()
+        assert failed.wait(3)
+        assert not threading.Event().wait(0.1)
+        assert len(attempts) == 1
+        assert "HDMI address unavailable" in adapter.status
+    finally:
+        adapter.close()
+
+
+def test_suspension_waits_for_inflight_preparation_and_fences_old_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An old preparation cannot start a client after the handoff completes."""
+    preparing = threading.Event()
+    release = threading.Event()
+    suspended = threading.Event()
+    launches: list[bool] = []
+
+    def prepare(settings: CecSettings) -> str:
+        preparing.set()
+        assert release.wait(3)
+        return "Linux"
+
+    def launch(*args: object, **kwargs: object) -> None:
+        launches.append(True)
+        raise FileNotFoundError("unexpected client")
+
+    monkeypatch.setattr("pideck.infrastructure.input_cec.prepare_kernel_cec", prepare)
+    monkeypatch.setattr("pideck.infrastructure.input_cec.subprocess.Popen", launch)
+    adapter = CecClientAdapter(settings=CecSettings())
+    adapter.start(RecordingSink())
+    try:
+        assert preparing.wait(3)
+        adapter.configure(CecSettings(enabled=False))
+        thread = threading.Thread(target=lambda: (adapter.suspend(), suspended.set()))
+        thread.start()
+        assert not suspended.wait(0.1)
+        release.set()
+        assert suspended.wait(3)
+        thread.join(timeout=3)
+        assert not launches
+    finally:
+        release.set()
+        adapter.close()

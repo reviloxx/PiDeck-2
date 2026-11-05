@@ -17,25 +17,30 @@ built image, since PiDeck application updates do not replace boot components.
 
 ## HDMI-CEC
 
-New images enable CEC navigation and include `cec-utils`. Connect the Pi
-directly to a CEC-capable TV over HDMI and enable the TV's HDMI-CEC setting.
-PiDeck uses the Pi's built-in Linux CEC interface and the active local seat's
-device access. It releases CEC before starting any application, including
-Kodi, and reconnects when the application exits. Kodi controls its own CEC
-settings. PiDeck does not intentionally change TV power or input.
+Connect the Pi directly to a CEC-capable TV and enable the TV's CEC setting.
+New images provide `cec-utils` and local-seat access to the built-in Linux CEC
+device. In **Settings → Input**, CEC and auto-connect default to on, and TV
+input switching defaults to off. Select automatic detection or the direct-TV
+HDMI input. Some Pi drivers determine the address from the HDMI connection and
+do not allow overriding it; if the selected address differs, PiDeck reports
+an error instead of silently choosing a different port.
 
-Remove `cec` from `input.enabled_sources` in the user's
-`~/.config/pideck/pideck.yaml` and restart the session to disable it. If CEC
-does not work, inspect the PiDeck journal, check the TV and HDMI cable, and use
-`cec-client -l` from a local session; a second client must not compete with
-PiDeck or Kodi for the device. Confirm that the active user can access the
-`/dev/cec0` device. The Debian libCEC Linux backend used here discovers
-`/dev/cec0`, not an arbitrary additional CEC device; verify the HDMI connector
-and device mapping on the target Pi.
+Manual Connect and Disconnect are available when auto-connect is off. A manual
+connection resumes after an application exits, but starts disconnected after
+a PiDeck restart. PiDeck releases CEC before starting an application. Configure
+Kodi independently under **Settings → System → Input → Peripherals**, including
+its HDMI address and source-activation setting. The kernel physical address is
+shared; verify both applications on the TV.
 
-CEC is intended for newly built images. Existing image configurations and
-system packages are not migrated by a normal PiDeck application update.
-The built-in CEC interface and Kodi handoff still require hardware testing.
+The libCEC Linux backend uses `/dev/cec0`, so check which HDMI connector maps
+to that device and that the local user can access it. Check Input status, the
+PiDeck journal and the HDMI cable; do not run another CEC client concurrently.
+Existing releases need the system setup described in the
+[x86 guide](x86-image.md#existing-release-installations); an application
+update alone cannot install udev rules or packages. On first use, the separate
+input preferences enable CEC even when the previous main configuration omitted
+or disabled it; subsequent user choices are preserved. Hardware testing,
+including Kodi handoff, remains necessary.
 
 Wallpaper scales proportionally to fill the window, cropping edges when
 necessary. The default policies in `/usr/share/pideck/config/window-modes.yaml`
@@ -261,6 +266,9 @@ minimum storage capacity. On a Pi 5, verify:
   in PiDeck and settings; Kodi remote operation; release/reacquisition on
   launch, failure, replacement and exit; unplug/reconnect and no unwanted
   TV power or input changes. Check keyboard and controller operation too.
+- On HDMI2, verify automatic and manual address selection, unsupported
+  overrides, both input-switching modes, Kodi startup and return, manual
+  connection, launcher restart, and hotplug.
 - Settings persistence, passwordless application and unsigned PiDeck updates,
   reboot activation and rollback, shutdown, error handling and console recovery.
 

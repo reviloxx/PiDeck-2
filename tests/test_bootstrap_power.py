@@ -54,6 +54,8 @@ def test_appliance_shutdown_request(
         def trigger() -> None:
             window.shutdown_requested.emit()
             messages.append(window._status_label.text())
+            if fail:
+                assert events == ["power"]
             app.quit()
 
         QTimer.singleShot(0, trigger)
@@ -63,7 +65,7 @@ def test_appliance_shutdown_request(
     assert bootstrap.main(
         ["--config", str(tmp_path / "missing.yaml"), "--power-off-on-shutdown"]
     ) == 0
-    assert events == (["power"] if fail else ["power", "cleanup"])
+    assert events == ["power", "cleanup"]
     if fail:
         assert "denied" in messages[0]
 
@@ -115,6 +117,7 @@ def test_confirmed_settings_restart_uses_host_power_adapter(
                 def check() -> None:
                     if window._error_label.text():
                         messages.append(window._error_label.text())
+                        assert events == ["restart"]
                         app.quit()
                     else:
                         QTimer.singleShot(5, check)
@@ -131,6 +134,6 @@ def test_confirmed_settings_restart_uses_host_power_adapter(
     timeout.start(3000)
     assert bootstrap.main(["--config", str(tmp_path / "missing.yaml")]) == 0
     timeout.stop()
-    assert events == (["restart"] if fail else ["restart", "cleanup"])
+    assert events == ["restart", "cleanup"]
     if fail:
         assert messages and "denied" in messages[0]

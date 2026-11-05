@@ -73,6 +73,8 @@ def test_bundle_is_reproducible_and_contains_only_application_files(tmp_path: Pa
     with tarfile.open(bundle) as archive:
         names = archive.getnames()
         assert "python/pideck/bootstrap.py" in names
+        assert "python/pideck/infrastructure/cec_support/71-pideck-cec-attach.rules" in names
+        assert "python/pideck/infrastructure/cec_support/pideck-cec-attach@.service" in names
         metadata = json.load(archive.extractfile("python/pideck/_build_info.json"))
         assert metadata["built_at"] == "2026-01-01T00:00:00+00:00"
         assert "assets/icons/settings.svg" in names

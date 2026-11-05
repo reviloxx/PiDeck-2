@@ -1,0 +1,5 @@
+version: 1
+enabled: true
+auto_connect: true
+hdmi_port: null
+switch_input: false

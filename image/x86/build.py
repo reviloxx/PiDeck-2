@@ -2,15 +2,18 @@
 """Build an experimental Debian amd64 PiDeck disk image on a trusted host."""
 
 import argparse
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import json
 import os
 from pathlib import Path
 import platform
+import pwd
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+from typing import Generator
 
 if __package__:
     from ..build import _validate_release_checkout, file_hash
@@ -31,6 +34,10 @@ HOST_TOOLS = (
     "debootstrap", "sgdisk", "losetup", "mkfs.ext4", "mkfs.vfat",
     "mount", "umount", "chroot", "xz", "blkid", "openssl", "dpkg-deb", "systemctl", "gpgv", "udevadm",
 )
+
+
+class _MountCleanupError(RuntimeError):
+    """Report a temporary mount that could not be safely removed."""
 
 
 def _run(*command: str, capture: bool = False) -> str:
@@ -58,6 +65,69 @@ def _mount(stack: ExitStack, source: str, target: Path, *options: str) -> None:
     target.mkdir(parents=True, exist_ok=True)
     _run("mount", *options, source, str(target))
     stack.callback(_run, "umount", str(target))
+
+
+def _invoking_user() -> tuple[int, int] | None:
+    """Identify the user who requested privilege escalation, if available."""
+    sudo_uid = os.environ.get("SUDO_UID")
+    sudo_gid = os.environ.get("SUDO_GID")
+    if sudo_uid is not None or sudo_gid is not None:
+        if sudo_uid is None or sudo_gid is None:
+            raise ValueError("Both SUDO_UID and SUDO_GID are required")
+        uid, gid = int(sudo_uid), int(sudo_gid)
+    elif "PKEXEC_UID" in os.environ:
+        uid = int(os.environ["PKEXEC_UID"])
+        try:
+            gid = pwd.getpwuid(uid).pw_gid
+        except KeyError as error:
+            raise ValueError(f"No account exists for PKEXEC_UID {uid}") from error
+    else:
+        return None
+    if uid < 0 or gid < 0:
+        raise ValueError("Output owner IDs must be non-negative")
+    return (uid, gid) if uid else None
+
+
+@contextmanager
+def _output_directory(work_dir: Path) -> Generator[None, None, None]:
+    """Keep the build private and hand its unmounted outputs to the invoking user."""
+    owner = _invoking_user()
+    work_dir.mkdir(mode=0o700)
+    safe_to_transfer = True
+    try:
+        yield
+    except _MountCleanupError:
+        safe_to_transfer = False
+        raise
+    finally:
+        if owner is not None and safe_to_transfer:
+            root = work_dir / "root"
+            if os.path.ismount(root):
+                raise RuntimeError(f"Cannot change output ownership while {root} is mounted")
+            for entry in work_dir.iterdir():
+                os.chown(entry, *owner, follow_symlinks=False)
+            os.chown(work_dir, *owner, follow_symlinks=False)
+
+
+def _debootstrap(root: Path) -> None:
+    """Bootstrap through a space-free mount alias when the output path needs one."""
+    def run(target: Path) -> None:
+        _run("debootstrap", "--arch=amd64", "--variant=minbase", "--force-check-gpg",
+             f"--keyring={DEBIAN_KEYRING}", "trixie", str(target), MIRROR)
+
+    if not any(character.isspace() for character in str(root)):
+        run(root)
+        return
+    target = Path(tempfile.mkdtemp(prefix="pideck-x86-", dir="/run"))
+    try:
+        with ExitStack() as stack:
+            _mount(stack, str(root), target, "--bind")
+            run(target)
+    finally:
+        try:
+            target.rmdir()
+        except OSError as error:
+            raise _MountCleanupError(f"Cannot remove bootstrap mount alias {target}") from error
 
 
 def _partition(image: Path) -> None:
@@ -138,6 +208,9 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "pideck-profile.sh", root / "etc/profile.d/pideck.sh")
     _install(INPUTS / "pideck-network-profile.sh", root / "etc/profile.d/00-pideck-network.sh")
     _install(INPUTS / "49-pideck-network.rules", root / "etc/polkit-1/rules.d/49-pideck-network.rules")
+    cec_support = ROOT / "src/pideck/infrastructure/cec_support"
+    _install(cec_support / "71-pideck-cec-attach.rules", root / "etc/udev/rules.d/71-pideck-cec-attach.rules")
+    _install(cec_support / "pideck-cec-attach@.service", root / "etc/systemd/system/pideck-cec-attach@.service")
     _install(INPUTS / "getty-override.conf", root / "etc/systemd/system/getty@tty1.service.d/pideck.conf")
     _install(INPUTS / "grub-pideck.cfg", root / "etc/default/grub.d/90-pideck.cfg")
     for name in ("pideck.plymouth", "pideck.script"):
@@ -245,7 +318,15 @@ def build(
     work_dir = work_dir.resolve()
     _check_host(work_dir, tag, player, player_sha256)
     input_hashes = _input_hashes()
-    work_dir.mkdir(mode=0o700)
+    with _output_directory(work_dir):
+        return _build_image(work_dir, tag, player, player_sha256, input_hashes)
+
+
+def _build_image(
+    work_dir: Path, tag: str | None, player: Path | None,
+    player_sha256: str | None, input_hashes: dict[str, str],
+) -> Path:
+    """Build the image inside a private, prevalidated output directory."""
     image = work_dir / "pideck-x86_64.img"
     with image.open("xb") as stream:
         stream.truncate(IMAGE_SIZE)
@@ -258,8 +339,7 @@ def build(
         _run("mkfs.ext4", "-F", f"{loop}p3")
         root = work_dir / "root"
         _mount(stack, f"{loop}p3", root)
-        _run("debootstrap", "--arch=amd64", "--variant=minbase", "--force-check-gpg",
-             f"--keyring={DEBIAN_KEYRING}", "trixie", str(root), MIRROR)
+        _debootstrap(root)
         _mount(stack, f"{loop}p2", root / "boot/efi")
         for name in ("dev", "proc", "sys"):
             _mount(stack, f"/{name}", root / name, "--bind")

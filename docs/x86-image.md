@@ -20,25 +20,60 @@ root filesystem and compressed to approximately 2.4 GiB; later builds may vary.
 
 ## HDMI-CEC
 
-New images include `cec-utils` and enable CEC in their default configuration.
-Connect the Pulse-Eight adapter between the computer's HDMI output and the TV,
-and connect its USB cable to the computer. Enable HDMI-CEC on the TV (the name
-varies by manufacturer). PiDeck uses the active local seat's device access;
-it releases the adapter before starting any application, including Kodi, and
-reconnects when that application exits. Configure Kodi's own CEC settings
-separately. PiDeck itself only uses remote navigation and does not request TV
-power or input switching.
+Connect the Pulse-Eight adapter between the computer's HDMI output and the TV
+and connect its USB cable. Enable HDMI-CEC on the TV. New images install
+`cec-utils`, `inputattach`, a hotplug service and local-seat device permissions.
+The service attaches the USB adapter to the Linux CEC driver, whose default
+`persistent_config=0` avoids writing PiDeck's settings to adapter EEPROM.
+PiDeck refuses to connect if that driver option is enabled.
 
-To disable CEC, remove `cec` from `input.enabled_sources` in the user's
-`~/.config/pideck/pideck.yaml` and restart the session. For troubleshooting,
-inspect the PiDeck journal and run `cec-client -l` from a local session; do
-not run a second client while PiDeck or Kodi owns the adapter. Check device
-permissions, the TV's CEC setting and HDMI connections. LibCEC may save adapter
-configuration such as its device name and address to Pulse-Eight hardware.
+In **Settings → Input**, choose the TV's HDMI input for a direct connection or
+automatic EDID detection. Auto-connect is on and TV input switching is off by
+default; the latter can be enabled explicitly. Changes apply immediately. With
+auto-connect off, use Connect and Disconnect: a manual connection resumes after
+an application exits, but not after restarting PiDeck. A disconnect stops
+automatic reconnection until Connect or a launcher restart.
 
-CEC is intended for newly built images and has not been validated on physical
-hardware. Existing image configurations and system packages are not migrated
-by the PiDeck application updater.
+PiDeck releases its client before starting applications. Kodi configures its
+own CEC behavior under **Settings → System → Input → Peripherals**: select the
+Linux CEC adapter if available, set the correct physical address or HDMI input,
+and disable Kodi's source activation if it should not switch the TV. Disable a
+duplicate USB CEC entry if Kodi tries to open the serial adapter already owned
+by the kernel driver. PiDeck does not rewrite Kodi's configuration. The kernel
+physical address is shared by applications, so check the address in both.
+
+The Debian libCEC Linux backend opens only `/dev/cec0`; if that device is a GPU
+or another CEC adapter instead of Pulse-Eight, PiDeck reports an error rather
+than selecting it. Automatic detection requires a single unambiguous connected
+display EDID. Inspect the Input status and PiDeck journal, check HDMI cabling,
+TV CEC and `/dev/cec0` permissions, and use `cec-client -l` only when PiDeck
+and Kodi have released CEC. This integration and Kodi handoff still require
+physical-hardware validation.
+
+### Existing release installations
+
+The application update includes the new settings but cannot install packages
+or system rules. After updating a release image, install the kernel attachment
+support once, then reboot:
+
+```bash
+sudo apt-get update
+sudo apt-get install cec-utils inputattach
+CEC_SUPPORT=/usr/lib/pideck/current/python/pideck/infrastructure/cec_support
+sudo install -m 644 "$CEC_SUPPORT/71-pideck-cec-attach.rules" /etc/udev/rules.d/
+sudo install -m 644 "$CEC_SUPPORT/pideck-cec-attach@.service" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo udevadm control --reload-rules
+sudo reboot
+```
+
+The current development image cannot self-update; it needs a new build or a
+separately installed application update before these files are available.
+`input.yaml` is initialized once with CEC enabled even if the old main YAML
+disabled it. Subsequent choices are preserved; use Settings → Input to disable
+CEC. Older releases do not read this file when rolling back. On reboot into an
+older release the attachment service does not start, so that release can use
+the Pulse-Eight USB adapter directly; its own CEC configuration still applies.
 
 ## Private build
 
@@ -59,10 +94,17 @@ missing or cannot validate the repository metadata.
 The build runs package installation scripts as root, including any supplied
 third-party package. A chroot is not a security boundary: use a dedicated,
 trusted build host and only trusted source checkouts and packages. The working
-directory must not exist; failures leave it for inspection.
+directory must not exist; failures leave it for inspection. Run the following
+commands from the repository root. Image output is kept in the ignored
+`image-output/x86` directory. If it already exists, preserve any image you
+need and remove or move the existing build directory before starting another
+build; the builder will not overwrite it. Paths containing spaces are supported:
+the builder temporarily bind-mounts the image filesystem under `/run` for
+Debian bootstrap without storing the image there.
 
 ```bash
-sudo python3 image/x86/build.py --work-dir /var/tmp/pideck-x86-build
+mkdir -p image-output
+sudo python3 image/x86/build.py --work-dir "$PWD/image-output/x86"
 ```
 
 By default this includes Kodi, Chromium, Firefox ESR, RetroArch and mGBA,
@@ -74,7 +116,7 @@ and independently verify that it is the package you trust. Supply the package
 and its expected SHA-256:
 
 ```bash
-sudo python3 image/x86/build.py --work-dir /var/tmp/pideck-x86-build \
+sudo python3 image/x86/build.py --work-dir "$PWD/image-output/x86" \
   --nomachine-deb /path/to/nomachine-player_amd64.deb \
   --nomachine-sha256 EXPECTED_64_CHARACTER_SHA256
 ```
@@ -85,6 +127,12 @@ checks consistency, not authenticity. The optional package is not committed
 to this repository. Without it, the builder reports the omission and does not
 add a broken NoMachine tile. NoMachine Player's server service is masked.
 Only build and store this image privately under your applicable licenses.
+The builder needs root for disk, mount and installation operations. When
+invoked with `sudo` or `pkexec`, it gives the completed output directory and
+its top-level files to the invoking user, retaining private directory
+permissions. It also does this after a failed build if its mounts were
+successfully released. A direct root invocation without an invoking-user
+identity leaves the output owned by root.
 
 Release images can also be built with `--release-tag vMAJOR.MINOR.PATCH`.
 The tag, checked-out commit and project versions must agree, and the image
@@ -105,7 +153,7 @@ Only the compressed image is covered by `SHA256SUMS`.
 Verify the compressed image, then create a separate virtual disk:
 
 ```bash
-cd /var/tmp/pideck-x86-build
+cd image-output/x86
 sha256sum -c SHA256SUMS
 xz -dk pideck-x86_64.img.xz
 VBoxManage convertfromraw pideck-x86_64.img pideck-x86_64.vdi --format VDI
@@ -155,17 +203,15 @@ releases can still read those settings after a rollback.
 
 **Flashing destroys all data on the selected disk.** Identify the destination
 carefully with `lsblk`; use the whole target disk, not a partition, and never
-the disk containing your build or running system. On a machine with enough
-privileges, verify `SHA256SUMS`, then replace `/dev/DESTINATION` below with the
+the disk containing your build or running system. Unmount all mounted
+partitions on the target disk first. Verify `SHA256SUMS` and run the following
+from the repository root. The example overwrites `/dev/sda`; change it to the
 verified target disk:
 
 ```bash
-sudo -v
-sudo bash -c 'set -euo pipefail
-cd /var/tmp/pideck-x86-build
-sha256sum -c SHA256SUMS
-umount /dev/sda1
-xz -dc pideck-x86_64.img.xz | dd of=/dev/sda bs=4M conv=fsync status=progress'
+(cd image-output/x86 && sha256sum -c SHA256SUMS)
+bash -o pipefail -c 'xz -dc ./pideck-x86_64.img.xz |
+  sudo dd of=/dev/sda bs=4M conv=fsync status=progress'
 ```
 
 Boot the target from that disk with Secure Boot disabled. On a larger disk,
@@ -269,6 +315,9 @@ partition and package manifests, and test:
   in PiDeck and settings; Kodi remote operation; release/reacquisition on
   launch, failure, replacement and exit; unplug/reconnect and no unwanted
   TV power or input changes. Check keyboard and controller operation too.
+- On HDMI2, verify automatic and manual port selection before and during
+  connection, both TV switching modes, Kodi startup and exit, manual
+  connect/disconnect and restart, missing-device errors, and hotplug.
 - On a release image, unsigned update staging, reboot activation and rollback.
 
 These are release gates, not claims that the current experimental builder

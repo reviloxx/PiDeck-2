@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 
 import pytest
 
@@ -56,13 +57,183 @@ def test_preflight_requires_debian_archive_keyring(
     assert not (tmp_path / "image").exists()
 
 
+@pytest.mark.parametrize("fail", [False, True])
+def test_output_directory_is_returned_to_sudo_user(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool,
+) -> None:
+    """Hand outputs back only after the build completes or its mounts unwind."""
+    monkeypatch.setenv("SUDO_UID", "1234")
+    monkeypatch.setenv("SUDO_GID", "5678")
+    ownership: list[tuple[Path, int, int, bool]] = []
+    monkeypatch.setattr(
+        x86_build.os, "chown",
+        lambda path, uid, gid, *, follow_symlinks: ownership.append(
+            (Path(path), uid, gid, follow_symlinks)
+        ),
+    )
+    output = tmp_path / "image"
+
+    def create_output() -> None:
+        with x86_build._output_directory(output):
+            (output / "disk.img").touch()
+            if fail:
+                raise RuntimeError("build failed")
+
+    if fail:
+        with pytest.raises(RuntimeError, match="build failed"):
+            create_output()
+    else:
+        create_output()
+    assert ownership == [
+        (output / "disk.img", 1234, 5678, False),
+        (output, 1234, 5678, False),
+    ]
+    assert output.stat().st_mode & 0o777 == 0o700
+
+
+def test_output_ownership_is_not_changed_if_root_is_still_mounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Do not hand a mounted filesystem to an unprivileged user after a failure."""
+    monkeypatch.setenv("SUDO_UID", "1234")
+    monkeypatch.setenv("SUDO_GID", "5678")
+    monkeypatch.setattr(x86_build.os.path, "ismount", lambda path: True)
+    chown_calls: list[Path] = []
+    monkeypatch.setattr(
+        x86_build.os, "chown",
+        lambda path, *args, **kwargs: chown_calls.append(Path(path)),
+    )
+    with pytest.raises(RuntimeError, match="still mounted|while .* is mounted"):
+        with x86_build._output_directory(tmp_path / "image"):
+            pass
+    assert not chown_calls
+
+
+def test_output_ownership_is_not_changed_if_alias_cleanup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep the output private when a bootstrap alias may still be mounted."""
+    monkeypatch.setenv("SUDO_UID", "1234")
+    monkeypatch.setenv("SUDO_GID", "5678")
+    chown_calls: list[Path] = []
+    monkeypatch.setattr(
+        x86_build.os, "chown",
+        lambda path, *args, **kwargs: chown_calls.append(Path(path)),
+    )
+    with pytest.raises(x86_build._MountCleanupError, match="alias"):
+        with x86_build._output_directory(tmp_path / "image"):
+            raise x86_build._MountCleanupError("alias is still mounted")
+    assert not chown_calls
+
+
+def test_pkexec_output_owner_uses_invoking_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use the authenticated user's primary group for pkexec builds."""
+    monkeypatch.delenv("SUDO_UID", raising=False)
+    monkeypatch.delenv("SUDO_GID", raising=False)
+    monkeypatch.setenv("PKEXEC_UID", str(os.getuid()))
+    account = x86_build.pwd.getpwuid(os.getuid())
+    assert x86_build._invoking_user() == (account.pw_uid, account.pw_gid)
+
+
+@pytest.mark.skipif(
+    os.geteuid() != 0 or int(os.environ.get("PKEXEC_UID", "0")) == 0,
+    reason="requires a non-root user invoking pytest through pkexec",
+)
+@pytest.mark.parametrize("fail", [False, True])
+def test_real_privileged_output_ownership(tmp_path: Path, fail: bool) -> None:
+    """Verify ownership and privacy using real privileged filesystem operations."""
+    account = x86_build.pwd.getpwuid(int(os.environ["PKEXEC_UID"]))
+    output = tmp_path / "image"
+
+    def create_output() -> None:
+        with x86_build._output_directory(output):
+            (output / "disk.img").touch()
+            if fail:
+                raise RuntimeError("build failed")
+
+    if fail:
+        with pytest.raises(RuntimeError, match="build failed"):
+            create_output()
+    else:
+        create_output()
+    for path in (output, output / "disk.img"):
+        assert (path.stat().st_uid, path.stat().st_gid) == (account.pw_uid, account.pw_gid)
+    assert output.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_debootstrap_uses_and_releases_alias_for_space_in_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool,
+) -> None:
+    """Keep actual files in the workspace while bootstrapping via a safe path."""
+    root = tmp_path / "workspace with spaces" / "root"
+    root.mkdir(parents=True)
+    calls: list[tuple[str, ...]] = []
+    make_directory = tempfile.mkdtemp
+    monkeypatch.setattr(
+        x86_build.tempfile, "mkdtemp",
+        lambda **kwargs: make_directory(prefix="pideck-test-", dir=tmp_path),
+    )
+
+    def run(*command: str, capture: bool = False) -> str:
+        calls.append(command)
+        if command[0] == "debootstrap" and fail:
+            raise RuntimeError("bootstrap failed")
+        return ""
+
+    monkeypatch.setattr(x86_build, "_run", run)
+    if fail:
+        with pytest.raises(RuntimeError, match="bootstrap failed"):
+            x86_build._debootstrap(root)
+    else:
+        x86_build._debootstrap(root)
+    mount, bootstrap, unmount = calls
+    alias = Path(mount[-1])
+    assert mount == ("mount", "--bind", str(root), str(alias))
+    assert bootstrap[-2] == str(alias)
+    assert not any(character.isspace() for character in str(alias))
+    assert unmount == ("umount", str(alias))
+    assert not alias.exists()
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="requires root for a real bind mount")
+def test_real_bootstrap_alias_uses_workspace_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a real alias reaches the space-containing output and is unmounted."""
+    root = tmp_path / "workspace with spaces" / "root"
+    root.mkdir(parents=True)
+    real_run = x86_build._run
+    aliases: list[Path] = []
+
+    def run(*command: str, capture: bool = False) -> str:
+        if command[0] == "debootstrap":
+            alias = Path(command[-2])
+            assert os.path.ismount(alias)
+            assert not any(character.isspace() for character in str(alias))
+            aliases.append(alias)
+            (alias / "marker").write_text("workspace data")
+            return ""
+        return real_run(*command, capture=capture)
+
+    monkeypatch.setattr(x86_build, "_run", run)
+    x86_build._debootstrap(root)
+    assert (root / "marker").read_text() == "workspace data"
+    assert len(aliases) == 1
+    assert not aliases[0].exists()
+
+
 def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     """Install the shared session and configured apps in the expected locations."""
     x86_build._write_inputs(tmp_path, None)
     config = YamlConfigurationParser().load(tmp_path / "usr/share/pideck/config/pideck.yaml")
     packages = set((x86_build.INPUTS / "packages.txt").read_text().split())
     assert {app.executable for app in config.applications} <= packages
-    assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "cec-utils"} <= packages
+    assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "cec-utils", "inputattach"} <= packages
+    assert (tmp_path / "etc/udev/rules.d/71-pideck-cec-attach.rules").is_file()
+    assert (tmp_path / "etc/systemd/system/pideck-cec-attach@.service").is_file()
     assert "cec" in config.input.enabled_sources
     assert (tmp_path / "etc/udev/rules.d/70-pideck-cec.rules").read_text() == (
         x86_build.PI_FILES / "70-pideck-cec.rules"

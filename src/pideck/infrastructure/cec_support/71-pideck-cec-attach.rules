@@ -1,0 +1,3 @@
+SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", ATTRS{idVendor}=="2548", ATTRS{idProduct}=="1001", TAG+="systemd", ENV{SYSTEMD_WANTS}+="pideck-cec-attach@%k.service"
+SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", ATTRS{idVendor}=="2548", ATTRS{idProduct}=="1002", TAG+="systemd", ENV{SYSTEMD_WANTS}+="pideck-cec-attach@%k.service"
+SUBSYSTEM=="cec", KERNEL=="cec[0-9]*", TAG+="uaccess"

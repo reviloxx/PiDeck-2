@@ -50,17 +50,19 @@ pideck --validate-only --config config/pideck.yaml
 
 On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and Start maps to Home. Controllers can be connected or removed while PiDeck is running.
 
-New appliance images include HDMI-CEC remote navigation through `cec-client`:
-use a Pulse-Eight USB adapter on x86 or the built-in HDMI CEC interface on
-Raspberry Pi. Direction, select and back work on the launcher and supported
-settings screens. PiDeck releases CEC before starting an application and
-reconnects after it exits; Kodi handles its own CEC configuration and playback
-controls. PiDeck does not intentionally control TV power or input selection.
-The adapter, TV, cabling and Kodi settings must support CEC, and the active
-local session needs device access. CEC on these images has not yet been
-hardware-verified. Existing images are not automatically migrated or given
-new system packages by a normal PiDeck update. See the relevant image guide
-for setup and validation.
+HDMI-CEC navigation uses the Linux CEC interface: a Pulse-Eight USB adapter on
+x86 or built-in CEC on Raspberry Pi. **Settings → Input** offers direct-TV
+HDMI port selection, automatic or manual connection, and optional TV input
+switching. Auto-connect defaults to on; switching defaults to off. PiDeck
+releases CEC before launching an application and restores a requested
+connection afterward. Kodi's CEC settings are separate.
+
+The adapter, TV, cabling and active local session must support CEC. The Debian
+libCEC backend only opens `/dev/cec0`, and some hardware cannot override its
+automatically detected HDMI address. Existing images need a one-time system
+setup; the application updater cannot install system packages or udev rules.
+The development image cannot self-update. See the image guides for setup,
+Kodi configuration and limitations. Hardware operation is not yet verified.
 
 Use the arrow keys or Tab to select an application, then Enter or Space to open
 it. Close the application to return to PiDeck; Alt+F4 works for most X11
