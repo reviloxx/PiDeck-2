@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 import shlex
 
-from pideck.domain.configuration import ApplicationDefinition, Configuration
+from pideck.domain.configuration import ApplicationDefinition, CecMode, Configuration
 from pideck.domain.errors import ConfigurationValidationError
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,10 +37,34 @@ def _flatpak_target(application: ApplicationDefinition) -> str | None:
     return next((value for value in arguments if not value.startswith("-") and "." in value), None)
 
 
+def effective_cec_mode(
+    application: ApplicationDefinition, catalog: tuple[ApplicationDefinition, ...],
+) -> CecMode:
+    """Resolve CEC handling, inheriting it from a matching catalog entry when unset.
+
+    Applications installed before the catalog declared a mode keep their saved
+    definition; matching the Flatpak target lets them benefit from catalog
+    improvements without rewriting the user's configuration.
+    """
+    if application.cec_mode is not None:
+        return application.cec_mode
+    target = _flatpak_target(application)
+    if target is not None:
+        for item in catalog:
+            if item.cec_mode is not None and _flatpak_target(item) == target:
+                return item.cec_mode
+    return CecMode.RELEASE
+
+
 def register_application(configuration: Configuration, application: ApplicationDefinition) -> Configuration:
-    """Add an installed application and make it visible without changing other choices."""
+    """Add an installed application and make it visible without changing other choices.
+
+    The catalog's CEC mode is not copied: it is resolved at runtime through
+    ``effective_cec_mode`` so the saved settings stay readable by older releases.
+    """
     if any(item.identifier == application.identifier for item in configuration.applications):
         raise ConfigurationValidationError(f"Application ID already exists: {application.identifier}")
+    application = replace(application, cec_mode=None)
     visible = configuration.home.visible_applications
     if visible:
         visible = (*visible, application.identifier)

@@ -6,7 +6,7 @@ import logging
 import threading
 import shlex
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 from uuid import uuid4
 
 from pideck.application.ports.process import (
@@ -98,6 +98,10 @@ class SessionInputResource(Protocol):
         ...
 
 
+InputHandoffPolicy = Callable[[ApplicationDefinition], bool]
+"""Return whether an application must own the exclusive input resource."""
+
+
 class ApplicationSessionService:
     """Coordinate launch requests, process supervision, and launcher return."""
 
@@ -107,12 +111,19 @@ class ApplicationSessionService:
         observer: SessionObserver,
         visibility_detector: ProcessVisibilityDetector | None = None,
         input_resource: SessionInputResource | None = None,
+        releases_input: InputHandoffPolicy | None = None,
     ) -> None:
-        """Create a session service with injected process and presentation ports."""
+        """Create a session service with injected process and presentation ports.
+
+        ``releases_input`` decides per application whether the exclusive input
+        resource is handed over; by default every application receives it.
+        """
         self._supervisor = supervisor
         self._observer = observer
         self._visibility_detector = visibility_detector
         self._input_resource = input_resource
+        self._releases_input = releases_input or (lambda _: True)
+        self._input_suspended = False
         self._closed = False
         self._lifecycle_lock = threading.RLock()
         self._snapshot = SessionSnapshot(state=SessionState.IDLE)
@@ -218,8 +229,7 @@ class ApplicationSessionService:
             with self._lifecycle_lock:
                 if self._closed:
                     raise ProcessError("Application session is closed")
-                if self._input_resource is not None:
-                    self._input_resource.suspend()
+                self._hand_over_input(self._releases_input(application))
                 handle = self._supervisor.start(
                     self._command_for(application, profile),
                     token,
@@ -236,8 +246,8 @@ class ApplicationSessionService:
             start_ready.set()
             self._snapshot = SessionSnapshot(state=SessionState.IDLE)
             with self._lifecycle_lock:
-                if self._input_resource is not None and not self._closed:
-                    self._input_resource.resume()
+                if not self._closed:
+                    self._hand_over_input(False)
             message = str(error)
             self._observer.failed(application, message)
             return LaunchResult(LaunchStatus.FAILED, application, message=message)
@@ -346,9 +356,22 @@ class ApplicationSessionService:
             self._start(*pending_launch)
             return
         with self._lifecycle_lock:
-            if self._input_resource is not None and not self._closed:
-                self._input_resource.resume()
+            if not self._closed:
+                self._hand_over_input(False)
         self._observer.finished(application, event.return_code)
+
+    def _hand_over_input(self, release: bool) -> None:
+        """Release the input resource before a launch, or reacquire it if it was released."""
+        if self._input_resource is None:
+            return
+        if release:
+            # Record first: a failed suspend may leave the resource half released,
+            # and the launch failure path must then still resume it.
+            self._input_suspended = True
+            self._input_resource.suspend()
+        elif self._input_suspended:
+            self._input_suspended = False
+            self._input_resource.resume()
 
 
 _PROFILE_REQUIRED = object()

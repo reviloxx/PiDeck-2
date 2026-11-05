@@ -9,6 +9,7 @@ import yaml
 from pideck.domain.configuration import (
     ApplicationDefinition,
     ApplicationProfile,
+    CecMode,
     Configuration,
     HomeScreenConfiguration,
     InputConfiguration,
@@ -77,7 +78,7 @@ class YamlConfigurationParser:
             data,
             {"id", "name", "executable"},
             context,
-            optional={"arguments", "profiles", "icon", "preferred_input"},
+            optional={"arguments", "profiles", "icon", "preferred_input", "cec"},
         )
         profiles = tuple(
             self._parse_profile(item, f"{context}.profiles[{profile_index}]")
@@ -90,6 +91,7 @@ class YamlConfigurationParser:
                 _string(data.get("preferred_input", "keyboard"), f"{context}.preferred_input")
             )
             icon_value = _nullable_string(data.get("icon"), f"{context}.icon")
+            cec_value = _nullable_string(data.get("cec"), f"{context}.cec")
             return ApplicationDefinition(
                 identifier=_string(data["id"], f"{context}.id"),
                 name=_string(data["name"], f"{context}.name"),
@@ -98,6 +100,7 @@ class YamlConfigurationParser:
                 profiles=profiles,
                 icon=Path(icon_value) if icon_value else None,
                 preferred_input=preferred_input,
+                cec_mode=CecMode(cec_value) if cec_value else None,
             )
         except ValueError as error:
             raise ConfigurationValidationError(f"{context}: {error}") from error

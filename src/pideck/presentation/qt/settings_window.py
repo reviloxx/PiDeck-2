@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import TypeVar
 
-from PySide6.QtCore import QEvent, QSignalBlocker, Qt, Signal
+from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QBoxLayout,
@@ -27,6 +27,7 @@ from pideck.application.settings import SettingsUpdate
 from pideck.application.catalog import available_applications
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
+from pideck.application.ports.installation import InstallProgress
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import ApplicationDefinition, Configuration
@@ -37,11 +38,14 @@ from pideck import __version__
 from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperDialog, WallpaperWidget
 from .localization import format_timestamp, tr
+from .install_row import InstallProgressRow
 from .power_dialog import PowerDialog
 from .spinner import BusySpinner
 from .toggle_switch import ToggleSwitch
 
 _UPDATE_SPINNER_SIZE = 22
+# Vertical space taken by the application list's ``::item`` padding and border (theme.py).
+_LIST_ITEM_CHROME = 2 * (12 + 1)
 
 _ControlT = TypeVar("_ControlT", bound=QWidget)
 
@@ -414,6 +418,7 @@ class SettingsWindow(QDialog):
             item.identifier: item for item in available_applications(configuration, catalog)
         }
         self._installing_id: str | None = None
+        self._install_row: InstallProgressRow | None = None
         self._theme = theme
         self._language = configuration.settings.language
         self._asset_root = asset_root
@@ -1257,8 +1262,12 @@ class SettingsWindow(QDialog):
             item = self._applications.item(index)
             application_id = item.data(Qt.ItemDataRole.UserRole)
             if item.data(Qt.ItemDataRole.UserRole + 1) and application_id in self._catalog:
-                key = "installing_application" if self._installing_id == application_id else "install_application"
-                item.setText(tr(self._language, key, name=self._catalog[application_id].name))
+                installing = self._installing_id == application_id
+                item.setText("" if installing else tr(
+                    self._language, "install_application", name=self._catalog[application_id].name,
+                ))
+        if self._install_row is not None:
+            self._install_row.set_language(self._language)
         self._language_combo.setItemText(0, tr(self._language, "english"))
         self._language_combo.setItemText(1, tr(self._language, "german"))
         for row in self._update_rows.values():
@@ -1544,9 +1553,46 @@ class SettingsWindow(QDialog):
         )
 
     def set_installing(self, application_id: str | None) -> None:
-        """Update the installation action label without modifying user visibility."""
+        """Show or remove installation progress without modifying user visibility."""
+        if application_id == self._installing_id:
+            return
+        self._remove_install_row()
         self._installing_id = application_id
+        item = self._catalog_item(application_id) if application_id is not None else None
+        if item is not None and application_id is not None:
+            row = InstallProgressRow(self._catalog[application_id].name, self._language)
+            row.spinner.set_color(self._theme.colors["primary"])
+            self._install_row = row
+            self._applications.setItemWidget(item, row)
+            row.ensurePolished()
+            for label in row.findChildren(QLabel):
+                label.ensurePolished()
+            hint = row.layout().sizeHint()
+            item.setSizeHint(QSize(hint.width(), hint.height() + _LIST_ITEM_CHROME))
         self.apply_language(self._language)
+
+    def set_install_progress(self, application_id: str, progress: InstallProgress) -> None:
+        """Render progress for the application that is currently being installed."""
+        if application_id == self._installing_id and self._install_row is not None:
+            self._install_row.set_progress(progress)
+
+    def _catalog_item(self, application_id: str) -> QListWidgetItem | None:
+        """Return the installable list entry for a catalog application."""
+        for index in range(self._applications.count()):
+            item = self._applications.item(index)
+            if item.data(Qt.ItemDataRole.UserRole + 1) and item.data(Qt.ItemDataRole.UserRole) == application_id:
+                return item
+        return None
+
+    def _remove_install_row(self) -> None:
+        """Restore the plain installable entry after an installation ends."""
+        if self._install_row is None or self._installing_id is None:
+            return
+        item = self._catalog_item(self._installing_id)
+        if item is not None:
+            self._applications.removeItemWidget(item)
+            item.setSizeHint(QSize())
+        self._install_row = None
 
     def apply_theme_definition(self, theme: ThemeDefinition) -> None:
         """Apply a persisted theme change while the settings view remains open."""

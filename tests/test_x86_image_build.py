@@ -238,7 +238,7 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert (tmp_path / "etc/udev/rules.d/70-pideck-cec.rules").read_text() == (
         x86_build.PI_FILES / "70-pideck-cec.rules"
     ).read_text()
-    assert "firmware-nvidia-graphics" in packages
+    assert {"firmware-nvidia-graphics", "zstd"} <= packages
     assert (tmp_path / "usr/lib/pideck/python/pideck/bootstrap.py").is_file()
     metadata = tmp_path / "usr/lib/pideck/python/pideck/_build_info.json"
     assert json.loads(metadata.read_text())["built_at"]
@@ -265,6 +265,10 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "GRUB_TIMEOUT=0\n" in grub
     assert "GRUB_RECORDFAIL_TIMEOUT=0\n" in grub
     assert "quiet splash" in grub
+    assert "GRUB_TERMINAL=console\n" in grub
+    assert "udevadm settle" in override
+    assert "RESUME=none" in (tmp_path / "etc/initramfs-tools/conf.d/pideck.conf").read_text()
+    assert (tmp_path / "etc/initramfs-tools/hooks/pideck-slim").stat().st_mode & 0o111
     assert (tmp_path / "usr/share/plymouth/themes/pideck/pideck.script").is_file()
     assert {"plymouth", "plymouth-label"} <= packages
 
@@ -428,7 +432,7 @@ def test_source_changes_abort_before_compression(tmp_path: Path, monkeypatch: py
     assert not (tmp_path / "image/SHA256SUMS").exists()
 
 
-@pytest.mark.parametrize("name", ["pideck-getty", "pideck-grow-root"])
+@pytest.mark.parametrize("name", ["pideck-getty", "pideck-grow-root", "initramfs-pideck-slim"])
 def test_x86_session_shell_is_valid(name: str) -> None:
     """Keep installed shell scripts syntactically valid."""
     subprocess.run(["sh", "-n", str(x86_build.INPUTS / name)], check=True)
@@ -491,3 +495,72 @@ def test_resize_behavior_without_touching_real_disks(
     lines = calls.read_text().splitlines() if calls.exists() else []
     assert ("resize /dev/fake3" in lines) is should_resize
     assert all(line in {"/dev/fake 3", "resize /dev/fake3"} for line in lines)
+
+
+def test_initramfs_hook_removes_gpu_drivers_and_firmware(tmp_path: Path) -> None:
+    """Strip GPU payloads after Plymouth copies them while keeping other files."""
+    version = "6.12.0-test"
+    modules = tmp_path / f"usr/lib/modules/{version}/kernel/drivers"
+    (modules / "gpu/drm/nouveau").mkdir(parents=True)
+    (modules / "ata").mkdir(parents=True)
+    firmware = tmp_path / "usr/lib/firmware"
+    for name in ("nvidia", "amdgpu", "rtl_nic"):
+        (firmware / name).mkdir(parents=True)
+    source = tmp_path / "source"
+    (source / "kernel/drivers/gpu/drm/nouveau").mkdir(parents=True)
+    (source / "kernel/drivers/gpu/drm/nouveau/nouveau.ko.xz").touch()
+    (source / "kernel/drivers/gpu/drm/drm.ko.xz").touch()
+    queue = tmp_path / "queue"
+    queue.write_text("ahci\nnouveau\ndrm\nusb-storage\n")
+    hook = x86_build.INPUTS / "initramfs-pideck-slim"
+    assert subprocess.run(["sh", str(hook), "prereqs"], capture_output=True, text=True).stdout.strip() == "plymouth"
+    subprocess.run(["sh", str(hook)], check=True, env={
+        **os.environ, "DESTDIR": str(tmp_path), "version": version,
+        "MODULESDIR": str(source), "__MODULES_TO_ADD": str(queue),
+    })
+    assert queue.read_text() == "ahci\nusb-storage\n"
+    assert not (modules / "gpu").exists()
+    assert (modules / "ata").is_dir()
+    assert not (firmware / "nvidia").exists() and not (firmware / "amdgpu").exists()
+    assert (firmware / "rtl_nic").is_dir()
+
+
+def test_container_build_command_maps_inputs_and_owner(tmp_path: Path) -> None:
+    """Run build.py in the container with mapped output, player and invoking user."""
+    from image.x86.container_build import BuildRequest, docker_run_command
+
+    player = tmp_path / "player.deb"
+    request = BuildRequest(tmp_path / "out/x86", "v1.2.3", player, "a" * 64)
+    command = docker_run_command(request, 1000, 1001)
+    assert command[:4] == ["docker", "run", "--rm", "--privileged"]
+    assert f"type=bind,source={x86_build.ROOT},target=/pideck,readonly" in command
+    assert f"type=bind,source={tmp_path / 'out'},target=/output" in command
+    assert f"type=bind,source={player},target=/inputs/nomachine-player.deb,readonly" in command
+    assert "SUDO_UID=1000" in command and "SUDO_GID=1001" in command
+    build_args = command[command.index("image/x86/build.py") + 1:]
+    assert build_args == [
+        "--work-dir", "/output/x86.new", "--release-tag", "v1.2.3",
+        "--nomachine-deb", "/inputs/nomachine-player.deb", "--nomachine-sha256", "a" * 64,
+    ]
+
+
+def test_container_build_replaces_previous_output_only_with_staging(tmp_path: Path) -> None:
+    """Swap the completed staging directory into place and remove stale files."""
+    from image.x86.container_build import replace_output
+
+    output, staging = tmp_path / "x86", tmp_path / "x86.new"
+    (output / "root").mkdir(parents=True)
+    (output / "old.img").write_text("old")
+    staging.mkdir()
+    (staging / "new.img").write_text("new")
+    replace_output(staging, output)
+    assert not staging.exists()
+    assert [path.name for path in output.iterdir()] == ["new.img"]
+
+
+def test_container_build_rejects_unmountable_paths(tmp_path: Path) -> None:
+    """Refuse paths that would corrupt Docker mount options."""
+    from image.x86.container_build import BuildRequest, docker_run_command
+
+    with pytest.raises(ValueError):
+        docker_run_command(BuildRequest(tmp_path / "a,b/x86"), 1000, 1000)

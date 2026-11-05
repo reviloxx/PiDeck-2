@@ -354,6 +354,26 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             background-color: %(primary)s;
             border-color: %(primary)s;
         }
+        QWidget#install_progress_row, QWidget#install_progress_row QLabel {
+            background: transparent;
+        }
+        QLabel#install_title {
+            color: %(text)s;
+        }
+        QLabel#install_cancel, QLabel#install_status {
+            color: %(muted_text)s;
+        }
+        QProgressBar#install_progress {
+            background-color: %(background)s;
+            border: 1px solid %(border)s;
+            border-radius: 5px;
+            max-height: 10px;
+            min-height: 10px;
+        }
+        QProgressBar#install_progress::chunk {
+            background-color: %(primary)s;
+            border-radius: 4px;
+        }
         QLabel#system_status {
             color: %(text)s;
         }

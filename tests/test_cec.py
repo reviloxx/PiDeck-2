@@ -65,6 +65,33 @@ def test_cec_parses_delivered_keys_without_duplicate_raw_logs() -> None:
     assert all(event.source == "cec" for event in sink.events)
 
 
+def test_cec_translates_media_keys_without_repeating_held_presses() -> None:
+    """Transport keys map to media actions; a held key is delivered once."""
+    adapter = CecClientAdapter()
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    output = io.StringIO(
+        "DEBUG: [1] key pressed: play (44, 0)\n"
+        "DEBUG: [2] key pressed: play (44, 0)\n"
+        "DEBUG: [3] key released: play (44) D:90ms\n"
+        "DEBUG: [4] key pressed: pause (46, 0)\n"
+        "DEBUG: [5] key pressed: stop (45, 0)\n"
+        "DEBUG: [6] key pressed: rewind (48, 0)\n"
+        "DEBUG: [7] key pressed: Fast forward (49, 0)\n"
+        "DEBUG: [8] key pressed: pause-play function (61, 0)\n"
+        "DEBUG: [9] key pressed: play function (60, 0)\n"
+    )
+
+    adapter._read_output(output, process, adapter.generation)
+
+    assert [event.action for event in sink.events] == [
+        InputAction.PLAY, InputAction.PAUSE, InputAction.STOP, InputAction.REWIND,
+        InputAction.FAST_FORWARD, InputAction.PLAY_PAUSE, InputAction.PLAY,
+    ]
+
 def test_cec_rejects_old_client_output_after_handoff() -> None:
     """Buffered output from a previous client cannot activate the launcher."""
     adapter = CecClientAdapter()

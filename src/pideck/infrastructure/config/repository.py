@@ -113,6 +113,7 @@ def _serialize_configuration(configuration: Configuration) -> dict[str, Any]:
                 ],
                 "icon": str(application.icon) if application.icon is not None else None,
                 "preferred_input": application.preferred_input.value,
+                **({"cec": application.cec_mode.value} if application.cec_mode is not None else {}),
             }
             for application in configuration.applications
         ],

@@ -2,12 +2,16 @@
 
 from dataclasses import replace
 from pathlib import Path
+import threading
+import time
 
 import pytest
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
-from pideck.application.catalog import available_applications, register_application
+from pideck.application.catalog import available_applications, effective_cec_mode, register_application
+from pideck.application.ports.installation import InstallProgress, InstallStage
+from pideck.domain.configuration import ApplicationDefinition, CecMode
 from pideck.domain.errors import ConfigurationError
 from pideck.infrastructure.config.catalog import load_catalog
 from pideck.infrastructure.config.parser import YamlConfigurationParser
@@ -54,6 +58,8 @@ def test_registration_preserves_existing_choices() -> None:
     assert added.home.visible_applications == (*config.home.visible_applications, "youtube")
     assert added.settings == config.settings
     assert added.applications[:-1] == config.applications
+    assert added.applications[-1].cec_mode is None
+    assert effective_cec_mode(added.applications[-1], (youtube(),)) is CecMode.KEYBOARD
     all_visible = replace(config, home=replace(config.home, visible_applications=()))
     assert register_application(all_visible, youtube()).home.visible_applications == ()
     with pytest.raises(ConfigurationError, match="already exists"):
@@ -77,7 +83,7 @@ def test_installer_reuses_existing_or_installs_to_user_scope(
     installer = FlatpakInstaller()
     calls = []
 
-    def run(command, password=None):
+    def run(command, password=None, on_line=None):
         calls.append((command, password))
         if command[:2] == ["flatpak", "list"]:
             return "com.ktechpit.red\n" if installed else ""
@@ -91,7 +97,7 @@ def test_installer_reuses_existing_or_installs_to_user_scope(
     if installed:
         assert len(commands) == 1
     else:
-        assert ["flatpak", "install", "--user", "--noninteractive", "--assumeyes",
+        assert ["flatpak", "install", "--user", "--assumeyes",
                 "flathub", "com.ktechpit.red"] in commands
         assert commands[-1] == ["flatpak", "info", "--user", "--show-ref", "com.ktechpit.red"]
 
@@ -104,7 +110,7 @@ def test_installer_authentication_and_untrusted_remote(monkeypatch: pytest.Monke
         installer.install(youtube())
     calls = []
 
-    def run(command, password=None):
+    def run(command, password=None, on_line=None):
         calls.append((command, password))
         if command[:2] == ["flatpak", "remotes"]:
             return "flathub\thttps://example.invalid/repo/\n"
@@ -124,7 +130,7 @@ def test_installer_creates_user_remote_and_propagates_failures(monkeypatch: pyte
     installer = FlatpakInstaller()
     commands = []
 
-    def run(command, password=None):
+    def run(command, password=None, on_line=None):
         commands.append(command)
         if command[:2] == ["flatpak", "install"]:
             raise InstallationError("network unavailable")
@@ -157,6 +163,76 @@ def test_installer_runs_commands_and_checks_result(tmp_path: Path, monkeypatch: 
     assert log.read_text(encoding="utf-8").splitlines() == [
         "list --app --columns=application",
         "remotes --user --columns=name,url",
-        "install --user --noninteractive --assumeyes flathub com.ktechpit.red",
+        "install --user --assumeyes flathub com.ktechpit.red",
         "info --user --show-ref com.ktechpit.red",
     ]
+
+
+def test_installer_reports_streamed_progress(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Progress lines from the real subprocess boundary reach the callback in order."""
+    executable = tmp_path / "flatpak"
+    executable.write_text(
+        "#!/bin/sh\n"
+        "case \"$1\" in\n"
+        "  remotes) printf 'flathub\\thttps://dl.flathub.org/repo/\\n' ;;\n"
+        "  install) printf 'Installing 1/2?\\nInstalling 1/2? ?? 50%%\\n"
+        "Installing 2/2?\\nInstalling 2/2? ???? 100%%\\nInstallation complete.\\n' ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    reports: list[InstallProgress] = []
+    FlatpakInstaller().install(youtube(), on_progress=reports.append)
+    assert [(item.stage, item.percent) for item in reports] == [
+        (InstallStage.PREPARING, None),
+        (InstallStage.DOWNLOADING, None),
+        (InstallStage.DOWNLOADING, 0),
+        (InstallStage.DOWNLOADING, 25),
+        (InstallStage.DOWNLOADING, 50),
+        (InstallStage.DOWNLOADING, 100),
+        (InstallStage.FINISHING, 100),
+    ]
+
+
+def test_installer_cancel_stops_streaming_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cancelling while flatpak streams output terminates it and reports cancellation."""
+    executable = tmp_path / "flatpak"
+    executable.write_text(
+        "#!/bin/sh\n"
+        "case \"$1\" in\n"
+        "  remotes) printf 'flathub\\thttps://dl.flathub.org/repo/\\n' ;;\n"
+        "  install) printf 'Installing?\\n'; exec sleep 30 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
+    installer = FlatpakInstaller()
+
+    def cancel_once_downloading(progress: InstallProgress) -> None:
+        if progress.percent == 0:
+            threading.Thread(target=installer.cancel).start()
+
+    started = time.monotonic()
+    with pytest.raises(InstallationError, match="cancelled"):
+        installer.install(youtube(), on_progress=cancel_once_downloading)
+    assert time.monotonic() - started < 10
+
+
+def test_catalog_youtube_keeps_cec_for_keyboard_forwarding() -> None:
+    """YouTube receives TV remote keys from PiDeck instead of owning the adapter."""
+    assert youtube().cec_mode is CecMode.KEYBOARD
+
+
+def test_effective_cec_mode_inherits_from_matching_catalog_flatpak() -> None:
+    """Existing installs gain the catalog mode; explicit and unrelated apps do not."""
+    catalog = (youtube(),)
+    legacy = replace(youtube(), identifier="my-red", cec_mode=None)
+    assert effective_cec_mode(legacy, catalog) is CecMode.KEYBOARD
+    explicit = replace(legacy, cec_mode=CecMode.RELEASE)
+    assert effective_cec_mode(explicit, catalog) is CecMode.RELEASE
+    kodi = ApplicationDefinition("youtube", "Kodi", "kodi")
+    assert effective_cec_mode(kodi, catalog) is CecMode.RELEASE
+    other_flatpak = replace(legacy, arguments=("run", "org.example.App"))
+    assert effective_cec_mode(other_flatpak, catalog) is CecMode.RELEASE

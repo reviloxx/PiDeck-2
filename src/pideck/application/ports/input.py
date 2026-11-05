@@ -15,6 +15,12 @@ class InputAction(StrEnum):
     ACTIVATE = "activate"
     BACK = "back"
     HOME = "home"
+    PLAY = "play"
+    PAUSE = "pause"
+    PLAY_PAUSE = "play_pause"
+    STOP = "stop"
+    REWIND = "rewind"
+    FAST_FORWARD = "fast_forward"
 
 
 @dataclass(frozen=True, slots=True)

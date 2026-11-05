@@ -6,3 +6,4 @@ applications:
     profiles: []
     icon: ../assets/icons/youtube.svg
     preferred_input: gamepad
+    cec: keyboard

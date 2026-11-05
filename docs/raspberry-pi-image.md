@@ -27,7 +27,10 @@ an error instead of silently choosing a different port.
 
 Manual Connect and Disconnect are available when auto-connect is off. A manual
 connection resumes after an application exits, but starts disconnected after
-a PiDeck restart. PiDeck releases CEC before starting an application. Configure
+a PiDeck restart. PiDeck releases CEC before starting an application, except
+for applications with `cec: keyboard` such as YouTube: PiDeck then forwards the
+remote's keys to the application, and the remote's Home key returns to PiDeck.
+Configure
 Kodi independently under **Settings → System → Input → Peripherals**, including
 its HDMI address and source-activation setting. The kernel physical address is
 shared; verify both applications on the TV.

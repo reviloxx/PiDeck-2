@@ -382,3 +382,36 @@ def test_shutdown_waits_for_in_progress_handoff() -> None:
     supervisor.emit(next(iter(supervisor.handles)))
     assert service.request_launch(application).status is LaunchStatus.FAILED
     assert len(supervisor.handles) == 1
+
+
+def test_input_resource_is_kept_for_applications_that_receive_forwarded_input() -> None:
+    """Forwarding applications keep CEC; switching to a releasing app hands it over."""
+    events: list[str] = []
+
+    class InputResource:
+        def suspend(self) -> None:
+            events.append("suspend")
+
+        def resume(self) -> None:
+            events.append("resume")
+
+    supervisor = FakeSupervisor()
+    service = ApplicationSessionService(
+        supervisor, RecordingObserver(), input_resource=InputResource(),
+        releases_input=lambda application: application.identifier != "youtube",
+    )
+    youtube = ApplicationDefinition("youtube", "YouTube", sys.executable)
+    kodi = ApplicationDefinition("kodi", "Kodi", sys.executable)
+    service.request_launch(youtube)
+    youtube_token = next(iter(supervisor.handles))
+    supervisor.emit(youtube_token)
+    assert events == []
+    service.request_launch(kodi)
+    kodi_token = next(token for token in supervisor.handles if token != youtube_token)
+    service.replace_running(youtube)
+    supervisor.emit(kodi_token)
+    assert events == ["suspend", "resume"]
+    last_token = next(token for token in supervisor.handles if token not in {youtube_token, kodi_token})
+    supervisor.emit(last_token)
+    assert events == ["suspend", "resume"]
+    service.close()

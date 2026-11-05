@@ -7,3 +7,4 @@ build/
 dist/
 *.log
 /image-output/x86/
+/image-output/x86.new/

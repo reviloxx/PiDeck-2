@@ -193,3 +193,24 @@ def test_repository_recovers_last_known_good_backup(tmp_path: Path) -> None:
     restored = repository.load()
 
     assert restored == source
+
+
+def test_cec_mode_is_optional_validated_and_persisted(tmp_path: Path) -> None:
+    """Applications omit CEC handling by default; explicit modes survive saves."""
+    from pideck.domain.configuration import CecMode
+
+    document = configuration_document()
+    repository = FileConfigurationRepository(tmp_path / "pideck.yaml")
+    configuration = YamlConfigurationParser().parse(document)
+    assert configuration.applications[0].cec_mode is None
+    repository.save(configuration)
+    assert "cec" not in yaml.safe_load(repository.path.read_text())["applications"][0]
+    document["applications"][0]["cec"] = "keyboard"
+    configuration = YamlConfigurationParser().parse(document)
+    assert configuration.applications[0].cec_mode is CecMode.KEYBOARD
+    repository.save(configuration)
+    assert yaml.safe_load(repository.path.read_text())["applications"][0]["cec"] == "keyboard"
+    assert repository.load() == configuration
+    document["applications"][0]["cec"] = "remote"
+    with pytest.raises(ConfigurationValidationError, match="cec|remote"):
+        YamlConfigurationParser().parse(document)

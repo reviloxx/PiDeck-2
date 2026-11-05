@@ -213,6 +213,8 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(cec_support / "pideck-cec-attach@.service", root / "etc/systemd/system/pideck-cec-attach@.service")
     _install(INPUTS / "getty-override.conf", root / "etc/systemd/system/getty@tty1.service.d/pideck.conf")
     _install(INPUTS / "grub-pideck.cfg", root / "etc/default/grub.d/90-pideck.cfg")
+    _install(INPUTS / "initramfs-pideck.conf", root / "etc/initramfs-tools/conf.d/pideck.conf")
+    _install(INPUTS / "initramfs-pideck-slim", root / "etc/initramfs-tools/hooks/pideck-slim", 0o755)
     for name in ("pideck.plymouth", "pideck.script"):
         _install(PI_FILES / name, root / "usr/share/plymouth/themes/pideck" / name)
     for name in ("pideck-updater.service", "pideck-activate.service"):
@@ -253,8 +255,9 @@ def _configure(
     chroot("apt-get", "install", "-y", "--no-install-recommends", *packages)
     chroot("flatpak", "remote-add", "--system", "--if-not-exists", "flathub",
            "https://dl.flathub.org/repo/flathub.flatpakrepo")
-    chroot("flatpak", "install", "--system", "--noninteractive", "--assumeyes",
-           "--arch=x86_64", "flathub", "com.valvesoftware.SteamLink")
+    # Do not install GL extensions matching the build host's proprietary driver.
+    chroot("env", "FLATPAK_GL_DRIVERS=default", "flatpak", "install", "--system", "--noninteractive",
+           "--assumeyes", "--arch=x86_64", "flathub", "com.valvesoftware.SteamLink")
     if player is not None:
         player_copy = root / "tmp/nomachine-player.deb"
         _install(player, player_copy, 0o600)

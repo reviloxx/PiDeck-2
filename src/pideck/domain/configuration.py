@@ -18,6 +18,15 @@ class PreferredInput(StrEnum):
     KEYBOARD = "keyboard"
     MOUSE = "mouse"
 
+class CecMode(StrEnum):
+    """How HDMI-CEC remote input is handled while an application runs."""
+
+    RELEASE = "release"
+    """Hand the CEC adapter to the application (e.g. Kodi with its own libCEC)."""
+    KEYBOARD = "keyboard"
+    """Keep the adapter in PiDeck and forward remote keys as keyboard input."""
+
+
 class WindowMode(StrEnum):
     """Preferred presentation for an application's main window."""
 
@@ -57,6 +66,7 @@ class ApplicationDefinition:
     icon: Path | None = None
     preferred_input: PreferredInput = PreferredInput.KEYBOARD
     window_mode: WindowMode | None = None
+    cec_mode: CecMode | None = None
 
     def __post_init__(self) -> None:
         """Validate application identity and normalize collection values."""

@@ -34,7 +34,10 @@ auto-connect off, use Connect and Disconnect: a manual connection resumes after
 an application exits, but not after restarting PiDeck. A disconnect stops
 automatic reconnection until Connect or a launcher restart.
 
-PiDeck releases its client before starting applications. Kodi configures its
+PiDeck releases its client before starting applications, except for
+applications with `cec: keyboard` such as YouTube: PiDeck then forwards the
+remote's keys to the application, and the remote's Home key returns to PiDeck.
+Kodi configures its
 own CEC behavior under **Settings → System → Input → Peripherals**: select the
 Linux CEC adapter if available, set the correct physical address or HDMI input,
 and disable Kodi's source activation if it should not switch the TV. Disable a
@@ -77,6 +80,30 @@ older release the attachment service does not start, so that release can use
 the Pulse-Eight USB adapter directly; its own CEC configuration still applies.
 
 ## Private build
+
+### Without a password (Docker)
+
+If your account can use Docker (for example, as a member of the `docker`
+group), build without `sudo` from the repository root:
+
+```bash
+python3 image/x86/container_build.py
+```
+
+This builds a Debian trixie container from
+[`Dockerfile`](../image/x86/Dockerfile) with the required host tools, then runs
+the builder described below as root in a privileged container with the host's
+`/dev` and network. Docker group membership already gives root-equivalent
+access to the host. The wrapper therefore adds no new privilege, but it is not a
+security boundary. The image is built in `image-output/x86.new`. Only after a
+successful build does that directory replace `image-output/x86`, deleting the
+previous image. A failed build leaves `x86.new` for inspection; remove it
+before trying again. Use `--output DIR` for another output directory.
+`--release-tag`, `--nomachine-deb` and `--nomachine-sha256` work as described
+below, and the player package is mounted read-only into the container. The
+build needs about 40 GiB of free space while both the old and new images exist.
+
+### With sudo
 
 Use a trusted native x86-64 Linux build machine with Python 3.12 or newer,
 network access, at least 40 GiB of free space, root privileges and these host
@@ -181,10 +208,24 @@ The shorter firmware display leaves less time to use its boot-selection menu.
 
 The image boots its default GRUB entry without displaying a menu or waiting,
 including after an interrupted boot. Use external rescue media if recovery
-requires selecting a different boot entry.
+requires selecting a different boot entry. GRUB uses a text console to avoid an
+extra display mode change, which can be slow on TVs.
+
+To shorten boots from USB media, new builds keep GPU drivers and GPU firmware
+(NVIDIA, AMD and Intel) out of the initramfs; the Plymouth hook would
+otherwise add over 100 MiB. The drivers load from the root filesystem, and
+the first console waits for udev (up to 20 seconds) before starting X, so the
+session does not start before the graphics driver is ready. The initramfs
+is compressed with zstd, which decompresses faster than the gzip fallback
+used when `zstd` is missing, and it skips the resume lookup because the image
+has no swap. Steam Link's Flatpak runtime is installed with only the default
+GL drivers. Otherwise the build host's proprietary NVIDIA driver could add an
+unused GL extension to the image.
 
 New builds use a PiDeck Plymouth splash while Linux starts. Firmware and
-VirtualBox screens before Linux starts are outside its control. Press Escape
+VirtualBox screens before Linux starts are outside its control. Because GPU
+drivers load after the initramfs, the splash may appear later; when booting
+in BIOS mode it may not appear until the graphics driver loads. Press Escape
 to switch to boot details, and use the system journal when diagnosing failures;
 the splash does not remove journal entries. Graphics-driver availability may
 affect the splash on physical hardware. The splash uses the default theme's
@@ -228,8 +269,10 @@ they retain matching filesystem identifiers.
 
 Some NVIDIA GPUs require `firmware-nvidia-graphics` for the Nouveau kernel
 driver. Without it, the kernel may report missing `nvidia/...` firmware and
-X may fail with `no screens found`. New builds include this package; existing
-images need the package installed and their initramfs regenerated.
+X may fail with `no screens found`. New builds include this package; older
+images need the package installed and their initramfs regenerated. Images
+that keep GPU drivers out of the initramfs only need the package; the
+regeneration step below is harmless for them.
 
 To repair an existing image, boot another trusted Linux system, connect the
 image disk, and mount its ext4 root partition. Identify it with `lsblk` and

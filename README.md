@@ -58,6 +58,14 @@ switching. Auto-connect defaults to on; switching defaults to off. PiDeck
 releases CEC before launching an application and restores a requested
 connection afterward. Kodi's CEC settings are separate.
 
+Applications with `cec: keyboard` instead keep PiDeck's CEC connection: the
+remote's arrows, OK and Back are sent to the application as arrow keys, Enter
+and Escape, and Play, Pause, Stop, Rewind and Fast-forward as media keys. The
+remote's Home (root menu) key closes the application and returns to PiDeck.
+The catalog's YouTube entry uses this mode, including YouTube installations
+made with earlier releases. Other applications default to `cec: release`. The
+key forwarding uses X11 XTest and needs no extra system packages.
+
 The adapter, TV, cabling and active local session must support CEC. The Debian
 libCEC backend only opens `/dev/cec0`, and some hardware cannot override its
 automatically detected HDMI address. Existing images need a one-time system
@@ -102,8 +110,9 @@ not the operating system or image dependencies.
 **Settings > Home screen** offers **YouTube** for installation. This is the
 independent [Red](https://flathub.org/en/apps/com.ktechpit.red) Flatpak, not
 an official YouTube application. Select it to install; PiDeck then adds it to
-the home screen and starts Red in TV mode. The installation needs internet and
-disk space. If Flatpak is absent, PiDeck requests an administrator password to
+the home screen and starts Red in TV mode. While it installs, the entry shows
+the current step, a progress bar and a busy indicator; select it again to
+cancel. The installation needs internet and disk space. If Flatpak is absent, PiDeck requests an administrator password to
 install the Flatpak system package; the account must be permitted to use
 `sudo`. Red and its runtimes are otherwise installed for the current user from
 Flathub, or an existing installation is reused. Errors are shown in Settings.

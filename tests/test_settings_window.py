@@ -15,11 +15,13 @@ from PySide6.QtWidgets import QApplication, QDialog, QLabel
 from pideck.application.settings import SettingsUpdate
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
+from pideck.application.ports.installation import InstallProgress, InstallStage
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
 from pideck.domain.input_settings import CecSettings
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
+from pideck.presentation.qt.install_row import InstallProgressRow, install_status_text
 from pideck.presentation.qt.settings_window import PasswordPrompt, SettingsWindow
 from tests.test_configuration import configuration_document
 from pideck.infrastructure.config.catalog import load_catalog
@@ -84,8 +86,44 @@ def test_catalog_item_installs_without_changing_visibility(application: QApplica
     assert requests == ["youtube", "youtube"]
     assert changes == []
     window.set_installing("youtube")
-    assert "Installing" in window._applications.currentItem().text()
+    item = window._applications.currentItem()
+    row = window._applications.itemWidget(item)
+    assert isinstance(row, InstallProgressRow)
+    assert item.text() == ""
+    assert row.title_label.text() == "Installing YouTube"
+    assert row.cancel_label.text() == "Select to cancel"
+    assert row.spinner.running
+    assert row.progress_bar.maximum() == 0
+    window.set_install_progress("youtube", InstallProgress(InstallStage.DOWNLOADING, 42, 2, 3))
+    assert row.progress_bar.maximum() == 100 and row.progress_bar.value() == 42
+    assert row.status_label.text() == "Step 2 of 3 · 42%"
+    window.set_install_progress("other", InstallProgress(InstallStage.FINISHING, 100))
+    assert row.progress_bar.value() == 42
+    window.apply_language("de")
+    assert row.title_label.text() == "YouTube wird installiert"
+    assert row.status_label.text() == "Schritt 2 von 3 · 42 %"
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert requests[-1] == "youtube"
+    assert changes == []
+    window.set_installing(None)
+    assert window._applications.itemWidget(item) is None
+    assert item.text() == "YouTube installieren"
     window.close()
+
+
+@pytest.mark.parametrize(
+    ("progress", "text"),
+    [
+        (InstallProgress(InstallStage.PREPARING), "Preparing..."),
+        (InstallProgress(InstallStage.INSTALLING_FLATPAK), "Installing Flatpak..."),
+        (InstallProgress(InstallStage.DOWNLOADING), "Starting download..."),
+        (InstallProgress(InstallStage.DOWNLOADING, 7, 1, 1), "Downloading · 7%"),
+        (InstallProgress(InstallStage.FINISHING, 100), "Finishing..."),
+    ],
+)
+def test_install_status_texts(progress: InstallProgress, text: str) -> None:
+    """Every installation stage has a readable status."""
+    assert install_status_text("en", progress) == text
 
 
 @pytest.mark.parametrize(("width", "height"), [(1280, 720), (1920, 1080)])

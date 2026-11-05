@@ -19,18 +19,30 @@ from pideck.application.session import (
     SessionState,
 )
 from pideck.application.settings import SettingsService, SettingsUpdate
-from pideck.application.catalog import register_application
+from pideck.application.catalog import effective_cec_mode, register_application
+from pideck.application.input_forwarding import InputForwardingService
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
 from pideck.application.ports.input import InputEvent
-from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, Configuration, WindowMode
+from pideck.application.ports.installation import InstallProgress
+from pideck.domain.configuration import (
+    ApplicationDefinition,
+    ApplicationProfile,
+    CecMode,
+    Configuration,
+    WindowMode,
+)
 from pideck.domain.errors import ConfigurationError, PowerError, ProcessError
 from pideck.domain.input_settings import CecSettings
 from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.build_info import installed_build_date
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.catalog import load_catalog
-from pideck.infrastructure.flatpak_installer import FlatpakInstaller, InstallationError
+from pideck.infrastructure.flatpak_installer import (
+    FlatpakInstaller,
+    InstallationCancelled,
+    InstallationError,
+)
 from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
@@ -47,6 +59,7 @@ from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDete
 from pideck.infrastructure.system_power import SystemPower
 from pideck.infrastructure.system_audio import PulseAudioGateway
 from pideck.infrastructure.x11_display import DisplayPreferences, X11DisplayGateway
+from pideck.infrastructure.x11_key_injector import X11KeyInjector
 from pideck.infrastructure.theme import FileThemeRepository
 
 if TYPE_CHECKING:
@@ -238,6 +251,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     settings_window: SettingsWindow | None = None
     installer: FlatpakInstaller | None = None
     installing_id: str | None = None
+    install_progress: InstallProgress | None = None
     try:
         catalog = load_catalog(asset_root.parent / "assets/catalog/applications.yaml")
         catalog_error: str | None = None
@@ -265,8 +279,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     update_bridge = PiDeckUpdateBridge()
     class InstallationBridge(QObject):
-        """Forward installer completion from its worker thread."""
+        """Forward installer progress and completion from its worker thread."""
 
+        progress = Signal(str, object)
+        cancelled = Signal(str)
         finished = Signal(str, object)
 
     installation_bridge = InstallationBridge()
@@ -327,7 +343,19 @@ def main(arguments: Sequence[str] | None = None) -> int:
         session_observer,
         visibility_detector,
         cec_adapter,
+        releases_input=lambda app: effective_cec_mode(app, catalog) is CecMode.RELEASE,
     )
+    key_injector = X11KeyInjector()
+    input_forwarding = InputForwardingService(
+        key_injector, session_service.stop, lambda app: effective_cec_mode(app, catalog),
+    )
+
+    def forward_cec_to_application(event: InputEvent) -> bool:
+        """Send CEC input to a running app that keeps PiDeck's adapter; report if consumed."""
+        return input_forwarding.handle(
+            event, session_service.snapshot,
+            pideck_has_focus=window.isVisible() or QApplication.activeWindow() is not None,
+        )
 
     class GamepadBridge(QObject):
         """Marshal input reader-thread events onto the Qt event loop."""
@@ -382,7 +410,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         def handle_cec_event(event: InputEvent, generation: int) -> None:
             if cec_adapter is not None and cec_adapter.accepts(generation):
-                handle_gamepad_event(event)
+                if not forward_cec_to_application(event):
+                    handle_gamepad_event(event)
 
         cec_bridge.event_received.connect(handle_cec_event, Qt.ConnectionType.QueuedConnection)
         cec_adapter.start(cec_bridge)
@@ -430,6 +459,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         session_service.close()
         update_service.close()
         gamepad_adapter.close()
+        key_injector.close()
         try:
             cec_adapter.close()
         except ProcessError:
@@ -572,6 +602,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.show_fullscreen()
         if installing_id is not None:
             settings_window.set_installing(installing_id)
+            if install_progress is not None:
+                settings_window.set_install_progress(installing_id, install_progress)
         if catalog_error is not None:
             settings_window.show_error(catalog_error)
 
@@ -585,7 +617,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     def handle_install_request(application_id: str) -> None:
         """Start or cancel a catalog install without running package commands in Qt."""
-        nonlocal installer, installing_id
+        nonlocal installer, installing_id, install_progress
         if settings_window is None:
             return
         if installer is not None:
@@ -614,11 +646,18 @@ def main(arguments: Sequence[str] | None = None) -> int:
         operation = FlatpakInstaller()
         installer = operation
         installing_id = application_id
+        install_progress = None
         settings_window.set_installing(application_id)
 
         def run_install() -> None:
             try:
-                operation.install(definition, password)
+                operation.install(
+                    definition, password,
+                    lambda progress: installation_bridge.progress.emit(application_id, progress),
+                )
+            except InstallationCancelled:
+                installation_bridge.cancelled.emit(application_id)
+                return
             except InstallationError as error:
                 installation_bridge.finished.emit(application_id, str(error))
                 return
@@ -630,11 +669,31 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         threading.Thread(target=run_install, name="pideck-application-install", daemon=True).start()
 
-    def finish_install(application_id: str, error: str | None) -> None:
-        """Persist a successful installation and refresh launcher and settings."""
-        nonlocal installer, installing_id, current_configuration
+    def show_install_progress(application_id: str, progress: InstallProgress) -> None:
+        """Remember and display the latest progress of the active installation."""
+        nonlocal install_progress
+        if application_id != installing_id:
+            return
+        install_progress = progress
+        if settings_window is not None:
+            settings_window.set_install_progress(application_id, progress)
+
+    def cancel_install_finished(application_id: str) -> None:
+        """Restore the installable entry after a user-requested cancellation."""
+        nonlocal installer, installing_id, install_progress
         installer = None
         installing_id = None
+        install_progress = None
+        dependencies.logger.info("Application installation cancelled application=%s", application_id)
+        if settings_window is not None:
+            settings_window.set_installing(None)
+
+    def finish_install(application_id: str, error: str | None) -> None:
+        """Persist a successful installation and refresh launcher and settings."""
+        nonlocal installer, installing_id, install_progress, current_configuration
+        installer = None
+        installing_id = None
+        install_progress = None
         active = settings_window is not None and settings_window.isVisible()
         if error is not None:
             dependencies.logger.warning("Application installation failed: %s", error)
@@ -662,6 +721,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             if settings_window is not None:
                 settings_window._select_page(1)
 
+    installation_bridge.progress.connect(show_install_progress, Qt.ConnectionType.QueuedConnection)
+    installation_bridge.cancelled.connect(cancel_install_finished, Qt.ConnectionType.QueuedConnection)
     installation_bridge.finished.connect(finish_install, Qt.ConnectionType.QueuedConnection)
 
     def open_network_window() -> None:
