@@ -75,3 +75,20 @@ def test_discovery_rejects_malformed_response(monkeypatch) -> None:
     monkeypatch.setattr(pideck_releases, "_read_page", lambda _: ["bad entry"])
     with pytest.raises(ReleaseCheckError, match="Invalid release"):
         pideck_releases.find_latest_release()
+
+
+def test_discovery_collects_bounded_release_notes(monkeypatch) -> None:
+    """Notes of stable releases are kept newest first without control characters."""
+    monkeypatch.setattr(pideck_releases, "_read_page", lambda _: [
+        _release("v1.0.0", body="- old"),
+        _release("v1.2.0", body="- newest\r\n\x1b[31mred\x07"),
+        _release("v1.1.0", body=None),
+        _release("v2.0.0", prerelease=True, body="- beta"),
+        _release("v1.3.0", draft=True, body="- draft"),
+    ])
+    release = pideck_releases.find_latest_release()
+    assert release.version == "1.2.0"
+    assert [(note.version, note.text) for note in release.notes] == [
+        ("1.2.0", "- newest\n[31mred"), ("1.1.0", ""), ("1.0.0", "- old"),
+    ]
+    assert len(pideck_releases._clean_notes("x" * 20000)) == pideck_releases._MAX_NOTES_CHARACTERS

@@ -144,3 +144,41 @@ def test_rollback_remains_visible_when_network_is_unavailable() -> None:
     assert message is not None
     assert "rolled back" in message
     assert "offline" in message
+
+
+def test_available_update_carries_notes_of_newer_releases() -> None:
+    """Only notes after the installed version up to the available one are shown."""
+    from pideck.application.pideck_updates import ReleaseNote
+
+    finished = threading.Event()
+    notes = (
+        ReleaseNote("1.3.0", "- future"), ReleaseNote("1.2.0", "- latest"),
+        ReleaseNote("1.1.0", "- middle"), ReleaseNote("1.0.0", "- installed"), ReleaseNote("1.1.5", " "),
+    )
+    service = PiDeckUpdateService(
+        "1.0.0", lambda: SimpleNamespace(version="1.2.0", notes=notes), version_key,
+        lambda info: finished.set() if info.status is PiDeckUpdateStatus.AVAILABLE else None,
+        prepare=lambda version: None,
+    )
+    assert service.check_async()
+    assert finished.wait(5)
+    assert [note.version for note in service.state.release_notes] == ["1.2.0", "1.1.0"]
+    pending = threading.Event()
+    service._on_change = lambda info: pending.set() if info.status is PiDeckUpdateStatus.PENDING else None
+    assert service.prepare_async()
+    assert pending.wait(5)
+    assert [note.version for note in service.state.release_notes] == ["1.2.0", "1.1.0"]
+    service.close()
+
+
+def test_releases_without_notes_still_report_updates() -> None:
+    """Older release metadata without notes keeps working."""
+    finished = threading.Event()
+    service = PiDeckUpdateService(
+        "1.0.0", lambda: SimpleNamespace(version="1.1.0"), version_key,
+        lambda info: finished.set() if info.status is PiDeckUpdateStatus.AVAILABLE else None,
+    )
+    assert service.check_async()
+    assert finished.wait(5)
+    assert service.state.release_notes == ()
+    service.close()

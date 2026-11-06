@@ -21,6 +21,7 @@ jobs:
         run: |
           set -eu
           python3 image/update_bundle.py --tag "$GITHUB_REF_NAME" --output release-assets
+          python3 image/release_notes.py --tag "$GITHUB_REF_NAME" --output release-notes.md
 
       - name: Publish stable release
         env:
@@ -30,4 +31,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             release-assets/pideck-update.tar \
             release-assets/pideck-update.json \
-            --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+            --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md

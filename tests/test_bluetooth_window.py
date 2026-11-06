@@ -155,7 +155,7 @@ def test_bluetooth_entry_supports_controller(application: QApplication) -> None:
     requests: list[bool] = []
     window.bluetooth_requested.connect(lambda: requests.append(True))
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     window._bluetooth_row.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert requests == [True]

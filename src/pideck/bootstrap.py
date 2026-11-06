@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 import threading
 import time
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Callable, Sequence
 
 from pideck.application.dependencies import ApplicationDependencies
 from pideck.application.power import shutdown
@@ -21,11 +21,13 @@ from pideck.application.session import (
 from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.application.app_management import ApplicationManagementService
 from pideck.application.catalog import catalog_window_modes, effective_cec_mode
+from pideck.application.home_layout import move_application, set_visibility
 from pideck.application.input_forwarding import InputForwardingService
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
 from pideck.application.ports.input import InputEvent
 from pideck.application.ports.installation import InstallProgress
+from pideck.application.ports.packages import PackageOperationError
 from pideck.domain.catalog import CatalogEntry
 from pideck.domain.configuration import (
     ApplicationDefinition,
@@ -644,6 +646,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.application_install_requested.connect(handle_install_request)
         settings_window.application_remove_requested.connect(handle_remove_request)
+        settings_window.application_visibility_requested.connect(handle_visibility_request)
+        settings_window.application_move_requested.connect(handle_move_request)
         settings_window.finished.connect(lambda _: window.show_launcher())
         settings_window.finished.connect(cancel_install_on_close)
         window.hide()
@@ -716,7 +720,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     def finish_application_operation(application_id: str, removing: bool, error: str | None) -> None:
         """Persist an installed or removed application and refresh launcher and settings."""
-        nonlocal current_configuration
         active = settings_window is not None and settings_window.isVisible()
         if error is not None:
             if active and settings_window is not None:
@@ -736,13 +739,50 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 settings_window.set_application_busy(None)
                 settings_window.show_error(str(save_error))
             return
+        apply_application_change(updated)
+        if settings_window is not None:
+            settings_window.set_application_busy(None)
+
+    def apply_application_change(updated: Configuration) -> None:
+        """Adopt a saved application change in the launcher and in open settings."""
+        nonlocal current_configuration
         current_configuration = updated
         theme = dependencies.theme_repository.get(updated.home.theme)
         window.apply_configuration(updated, theme)
-        if active:
-            handle_settings_request()
+        if settings_window is not None:
+            settings_window.set_configuration(updated, application_manager.statuses(updated))
+
+    def save_application_layout(change: Callable[[Configuration], Configuration]) -> None:
+        """Persist a home-screen visibility or order change requested in settings."""
+        from pideck.presentation.qt.localization import tr
+
+        try:
+            updated = change(current_configuration)
+            if updated is current_configuration:
+                return
+            dependencies.configuration_repository.save(updated)
+        except (ConfigurationError, PackageOperationError) as error:
+            dependencies.logger.warning("Unable to change application layout: %s", error)
             if settings_window is not None:
-                settings_window.select_applications_page()
+                message = str(error)
+                if "At least one application" in message:
+                    message = tr(current_configuration.settings.language, "at_least_one")
+                settings_window.show_error(message)
+            return
+        apply_application_change(updated)
+
+    def handle_visibility_request(application_id: str, visible: bool) -> None:
+        """Show or hide a tile; an installed but unlisted catalog app is added first."""
+        def change(configuration: Configuration) -> Configuration:
+            if any(item.identifier == application_id for item in configuration.applications):
+                return set_visibility(configuration, application_id, visible)
+            return application_manager.registered(configuration, application_id)
+
+        save_application_layout(change)
+
+    def handle_move_request(application_id: str, delta: int) -> None:
+        """Move a tile in the home-screen order."""
+        save_application_layout(lambda configuration: move_application(configuration, application_id, delta))
 
     application_operations.progress.connect(show_install_progress)
     application_operations.cancelled.connect(cancel_install_finished)

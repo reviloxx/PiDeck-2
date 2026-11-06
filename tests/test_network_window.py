@@ -155,12 +155,12 @@ def test_settings_network_entry_is_optional_and_controller_accessible(applicatio
     requested: list[bool] = []
     window.network_requested.connect(lambda: requested.append(True))
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     application.processEvents()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert requested == [True]
     window.apply_language("de")
-    assert window._nav_buttons[3].text() == "Netzwerk"
+    assert window._nav_buttons[2].text() == "Netzwerk"
     window.close()
 
 
@@ -172,7 +172,7 @@ def test_system_category_includes_network_and_scrolls_to_focused_row(application
     window.network_requested.connect(lambda: requested.append(True))
     window.resize(1280, 720)
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     application.processEvents()
     assert window.width() <= 1280
     assert window.height() <= 720

@@ -13,9 +13,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
     QScrollArea,
     QStackedWidget,
@@ -29,22 +26,21 @@ from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStat
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.installation import InstallProgress
 from pideck.application.updates import ApplicationUpdateService
-from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import Configuration
 from pideck.domain.input_settings import CecSettings
 from pideck.domain.keyboard_layout import KeyboardLayout
 from pideck.domain.theme import ThemeDefinition
-from pideck import __version__
 
 from .theme import SettingsComboBox, apply_theme, configure_combo_box
-from .wallpaper import WallpaperDialog, WallpaperWidget
+from .wallpaper import WallpaperWidget
 from .localization import format_timestamp, tr
-from .applications_page import ApplicationsList
-from .power_dialog import ConfirmationDialog, PowerDialog
-from .spinner import BusySpinner
-from .toggle_switch import ToggleSwitch
+from .applications_page import ApplicationsPage
+from .release_notes_view import ReleaseNotesView
+from .update_rows import PasswordPrompt, PiDeckUpdateRow, UpdateRow
 
-_UPDATE_SPINNER_SIZE = 22
+__all__ = ["PasswordPrompt", "PiDeckUpdateRow", "SettingsWindow", "UpdateRow"]
+from .power_dialog import ConfirmationDialog, PowerDialog
+from .toggle_switch import ToggleSwitch
 
 _ControlT = TypeVar("_ControlT", bound=QWidget)
 
@@ -105,286 +101,11 @@ class ActionSettingsRow(SettingsRow):
         super().mouseReleaseEvent(event)
 
 
-class UpdateRow(QFrame):
-    """Focusable update entry with status, action, and loading spinner."""
-
-    activation_requested = Signal()
-    navigation_requested = Signal(object)
-
-    def __init__(
-        self,
-        application_id: str,
-        application_name: str,
-        parent: QWidget | None = None,
-    ) -> None:
-        """Create one update entry for a configured application."""
-        super().__init__(parent)
-        self.application_id = application_id
-        self.application_name = application_name
-        self.setObjectName("update_row")
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
-        self._layout = layout
-        layout.setContentsMargins(20, 14, 20, 14)
-        name = QLabel(application_name, self)
-        name.setObjectName("settings_label")
-        name.setWordWrap(True)
-        self.status_label = QLabel(tr("en", "checking"), self)
-        self.status_label.setObjectName("update_status")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.status_label.setWordWrap(True)
-        self.version_label = QLabel("", self)
-        self.version_label.setObjectName("settings_hint")
-        self.version_label.setWordWrap(True)
-        self.build_label = QLabel("", self)
-        self.build_label.setObjectName("settings_hint")
-        self.build_label.setWordWrap(True)
-        self.spinner = BusySpinner(_UPDATE_SPINNER_SIZE, self)
-        self.spinner.setObjectName("update_spinner")
-        self.spinner.set_running(False)
-        self.action = QPushButton("", self)
-        self.action.setObjectName("update_action")
-        self.action.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.action.clicked.connect(self.activation_requested)
-        # Fixed stretch ratios keep the name, version and status columns aligned across rows.
-        layout.setSpacing(16)
-        layout.addWidget(name, stretch=2)
-        version_layout = QVBoxLayout()
-        version_layout.addWidget(self.version_label)
-        version_layout.addWidget(self.build_label)
-        layout.addLayout(version_layout, stretch=4)
-        layout.addWidget(self.status_label, stretch=3)
-        layout.addWidget(self.spinner)
-        layout.addWidget(self.action)
-        self.info = UpdateInfo(application_id, application_name, UpdateStatus.CHECKING)
-        self.last_available_info: UpdateInfo | None = None
-        self._current_version: str | None = None
-        self._current_build_date: str | None = None
-        self._installed_commit: str | None = None
-        self._language = "en"
-
-    def set_compact(self, compact: bool) -> None:
-        """Stack update details when the settings content is narrow."""
-        self._layout.setDirection(
-            QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight
-        )
-
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Activate or cancel this update with Enter or Space."""
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
-            self.activation_requested.emit()
-            event.accept()
-            return
-        if event.key() in (
-            Qt.Key.Key_Left,
-            Qt.Key.Key_Right,
-            Qt.Key.Key_Up,
-            Qt.Key.Key_Down,
-        ):
-            self.navigation_requested.emit(event.key())
-            event.accept()
-            return
-        super().keyPressEvent(event)
-
-    def set_info(self, info: UpdateInfo) -> None:
-        """Render one update status without changing row geometry."""
-        self.info = info
-        if info.status in (UpdateStatus.UP_TO_DATE, UpdateStatus.AVAILABLE, UpdateStatus.UNSUPPORTED) or (
-            info.current_version or info.installed_commit or info.build_date
-        ):
-            self._current_version = info.current_version
-            self._current_build_date = info.build_date
-            self._installed_commit = info.installed_commit
-        elif info.status is UpdateStatus.UPDATED:
-            self._current_version = None
-            self._current_build_date = None
-            self._installed_commit = None
-        if info.status is UpdateStatus.AVAILABLE:
-            self.last_available_info = info
-        labels = {
-            UpdateStatus.CHECKING: tr(self._language, "checking"),
-            UpdateStatus.UP_TO_DATE: tr(self._language, "up_to_date"),
-            UpdateStatus.AVAILABLE: (
-                tr(self._language, "update_available_version", version=info.available_version)
-                if info.available_version
-                else tr(self._language, "update_available")
-            ),
-            UpdateStatus.UPDATING: tr(self._language, "updating"),
-            UpdateStatus.PREPARING: tr(self._language, "preparing_update"),
-            UpdateStatus.RESTART_REQUIRED: tr(self._language, "restart_required"),
-            UpdateStatus.UPDATED: tr(self._language, "updated"),
-            UpdateStatus.PASSWORD_REQUIRED: tr(self._language, "authentication_required"),
-            UpdateStatus.UNSUPPORTED: tr(self._language, "not_supported"),
-            UpdateStatus.FAILED: info.message or tr(self._language, "update_failed"),
-            UpdateStatus.CANCELLED: tr(self._language, "cancelled"),
-        }
-        self.status_label.setText(labels[info.status])
-        if self._installed_commit and not self._current_version:
-            self.version_label.setText(tr(
-                self._language, "installed_commit", commit=self._installed_commit,
-            ))
-        else:
-            self.version_label.setText(tr(
-                self._language, "installed_version",
-                version=self._current_version or tr(self._language, "unknown"),
-            ))
-        self.build_label.setVisible(bool(self._current_build_date))
-        self.build_label.setText(
-            tr(self._language, "build_date", date=self._current_build_date)
-            if self._current_build_date else ""
-        )
-        updating = info.status is UpdateStatus.UPDATING
-        busy = updating or info.status is UpdateStatus.PREPARING
-        self.spinner.set_running(busy)
-        self.action.setText(
-            tr(self._language, "cancel")
-            if updating
-            else tr(self._language, "update")
-            if info.status is UpdateStatus.AVAILABLE
-            else ""
-        )
-        actionable = info.status in (UpdateStatus.AVAILABLE, UpdateStatus.UPDATING)
-        self.action.setEnabled(actionable)
-        self.action.setVisible(actionable)
-
-    def set_language(self, language: str) -> None:
-        """Re-render the current update status in the selected language."""
-        self._language = language if language in {"en", "de"} else "en"
-        self.set_info(self.info)
-
-
-class PiDeckUpdateRow(UpdateRow):
-    """Render the image's own update state separately from configured applications."""
-
-    def __init__(self, info: PiDeckUpdateInfo, parent: QWidget) -> None:
-        """Create a dedicated row for PiDeck's installed release."""
-        self._pideck_info = info
-        super().__init__("", "PiDeck", parent)
-        self.build_label.hide()
-        self.set_pideck_info(info)
-
-    def set_pideck_info(self, info: PiDeckUpdateInfo) -> None:
-        """Display release status and retain failure details for the user."""
-        self._pideck_info = info
-        statuses = {
-            PiDeckUpdateStatus.UNSUPPORTED: UpdateStatus.UNSUPPORTED,
-            PiDeckUpdateStatus.CHECKING: UpdateStatus.CHECKING,
-            PiDeckUpdateStatus.UP_TO_DATE: UpdateStatus.UP_TO_DATE,
-            PiDeckUpdateStatus.AVAILABLE: UpdateStatus.AVAILABLE,
-            PiDeckUpdateStatus.PREPARING: UpdateStatus.PREPARING,
-            PiDeckUpdateStatus.PENDING: UpdateStatus.RESTART_REQUIRED,
-            PiDeckUpdateStatus.FAILED: UpdateStatus.FAILED,
-        }
-        self.set_info(UpdateInfo(
-            "", "PiDeck", statuses[info.status],
-            info.current_version or __version__, info.available_version, info.message,
-        ))
-        if info.status is PiDeckUpdateStatus.AVAILABLE and info.message:
-            self.status_label.setText(f"{self.status_label.text()} - {info.message}")
-        if info.status is PiDeckUpdateStatus.FAILED:
-            self.action.setText(tr(self._language, "retry"))
-            self.action.setEnabled(True)
-            self.action.setVisible(True)
-
-    def set_language(self, language: str) -> None:
-        """Re-render PiDeck update state when the language changes."""
-        self._language = language if language in {"en", "de"} else "en"
-        self.set_pideck_info(self._pideck_info)
-
-
-class PasswordPrompt(WallpaperDialog):
-    """Themed, cancellable sudo password prompt for package updates."""
-
-    def __init__(
-        self,
-        application_name: str,
-        theme: ThemeDefinition,
-        parent: QWidget,
-        language: str = "en",
-        installing: bool = False,
-    ) -> None:
-        """Create a modal password prompt without persisting the secret."""
-        super().__init__(parent)
-        self._language = language
-        self.setWindowTitle(tr(language, "authentication_required"))
-        self.setObjectName("password_prompt")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(36, 30, 36, 30)
-        layout.setSpacing(16)
-        title = QLabel(tr(language, "system_update"), self)
-        title.setObjectName("settings_heading")
-        message = QLabel(tr(language, "install_password_message" if installing else "password_message", name=application_name), self)
-        message.setObjectName("settings_description")
-        message.setWordWrap(True)
-        self.password_input = QLineEdit(self)
-        self.password_input.setObjectName("password_input")
-        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.setPlaceholderText(tr(language, "password_placeholder"))
-        self.password_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.password_input.installEventFilter(self)
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        self.cancel_button = QPushButton(tr(language, "cancel"), self)
-        self.cancel_button.setObjectName("settings_back")
-        self.cancel_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.cancel_button.clicked.connect(self.reject)
-        self.continue_button = QPushButton(tr(language, "continue"), self)
-        self.continue_button.setObjectName("settings_footer")
-        self.continue_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.continue_button.clicked.connect(self.accept)
-        self.cancel_button.installEventFilter(self)
-        self.continue_button.installEventFilter(self)
-        buttons.addWidget(self.cancel_button)
-        buttons.addWidget(self.continue_button)
-        layout.addWidget(title)
-        layout.addWidget(message)
-        layout.addWidget(self.password_input)
-        layout.addLayout(buttons)
-        apply_theme(self, theme)
-        self.password_input.setFocus(Qt.FocusReason.OtherFocusReason)
-
-    def eventFilter(self, watched: object, event: QEvent) -> bool:
-        """Provide predictable D-pad navigation for password entry."""
-        if event.type() != QEvent.Type.KeyPress:
-            return super().eventFilter(watched, event)
-        key = event.key()
-        if key == Qt.Key.Key_Escape:
-            self.reject()
-            return True
-        if watched is self.password_input:
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self.accept()
-                return True
-            if key == Qt.Key.Key_Down:
-                self.continue_button.setFocus(Qt.FocusReason.OtherFocusReason)
-                return True
-        elif watched is self.cancel_button:
-            if key == Qt.Key.Key_Right:
-                self.continue_button.setFocus(Qt.FocusReason.OtherFocusReason)
-                return True
-            if key == Qt.Key.Key_Up:
-                self.password_input.setFocus(Qt.FocusReason.OtherFocusReason)
-                return True
-        elif watched is self.continue_button:
-            if key == Qt.Key.Key_Left:
-                self.cancel_button.setFocus(Qt.FocusReason.OtherFocusReason)
-                return True
-            if key == Qt.Key.Key_Up:
-                self.password_input.setFocus(Qt.FocusReason.OtherFocusReason)
-                return True
-        return super().eventFilter(watched, event)
-
-    def password(self) -> str:
-        """Return the entered password for immediate one-shot use."""
-        return self.password_input.text()
-
-
 class SettingsWindow(QDialog):
     """Edit launcher settings in a fullscreen, controller-friendly menu."""
 
     settings_submitted = Signal(object)
     settings_changed = Signal(object)
-    update_status = Signal(object)
     pideck_update_requested = Signal()
     pideck_check_requested = Signal()
     network_requested = Signal()
@@ -396,6 +117,8 @@ class SettingsWindow(QDialog):
     power_requested = Signal(str)
     application_install_requested = Signal(str)
     application_remove_requested = Signal(str)
+    application_visibility_requested = Signal(str, bool)
+    application_move_requested = Signal(str, int)
     input_settings_changed = Signal(object)
     keyboard_layout_changed = Signal(object)
     cec_connection_requested = Signal(bool)
@@ -427,33 +150,22 @@ class SettingsWindow(QDialog):
         self._pideck_info = pideck_update_info
         self._build_date = build_date
         self._network_enabled = network_enabled
-        self._pideck_page = 3 if pideck_update_info is not None else None
+        self._pideck_page = 2 if pideck_update_info is not None else None
         self._network_page = (
-            3 + int(self._pideck_page is not None)
+            2 + int(self._pideck_page is not None)
             if network_enabled and not system_enabled else None
         )
         self._system_page = (
-            3 + int(self._pideck_page is not None) + int(self._network_page is not None) if system_enabled else None
+            2 + int(self._pideck_page is not None) + int(self._network_page is not None) if system_enabled else None
         )
         self._input_settings = input_settings
         self._input_page = (
-            3 + int(self._pideck_page is not None) + int(self._network_page is not None)
+            2 + int(self._pideck_page is not None) + int(self._network_page is not None)
             + int(self._system_page is not None)
             if input_settings is not None else None
         )
-        self._apps_page = (
-            3 + int(self._pideck_page is not None) + int(self._network_page is not None)
-            + int(self._system_page is not None) + int(self._input_page is not None)
-            if catalog_statuses is not None else None
-        )
-        self._catalog_list: ApplicationsList | None = None
         self._pideck_row: PiDeckUpdateRow | None = None
         self._power_dialog: ConfirmationDialog | None = None
-        self._update_rows: dict[str, UpdateRow] = {}
-        self._rechecking_after_cancel: set[str] = set()
-        self._update_applications = {
-            application.identifier: application for application in configuration.applications
-        }
         self._nav_buttons: list[QPushButton] = []
         self._page_controls: dict[int, list[QWidget]] = {}
         self._appearance_row_layouts: list[QBoxLayout] = []
@@ -467,23 +179,6 @@ class SettingsWindow(QDialog):
         self._reduced_motion.toggled.connect(self._emit_current_settings)
         self._show_clock.toggled.connect(self._emit_current_settings)
         self._language_combo.currentIndexChanged.connect(self._handle_language_changed)
-        self._applications.itemChanged.connect(self._handle_application_item_changed)
-        self.update_status.connect(self._handle_update_status)
-        if self._update_service is not None:
-            self._update_service.check_async(
-                tuple(self._configuration.applications),
-                lambda info: self.update_status.emit(info),
-            )
-        else:
-            for application_id in self._update_rows:
-                self._update_rows[application_id].set_info(
-                    UpdateInfo(
-                        application_id,
-                        self._update_applications[application_id].name,
-                        UpdateStatus.UNSUPPORTED,
-                        message="Update service unavailable",
-                    )
-                )
         self._select_page(0, focus_first=False)
         self.apply_language(self._language)
         self._nav_buttons[0].setFocus(Qt.FocusReason.OtherFocusReason)
@@ -498,8 +193,7 @@ class SettingsWindow(QDialog):
         )
         for layout in self._appearance_row_layouts:
             layout.setDirection(direction)
-        for row in self._update_rows.values():
-            row.set_compact(direction == QBoxLayout.Direction.TopToBottom)
+        self._apps.set_compact(direction == QBoxLayout.Direction.TopToBottom)
         if self._pideck_row is not None:
             self._pideck_row.set_compact(direction == QBoxLayout.Direction.TopToBottom)
 
@@ -534,8 +228,7 @@ class SettingsWindow(QDialog):
         self._pages = QStackedWidget(content)
         self._pages.setObjectName("settings_pages")
         self._pages.addWidget(self._build_appearance_page())
-        self._pages.addWidget(self._build_home_page())
-        self._pages.addWidget(self._build_updates_page())
+        self._pages.addWidget(self._build_applications_page())
         if self._pideck_page is not None:
             self._pages.addWidget(self._build_pideck_update_page())
         if self._network_page is not None:
@@ -544,8 +237,6 @@ class SettingsWindow(QDialog):
             self._pages.addWidget(self._build_system_page())
         if self._input_page is not None:
             self._pages.addWidget(self._build_input_page())
-        if self._apps_page is not None:
-            self._pages.addWidget(self._build_applications_page())
         content_layout.addWidget(self._pages, stretch=1)
 
         self._error_label = QLabel("", content)
@@ -572,8 +263,7 @@ class SettingsWindow(QDialog):
         layout.addWidget(subtitle)
         layout.addSpacing(12)
         self._add_nav_button(layout, tr(self._language, "appearance"), 0)
-        self._add_nav_button(layout, tr(self._language, "home_screen"), 1)
-        self._add_nav_button(layout, tr(self._language, "updates"), 2)
+        self._add_nav_button(layout, tr(self._language, "applications"), 1)
         if self._pideck_page is not None:
             self._add_nav_button(layout, tr(self._language, "pideck_updates"), self._pideck_page)
         if self._network_page is not None:
@@ -582,8 +272,6 @@ class SettingsWindow(QDialog):
             self._add_nav_button(layout, tr(self._language, "system"), self._system_page)
         if self._input_page is not None:
             self._add_nav_button(layout, tr(self._language, "input"), self._input_page)
-        if self._apps_page is not None:
-            self._add_nav_button(layout, tr(self._language, "applications"), self._apps_page)
         layout.addStretch()
         self._back_button = QPushButton(tr(self._language, "back"), sidebar)
         self._back_button.setObjectName("settings_back")
@@ -687,62 +375,31 @@ class SettingsWindow(QDialog):
         self._page_controls[0] = [theme_row, motion_row, clock_row, language_row]
         return self._appearance_scroll
 
-    def _build_home_page(self) -> QWidget:
-        """Create the home-screen application visibility list."""
-        page = QWidget(self)
-        layout = self._page_layout(page)
-        self._applications = QListWidget(page)
-        self._applications.setObjectName("settings_applications")
-        self._applications.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._applications.installEventFilter(self)
-        visible_ids = set(self._configuration.home.visible_applications)
-        all_visible = not visible_ids
-        for application in self._configuration.applications:
-            item = QListWidgetItem(application.name, self._applications)
-            item.setData(Qt.ItemDataRole.UserRole, application.identifier)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(
-                Qt.CheckState.Checked
-                if all_visible or application.identifier in visible_ids
-                else Qt.CheckState.Unchecked
-            )
-        layout.addWidget(self._applications, stretch=1)
-        self._page_controls[1] = [self._applications]
-        return page
-
     def _build_applications_page(self) -> QWidget:
-        """Create the install/remove list of every supported application."""
-        assert self._apps_page is not None and self._catalog_statuses is not None
-        page = QWidget(self)
-        layout = self._page_layout(page)
-        catalog = ApplicationsList(self._catalog_statuses, self._language, self._theme.colors["primary"], page)
-        catalog.installEventFilter(self)
-        catalog.install_requested.connect(self.application_install_requested.emit)
-        catalog.cancel_requested.connect(self.application_install_requested.emit)
-        catalog.remove_requested.connect(self._confirm_removal)
-        self._catalog_list = catalog
-        layout.addWidget(catalog, stretch=1)
-        self._page_controls[self._apps_page] = [catalog]
+        """Create the single page that manages every application."""
+        page = ApplicationsPage(
+            self._configuration, self._catalog_statuses or (), self._theme, self._language,
+            self._update_service, self,
+        )
+        page.install_requested.connect(self.application_install_requested.emit)
+        page.remove_requested.connect(self.application_remove_requested.emit)
+        page.visibility_requested.connect(self.application_visibility_requested.emit)
+        page.move_requested.connect(self.application_move_requested.emit)
+        page.navigation_requested.connect(self._handle_update_navigation)
+        page.rows_changed.connect(self._refresh_application_controls)
+        for row in page.rows():
+            row.installEventFilter(self)
+        self._apps = page
+        self._page_controls[1] = list(page.rows())
         return page
 
-    def _build_updates_page(self) -> QWidget:
-        """Create one update entry for every configured application."""
-        self._update_scroll, page = self._scroll_page()
-        layout = self._page_layout(page)
-        controls: list[QWidget] = []
-        for application in self._configuration.applications:
-            row = UpdateRow(application.identifier, application.name, page)
-            row.activation_requested.connect(
-                lambda application_id=application.identifier: self._activate_update(application_id)
-            )
-            row.navigation_requested.connect(self._handle_update_navigation)
+    def _refresh_application_controls(self) -> None:
+        """Track rebuilt application rows for keyboard and controller navigation."""
+        if not hasattr(self, "_apps"):
+            return
+        self._page_controls[1] = list(self._apps.rows())
+        for row in self._page_controls[1]:
             row.installEventFilter(self)
-            self._update_rows[application.identifier] = row
-            controls.append(row)
-            layout.addWidget(row)
-        layout.addStretch()
-        self._page_controls[2] = controls
-        return self._update_scroll
 
     def _build_pideck_update_page(self) -> QWidget:
         """Create the PiDeck release page independently of application updates."""
@@ -758,6 +415,13 @@ class SettingsWindow(QDialog):
         self._build_date_label = QLabel(page)
         self._build_date_label.setObjectName("settings_hint")
         layout.addWidget(self._build_date_label)
+        self._release_notes_title = QLabel(page)
+        self._release_notes_title.setObjectName("settings_label")
+        layout.addWidget(self._release_notes_title)
+        self._release_notes = ReleaseNotesView(page)
+        self._release_notes.installEventFilter(self)
+        self._release_notes.navigation_requested.connect(self._handle_update_navigation)
+        layout.addWidget(self._release_notes, stretch=1)
         self._pideck_check_button = QPushButton(page)
         self._pideck_check_button.setObjectName("settings_footer")
         self._pideck_check_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -765,8 +429,11 @@ class SettingsWindow(QDialog):
         self._pideck_check_button.clicked.connect(self._request_pideck_check)
         layout.addWidget(self._pideck_check_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addStretch()
-        self._page_controls[self._pideck_page] = [self._pideck_row, self._pideck_check_button]
+        self._page_controls[self._pideck_page] = [
+            self._pideck_row, self._release_notes, self._pideck_check_button,
+        ]
         self._set_pideck_check_enabled(self._pideck_info)
+        self._show_release_notes(self._pideck_info)
         return self._pideck_scroll
 
     def _build_network_page(self) -> QWidget:
@@ -1019,19 +686,16 @@ class SettingsWindow(QDialog):
     def _select_page(self, index: int, focus_first: bool = True) -> None:
         """Select a category and update active styling and content."""
         if index != self._current_page:
-            self._clear_home_selection()
             self._clear_error()
         self._current_page = index
         self._pages.setCurrentIndex(index)
         page_titles = {
             0: tr(self._language, "appearance"),
-            1: tr(self._language, "home_screen"),
-            2: tr(self._language, "updates"),
+            1: tr(self._language, "applications"),
         }
         page_descriptions = {
             0: tr(self._language, "appearance_description"),
-            1: tr(self._language, "home_description"),
-            2: tr(self._language, "updates_description"),
+            1: tr(self._language, "applications_description"),
         }
         if self._pideck_page is not None:
             page_titles[self._pideck_page] = tr(self._language, "pideck_updates")
@@ -1045,9 +709,6 @@ class SettingsWindow(QDialog):
         if self._input_page is not None:
             page_titles[self._input_page] = tr(self._language, "input")
             page_descriptions[self._input_page] = tr(self._language, "input_description")
-        if self._apps_page is not None:
-            page_titles[self._apps_page] = tr(self._language, "applications")
-            page_descriptions[self._apps_page] = tr(self._language, "applications_description")
         self._page_title.setText(page_titles[index])
         self._page_description.setText(
             page_descriptions[index]
@@ -1072,18 +733,7 @@ class SettingsWindow(QDialog):
         """Focus the first usable control on the selected page."""
         controls = self._page_controls.get(self._current_page, [])
         if controls:
-            if self._current_page == 1:
-                self._applications.setCurrentRow(0)
-            elif self._catalog_list is not None and controls[0] is self._catalog_list:
-                self._catalog_list.setCurrentRow(0)
             controls[0].setFocus(Qt.FocusReason.OtherFocusReason)
-
-    def _clear_home_selection(self) -> None:
-        """Remove Home screen list selection while keeping its check states."""
-        for widget in (getattr(self, "_applications", None), self._catalog_list):
-            if widget is not None:
-                widget.clearSelection()
-                widget.setCurrentRow(-1)
 
     def _focus_selected_nav(self) -> None:
         """Return focus to the active category button."""
@@ -1125,6 +775,9 @@ class SettingsWindow(QDialog):
             return
         if self._power_dialog is not None:
             self._power_dialog.handle_input(event)
+            return
+        if self._apps.dialog is not None:
+            self._apps.dialog.handle_input(event)
             return
         dropdown = self._open_dropdown()
         if dropdown is not None:
@@ -1169,19 +822,13 @@ class SettingsWindow(QDialog):
                 if key == Qt.Key.Key_Up:
                     self._focus_nav(len(self._nav_buttons) - 1)
                 return
-            if current is self._applications or (current is not None and current is self._catalog_list):
-                assert isinstance(current, QListWidget)
-                row = current.currentRow()
-                if key == Qt.Key.Key_Left or (key == Qt.Key.Key_Up and row == 0):
-                    self._clear_home_selection()
-                    self._focus_selected_nav()
-                elif key == Qt.Key.Key_Up:
-                    current.setCurrentRow(max(row - 1, 0))
-                elif key == Qt.Key.Key_Down:
-                    current.setCurrentRow(min(row + 1, current.count() - 1))
+            if (
+                self._pideck_page is not None and current is self._release_notes
+                and self._release_notes.scroll(key)
+            ):
                 return
             if current in self._page_controls.get(self._current_page, []):
-                if self._current_page == 2 or self._current_page == self._pideck_page:
+                if self._current_page == 1 or self._current_page == self._pideck_page:
                     self._handle_update_navigation(key)
                 else:
                     self._handle_row_navigation(key)
@@ -1192,20 +839,14 @@ class SettingsWindow(QDialog):
                 self._focus_first_page_control()
             elif current is self._back_button:
                 self.reject()
-            elif current is self._applications:
-                item = self._applications.item(self._applications.currentRow())
-                if item is not None:
-                    self._activate_application_item(item)
-            elif self._catalog_list is not None and current is self._catalog_list:
-                self._catalog_list.activate_current()
             elif current in self._page_controls.get(0, []):
                 self._handle_row_activation(current)
             elif current is self._pideck_row and self._pideck_row is not None:
                 self._activate_pideck_update()
             elif self._pideck_page is not None and current is self._pideck_check_button:
                 self._request_pideck_check()
-            elif current in self._page_controls.get(2, []):
-                self._activate_update(current.application_id)
+            elif current in self._page_controls.get(1, []):
+                self._apps.activate(current.application_id)
             elif self._network_enabled and current is self._network_row:
                 self.network_requested.emit()
             elif self._system_page is not None and isinstance(current, SettingsRow) and current in self._page_controls[self._system_page]:
@@ -1283,8 +924,7 @@ class SettingsWindow(QDialog):
         self._language = language if language in {"en", "de"} else "en"
         self.setWindowTitle(tr(self._language, "settings"))
         self._nav_buttons[0].setText(tr(self._language, "appearance"))
-        self._nav_buttons[1].setText(tr(self._language, "home_screen"))
-        self._nav_buttons[2].setText(tr(self._language, "updates"))
+        self._nav_buttons[1].setText(tr(self._language, "applications"))
         if self._pideck_page is not None:
             self._nav_buttons[self._pideck_page].setText(tr(self._language, "pideck_updates"))
         if self._network_page is not None:
@@ -1348,16 +988,14 @@ class SettingsWindow(QDialog):
             labels[0].setText(tr(self._language, title_key))
             labels[1].setText(tr(self._language, hint_key))
         self._select_page(self._current_page, focus_first=False)
-        if self._apps_page is not None and self._catalog_list is not None:
-            self._nav_buttons[self._apps_page].setText(tr(self._language, "applications"))
-            self._catalog_list.set_language(self._language)
+        self._apps.set_language(self._language)
         self._language_combo.setItemText(0, tr(self._language, "english"))
         self._language_combo.setItemText(1, tr(self._language, "german"))
-        for row in self._update_rows.values():
-            row.set_language(self._language)
         if self._pideck_row is not None:
             self._pideck_row.set_language(self._language)
             self._pideck_check_button.setText(tr(self._language, "check_for_updates"))
+            if self._pideck_info is not None:
+                self._show_release_notes(self._pideck_info)
             self._build_date_label.setText(tr(
                 self._language, "build_date",
                 date=format_timestamp(self._language, self._build_date) if self._build_date
@@ -1370,6 +1008,17 @@ class SettingsWindow(QDialog):
         if self._pideck_row is not None:
             self._pideck_row.set_pideck_info(info)
             self._set_pideck_check_enabled(info)
+            self._show_release_notes(info)
+
+    def _show_release_notes(self, info: PiDeckUpdateInfo) -> None:
+        """Show what's new in the available PiDeck release, if notes were published."""
+        if self._release_notes.hasFocus() and not info.release_notes and self._pideck_row is not None:
+            self._pideck_row.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._release_notes.set_notes(info.release_notes)
+        self._release_notes_title.setVisible(bool(info.release_notes))
+        self._release_notes_title.setText(tr(
+            self._language, "release_notes_title", version=info.available_version or "",
+        ))
 
     def _set_pideck_check_enabled(self, info: PiDeckUpdateInfo) -> None:
         """Enable manual checks only when a release can safely be rechecked."""
@@ -1399,66 +1048,12 @@ class SettingsWindow(QDialog):
         ):
             self.pideck_update_requested.emit()
 
-    def _activate_update(self, application_id: str) -> None:
-        """Start or cancel the selected application update."""
-        if self._update_service is None:
-            return
-        application = self._update_applications[application_id]
-        row = self._update_rows[application_id]
-        if row.info.status is UpdateStatus.UPDATING:
-            self._rechecking_after_cancel.add(application_id)
-            self._update_service.cancel(application_id)
-            row.set_info(UpdateInfo(application_id, application.name, UpdateStatus.CHECKING))
-            self._update_service.check_async(
-                (application,),
-                lambda info: self.update_status.emit(info),
-            )
-            return
-        if row.info.status is not UpdateStatus.AVAILABLE:
-            return
-        row.set_info(UpdateInfo(application_id, application.name, UpdateStatus.UPDATING))
-        self._update_service.start_async(
-            application,
-            None,
-            lambda info: self.update_status.emit(info),
-        )
-
-    def _handle_update_status(self, info: UpdateInfo) -> None:
-        """Render update status and request a password only when required."""
-        row = self._update_rows.get(info.application_id)
-        if row is None:
-            return
-        if info.status is UpdateStatus.CANCELLED and info.application_id in self._rechecking_after_cancel:
-            return
-        if info.application_id in self._rechecking_after_cancel and info.status is not UpdateStatus.CANCELLED:
-            self._rechecking_after_cancel.discard(info.application_id)
-        row.set_info(info)
-        if info.status is UpdateStatus.UPDATED and self._update_service is not None:
-            self._update_service.check_async(
-                (self._update_applications[info.application_id],),
-                lambda result: self.update_status.emit(result),
-            )
-        if info.status is not UpdateStatus.PASSWORD_REQUIRED:
-            return
-        prompt = PasswordPrompt(info.application_name, self._theme, self, self._language)
-        if prompt.exec() != QDialog.DialogCode.Accepted:
-            row.set_info(
-                row.last_available_info
-                or UpdateInfo(info.application_id, info.application_name, UpdateStatus.AVAILABLE)
-            )
-            return
-        password = prompt.password()
-        prompt.deleteLater()
-        if self._update_service is not None:
-            self._update_service.start_async(
-                self._update_applications[info.application_id],
-                password,
-                lambda result: self.update_status.emit(result),
-            )
-
     def _handle_update_navigation(self, key: int) -> None:
         """Move through update rows or return to the active settings category."""
-        rows = [row for row in self._page_controls.get(self._current_page, []) if row.isEnabled()]
+        rows = [
+            row for row in self._page_controls.get(self._current_page, [])
+            if row.isEnabled() and not row.isHidden()
+        ]
         current = self.focusWidget()
         if current not in rows:
             return
@@ -1489,12 +1084,6 @@ class SettingsWindow(QDialog):
             and watched in self._page_controls.get(self._input_page, [])
         ):
             self._input_scroll.ensureWidgetVisible(watched)
-        if (
-            event.type() == QEvent.Type.FocusIn
-            and isinstance(watched, QWidget)
-            and watched in self._page_controls.get(2, [])
-        ):
-            self._update_scroll.ensureWidgetVisible(watched)
         if (
             event.type() == QEvent.Type.FocusIn
             and isinstance(watched, QWidget)
@@ -1548,31 +1137,6 @@ class SettingsWindow(QDialog):
                 self._focus_nav(len(self._nav_buttons) - 1)
                 return True
             return super().eventFilter(watched, event)
-        if watched is self._applications:
-            current_row = self._applications.currentRow()
-            if key == Qt.Key.Key_Left:
-                self._clear_home_selection()
-                self._focus_selected_nav()
-                return True
-            if key == Qt.Key.Key_Up and current_row == 0:
-                self._clear_home_selection()
-                self._focus_selected_nav()
-                return True
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
-                item = self._applications.item(current_row)
-                if item is not None:
-                    self._activate_application_item(item)
-                return True
-            return super().eventFilter(watched, event)
-        if self._catalog_list is not None and watched is self._catalog_list:
-            if key == Qt.Key.Key_Left or (key == Qt.Key.Key_Up and self._catalog_list.currentRow() == 0):
-                self._clear_home_selection()
-                self._focus_selected_nav()
-                return True
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
-                self._catalog_list.activate_current()
-                return True
-            return super().eventFilter(watched, event)
         controls = self._page_controls.get(self._current_page, [])
         if watched in controls:
             return super().eventFilter(watched, event)
@@ -1590,34 +1154,11 @@ class SettingsWindow(QDialog):
         if update is not None:
             self.settings_changed.emit(update)
 
-    def _handle_application_item_changed(
-        self,
-        item: QListWidgetItem,
-        state: Qt.CheckState | None = None,
-    ) -> None:
-        """Keep one application visible and emit valid list changes immediately."""
-        state = item.checkState() if state is None else state
-        if state is Qt.CheckState.Unchecked and not any(
-            self._applications.item(index).checkState() is Qt.CheckState.Checked
-            for index in range(self._applications.count())
-        ):
-            with QSignalBlocker(self._applications):
-                item.setCheckState(Qt.CheckState.Checked)
-            self.show_error(tr(self._language, "at_least_one"))
-            return
-        self._clear_error()
-        self._emit_current_settings()
-
     def _build_update(self) -> SettingsUpdate | None:
         """Build the current typed update or show an inline validation error."""
-        selected_applications = tuple(
-            self._applications.item(index).data(Qt.ItemDataRole.UserRole)
-            for index in range(self._applications.count())
-            if self._applications.item(index).checkState() is Qt.CheckState.Checked
+        selected_applications = self._configuration.home.visible_applications or tuple(
+            application.identifier for application in self._configuration.applications
         )
-        if not selected_applications:
-            self.show_error(tr(self._language, "at_least_one"))
-            return None
         self._clear_error()
         return SettingsUpdate(
             theme=self._theme_combo.currentData(),
@@ -1627,58 +1168,35 @@ class SettingsWindow(QDialog):
             language=self._language,
         )
 
-    def _activate_application_item(self, item: QListWidgetItem) -> None:
-        """Toggle the Home screen visibility of an installed application."""
-        item.setCheckState(
-            Qt.CheckState.Unchecked if item.checkState() is Qt.CheckState.Checked else Qt.CheckState.Checked
-        )
-
     def select_applications_page(self) -> None:
-        """Show the Applications page and focus its list."""
-        if self._apps_page is not None:
-            self._select_page(self._apps_page)
+        """Show the Applications page and focus its first row."""
+        self._select_page(1)
+
+    def set_configuration(
+        self, configuration: Configuration, statuses: tuple[CatalogItemStatus, ...] | None = None,
+    ) -> None:
+        """Refresh application rows after applications or their order changed."""
+        self._configuration = configuration
+        if statuses is not None:
+            self._catalog_statuses = statuses
+        self._apps.set_model(configuration, self._catalog_statuses or ())
 
     def set_catalog_statuses(self, statuses: tuple[CatalogItemStatus, ...]) -> None:
         """Refresh the install state of every supported application."""
-        self._catalog_statuses = statuses
-        if self._catalog_list is not None:
-            self._catalog_list.set_statuses(statuses)
+        self.set_configuration(self._configuration, statuses)
 
     def set_application_busy(self, application_id: str | None, *, removing: bool = False) -> None:
         """Show or clear progress for an application being installed or removed."""
-        if self._catalog_list is not None:
-            self._catalog_list.set_busy(application_id, removing=removing)
+        self._apps.set_busy(application_id, removing=removing)
 
     def set_application_progress(self, application_id: str, progress: InstallProgress) -> None:
         """Render the latest progress of the running install or removal."""
-        if self._catalog_list is not None:
-            self._catalog_list.set_progress(application_id, progress)
+        self._apps.set_progress(application_id, progress)
 
-    def _confirm_removal(self, application_id: str) -> None:
-        """Ask before removing an application; its user data is kept."""
-        if self._power_dialog is not None or self._catalog_statuses is None:
-            return
-        name = next(
-            (status.entry.name for status in self._catalog_statuses if status.identifier == application_id),
-            application_id,
-        )
-        dialog = ConfirmationDialog(
-            tr(self._language, "remove_confirm_title", name=name),
-            tr(self._language, "remove_confirm_message", name=name),
-            tr(self._language, "remove"), tr(self._language, "cancel"), self._theme, self,
-        )
-        self._power_dialog = dialog
-
-        def finish(result: int) -> None:
-            self._power_dialog = None
-            if result == QDialog.DialogCode.Accepted:
-                self.application_remove_requested.emit(application_id)
-            dialog.deleteLater()
-            if self._catalog_list is not None:
-                self._catalog_list.setFocus(Qt.FocusReason.OtherFocusReason)
-
-        dialog.finished.connect(finish)
-        dialog.open()
+    @property
+    def applications_page(self) -> ApplicationsPage:
+        """Return the page that manages applications."""
+        return self._apps
 
     def apply_theme_definition(self, theme: ThemeDefinition) -> None:
         """Apply a persisted theme change while the settings view remains open."""

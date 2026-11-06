@@ -109,23 +109,34 @@ sizes; remove these two keys before rolling back to a release before v0.3.7.
 build time when available, and self-update status. Select **Check for updates**
 to check again without installing an update. Checks run automatically at startup
 and periodically; manual checks are unavailable while checking, preparing an
-update, awaiting a restart, or on unsupported installations. **Updates** lists configured
-applications separately. Missing application build dates are hidden. Installed
-Flatpak versions come from the selected installation; when no version is
-provided, its commit is shown as an identifier instead. Other unavailable
-versions are shown as unknown. PiDeck self-updates update the application,
-not the operating system or image dependencies.
+update, awaiting a restart, or on unsupported installations. When an update is
+available, **What's new** lists the release notes of every release since the
+installed version; scroll them with the arrow keys, controller or remote.
+Release notes are written in English in [`CHANGELOG.md`](CHANGELOG.md) and
+published with each release. PiDeck self-updates update the application, not
+the operating system or image dependencies.
 
-**Settings > Applications** lists every supported application: Kodi, YouTube,
-Steam Link, Chromium, Chrome, Brave, Firefox, NoMachine and RetroArch. Images
-only preinstall Kodi and YouTube; select any other entry to install it, or an
-installed entry to remove it after confirming. While an application installs,
-its entry shows the current step, a progress bar and a busy indicator; select
-it again to cancel while it is still downloading. Removals cannot be cancelled.
-Installing adds the application to the home screen and removing takes it off.
-Removing keeps the application's settings and data, so they come back after
-reinstalling. **Settings > Home screen** shows or hides installed applications.
-Installation needs internet and disk space; errors are shown in Settings.
+**Settings > Applications** is the single place to manage applications. It
+lists the applications on the home screen in tile order, followed by every
+other supported application: Kodi, YouTube, Steam Link, Chromium, Chrome,
+Brave, Firefox, NoMachine and RetroArch. Each row shows whether the application
+is on the home screen, its installed version and update status, or why it
+cannot be installed. Missing build dates are hidden; Flatpak applications
+without a version show their commit, and other unavailable versions are shown
+as unknown.
+
+Select a row to open its options: **Show on home screen** or **Hide from home
+screen**, **Move up** and **Move down** to change the tile order (the menu stays
+open for repeated moves), **Update**, **Install**, **Remove**, or cancel a
+running installation or update. At least one application stays on the home
+screen. Images only preinstall Kodi and YouTube. While an application installs,
+its row shows the current step, a progress bar and a busy indicator;
+installations can be cancelled while downloading, removals cannot. Installing
+adds the application to the home screen and removing takes it off. Removing
+keeps the application's settings and data, so they come back after
+reinstalling. Installation needs internet and disk space; errors are shown in
+Settings. The tile order is saved by reordering the existing `applications` and
+`home.visible_applications` lists, so older releases still read the settings.
 
 YouTube is the independent [Red](https://flathub.org/en/apps/com.ktechpit.red)
 Flatpak, not an official YouTube application; it starts in TV mode. Red has its

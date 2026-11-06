@@ -115,7 +115,7 @@ def test_system_audio_entry_supports_gamepad(application: QApplication) -> None:
     requests: list[bool] = []
     window.audio_requested.connect(lambda: requests.append(True))
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     window._audio_row.setFocus()
     application.processEvents()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
@@ -131,7 +131,7 @@ def test_power_requires_controller_confirmation(application: QApplication, actio
     requests: list[str] = []
     window.power_requested.connect(requests.append)
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     window._power_rows[action].setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     application.processEvents()

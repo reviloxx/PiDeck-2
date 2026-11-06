@@ -183,7 +183,7 @@ def test_system_display_entry_supports_gamepad(application: QApplication) -> Non
     requests: list[bool] = []
     window.display_requested.connect(lambda: requests.append(True))
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     application.processEvents()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert requests == [True]

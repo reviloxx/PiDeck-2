@@ -1,0 +1,22 @@
+# Changelog
+
+Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
+for that tag and shown in PiDeck under **Settings > About** when the update is
+available. Write for people using PiDeck on a TV; keep it short.
+
+## v0.5.1
+
+- **One place for applications:** Settings > Applications now replaces the
+  separate Home screen and Updates pages. Every application shows whether it is
+  on the home screen, its installed version and available updates.
+- Select an application to show or hide it, move its tile up or down, update,
+  install or remove it.
+- PiDeck updates now show what's new before you install them.
+
+## v0.5.0
+
+- New images only include Kodi and YouTube. Steam Link, Chromium, Chrome,
+  Brave, Firefox, NoMachine and RetroArch can be installed and removed from
+  Settings > Applications. Removing an application keeps its settings.
+- PiDeck, the system and applications default to German on new images.
+- Chrome, Brave and the NoMachine client are new.

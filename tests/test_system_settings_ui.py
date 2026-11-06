@@ -65,7 +65,7 @@ def test_system_rows_activate_with_keyboard_controller_and_mouse(
     getattr(window, signal_name).connect(lambda: requests.append(True))
     window.resize(1280, 720)
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     row = getattr(window, row_name)
     row.setFocus()
     application.processEvents()
@@ -95,7 +95,7 @@ def test_clicking_power_row_still_requires_confirmation(application: QApplicatio
     requests: list[str] = []
     window.power_requested.connect(requests.append)
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     row = window._power_rows[action]
     row.setFocus()
     application.processEvents()

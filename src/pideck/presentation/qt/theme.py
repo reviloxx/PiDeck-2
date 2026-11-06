@@ -356,15 +356,6 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             background-color: %(primary)s;
             border-color: %(primary)s;
         }
-        QWidget#install_progress_row, QWidget#install_progress_row QLabel {
-            background: transparent;
-        }
-        QLabel#install_title {
-            color: %(text)s;
-        }
-        QLabel#install_cancel, QLabel#install_status {
-            color: %(muted_text)s;
-        }
         QProgressBar#install_progress {
             background-color: %(background)s;
             border: 1px solid %(border)s;
@@ -393,6 +384,18 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         }
         QLineEdit#password_input:focus {
             border: 2px solid %(focus)s;
+        }
+        QTextBrowser#release_notes {
+            background-color: %(surface)s;
+            border: 1px solid %(border)s;
+            border-radius: 8px;
+            color: %(text)s;
+            font-size: %(settings_body_size)spx;
+            padding: 12px;
+        }
+        QTextBrowser#release_notes:focus {
+            border: 2px solid %(focus)s;
+            padding: 11px;
         }
         QFrame#update_row {
             background-color: %(surface)s;

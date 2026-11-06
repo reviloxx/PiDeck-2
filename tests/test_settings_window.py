@@ -13,6 +13,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QLabel
 
 from pideck.application.app_management import CatalogItemStatus
+from pideck.application.application_items import ApplicationAction
 from pideck.application.settings import SettingsUpdate
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
@@ -23,7 +24,7 @@ from pideck.domain.configuration import Configuration
 from pideck.domain.input_settings import CecSettings
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
-from pideck.presentation.qt.install_row import InstallProgressRow, install_status_text
+from pideck.presentation.qt.install_row import install_status_text
 from pideck.presentation.qt.settings_window import PasswordPrompt, SettingsWindow
 from tests.test_configuration import configuration_document
 from pideck.infrastructure.config.catalog import load_catalog
@@ -74,7 +75,7 @@ def catalog_statuses() -> tuple[CatalogItemStatus, ...]:
     """Represent every install state with real catalog entries."""
     entries = {entry.identifier: entry for entry in load_catalog(Path.cwd() / "assets/catalog/applications.yaml")}
     return (
-        CatalogItemStatus(entries["kodi"], InstallState.INSTALLED, removable=True),
+        CatalogItemStatus(entries["kodi"], InstallState.NOT_INSTALLED),
         CatalogItemStatus(entries["youtube"], InstallState.NOT_INSTALLED),
         CatalogItemStatus(entries["chrome"], InstallState.UNAVAILABLE),
         CatalogItemStatus(entries["brave"], InstallState.REQUIRES_NEWER_IMAGE),
@@ -92,110 +93,144 @@ def applications_window(application: QApplication) -> SettingsWindow:
     return window
 
 
-def test_applications_page_shows_every_install_state(application: QApplication) -> None:
-    """Every supported application is listed with its state, in both languages."""
+def row_texts(row) -> tuple[str, str]:
+    """Return a row's detail and status texts."""
+    return row.detail_label.text(), row.status_label.text()
+
+
+def open_menu(window: SettingsWindow, application: QApplication, key: str):
+    """Activate a row with the controller and return its action menu."""
+    window._apps.row(key).setFocus()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    application.processEvents()
+    return window._apps.dialog
+
+
+def test_applications_page_lists_configured_and_catalog_applications(application: QApplication) -> None:
+    """Configured apps come first with update state, then every other supported app."""
     window = applications_window(application)
-    catalog = window._catalog_list
-    assert catalog is not None and window.focusWidget() is catalog
+    page = window.applications_page
     assert window._page_title.text() == "Applications"
-    assert [catalog.item(index).text() for index in range(catalog.count())] == [
-        "Remove Kodi",
-        "Install YouTube",
-        "Chrome · Not available on this device",
-        "Brave · Requires a newer PiDeck image",
-        "Firefox · Installed",
-    ]
-    assert window._applications.count() == len(window._configuration.applications)
+    assert [row.item.key for row in page.rows()] == ["browser", "kodi", "youtube", "chrome", "brave", "firefox"]
+    assert window.focusWidget() is page.rows()[0]
+    assert row_texts(page.row("browser"))[0] == "Shown on the home screen"
+    assert row_texts(page.row("youtube")) == ("", "Not installed")
+    assert row_texts(page.row("chrome"))[1] == "Not available on this device"
+    assert row_texts(page.row("brave"))[1] == "Requires a newer PiDeck image"
+    assert row_texts(page.row("firefox"))[1] == "Installed · not on the home screen"
     window.apply_language("de")
-    assert catalog.item(0).text() == "Kodi entfernen"
-    assert catalog.item(2).text() == "Chrome · Auf diesem Gerät nicht verfügbar"
-    assert window._nav_buttons[window._apps_page].text() == "Anwendungen"
+    assert window._nav_buttons[1].text() == "Anwendungen"
+    assert row_texts(page.row("youtube"))[1] == "Nicht installiert"
     window.close()
 
 
-def test_applications_page_installs_and_cancels_with_keyboard_and_controller(application: QApplication) -> None:
-    """Activating an installable app requests installation; activating it again cancels."""
+def test_action_menu_offers_state_dependent_actions(application: QApplication) -> None:
+    """Menus only contain actions that apply to the application's state."""
     window = applications_window(application)
-    catalog = window._catalog_list
-    requests: list[str] = []
-    changes = []
-    window.application_install_requested.connect(requests.append)
-    window.settings_changed.connect(changes.append)
-    catalog.setCurrentRow(1)
-    QTest.keyClick(catalog, Qt.Key.Key_Return)
+    assert open_menu(window, application, "browser").actions() == ("hide",)
+    window._apps.dialog.reject()
+    application.processEvents()
+    assert window.focusWidget() is window._apps.row("browser")
+    assert open_menu(window, application, "kodi").actions() == ("install",)
+    window._apps.dialog.reject()
+    assert open_menu(window, application, "firefox").actions() == ("show",)
+    window._apps.dialog.reject()
+    window._apps.row("chrome").setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert requests == ["youtube", "youtube"]
-    for row in (2, 3, 4):
-        catalog.setCurrentRow(row)
-        window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert requests == ["youtube", "youtube"]
-    window.set_application_busy("youtube")
-    catalog.setCurrentRow(1)
-    row = catalog.progress_row()
-    assert isinstance(row, InstallProgressRow)
-    assert catalog.item(1).text() == ""
-    assert row.title_label.text() == "Installing YouTube"
-    assert row.cancel_label.text() == "Select to cancel"
-    assert row.spinner.running and row.progress_bar.maximum() == 0
-    window.set_application_progress("youtube", InstallProgress(InstallStage.DOWNLOADING, 42, 2, 3))
-    assert row.progress_bar.maximum() == 100 and row.progress_bar.value() == 42
-    assert row.status_label.text() == "Step 2 of 3 · 42%"
+    assert window._apps.dialog is None
+    window.close()
+
+
+def test_menu_requests_install_cancel_visibility_and_moves(application: QApplication) -> None:
+    """Menu actions emit intents; moves keep the menu open for repeated moves."""
+    document = configuration_document()
+    document["applications"] = [
+        {"id": identifier, "name": identifier.title(), "executable": identifier} for identifier in ("one", "two")
+    ]
+    document["home"]["visible_applications"] = ["one", "two"]
+    configuration = YamlConfigurationParser().parse(document)
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), catalog_statuses=catalog_statuses())
+    window.show()
+    window.select_applications_page()
+    moves, visibility, installs = [], [], []
+    window.application_move_requested.connect(lambda *args: moves.append(args))
+    window.application_visibility_requested.connect(lambda *args: visibility.append(args))
+    window.application_install_requested.connect(installs.append)
+    menu = open_menu(window, application, "one")
+    assert menu.actions() == ("hide", "move_down")
+    menu.choose(ApplicationAction.MOVE_DOWN)
+    assert moves == [("one", 1)] and window._apps.dialog is menu
+    from pideck.application.home_layout import move_application
+
+    window.set_configuration(move_application(configuration, "one", 1))
+    application.processEvents()
+    assert [row.item.key for row in window._apps.rows()][:2] == ["two", "one"]
+    assert menu.actions() == ("hide", "move_up")
+    menu.choose(ApplicationAction.HIDE)
+    application.processEvents()
+    assert visibility == [("one", False)] and window._apps.dialog is None
+    open_menu(window, application, "kodi").choose(ApplicationAction.INSTALL)
+    assert installs == ["kodi"]
+    window.set_application_busy("kodi")
+    row = window._apps.row("kodi")
+    assert row.detail_label.text() == "Installing Kodi" and row.spinner.running
+    assert row.progress_bar.isVisible() and row.progress_bar.maximum() == 0
+    window.set_application_progress("kodi", InstallProgress(InstallStage.DOWNLOADING, 42, 2, 3))
+    assert row.progress_bar.value() == 42 and row.status_label.text() == "Step 2 of 3 · 42%"
     window.set_application_progress("other", InstallProgress(InstallStage.FINISHING, 100))
     assert row.progress_bar.value() == 42
     window.set_catalog_statuses(catalog_statuses())
-    assert catalog.progress_row().progress_bar.value() == 42
-    window.apply_language("de")
-    assert catalog.progress_row().title_label.text() == "YouTube wird installiert"
-    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert requests[-1] == "youtube" and len(requests) == 3
-    catalog.setCurrentRow(0)
-    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert window._power_dialog is None
-    window.set_application_busy(None)
-    assert catalog.progress_row() is None
-    assert catalog.item(1).text() == "YouTube installieren"
-    assert changes == []
+    assert window._apps.row("kodi").progress_bar.value() == 42
+    menu = open_menu(window, application, "kodi")
+    assert menu.actions() == ("cancel_install",)
+    menu.choose(ApplicationAction.CANCEL_INSTALL)
+    assert installs == ["kodi", "kodi"]
+    assert open_menu(window, application, "youtube") is None or "install" not in window._apps.dialog.actions()
     window.close()
 
 
 @pytest.mark.parametrize("accept", [True, False])
 def test_removal_requires_confirmation(application: QApplication, accept: bool) -> None:
     """Removing asks first, explains that data is kept and cannot be cancelled midway."""
-    window = applications_window(application)
-    catalog = window._catalog_list
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    statuses = tuple(
+        replace(status, removable=True) if status.identifier == "firefox" else status for status in catalog_statuses()
+    )
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), catalog_statuses=statuses)
+    window.show()
     removals: list[str] = []
     window.application_remove_requested.connect(removals.append)
-    catalog.setCurrentRow(0)
-    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    dialog = window._power_dialog
-    assert dialog is not None and "settings and data are kept" in dialog.findChildren(QLabel)[1].text()
-    (dialog.accept if accept else dialog.reject)()
+    menu = open_menu(window, application, "firefox")
+    assert menu.actions() == ("show", "remove")
+    menu.choose(ApplicationAction.REMOVE)
     application.processEvents()
-    assert removals == (["kodi"] if accept else [])
-    assert window._power_dialog is None
-    window.set_application_busy("kodi", removing=True)
-    row = catalog.progress_row()
-    assert row.title_label.text() == "Removing Kodi" and row.cancel_label.text() == ""
-    requests: list[str] = []
-    window.application_install_requested.connect(requests.append)
-    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert requests == []
+    dialog = window._apps.dialog
+    assert dialog is not None and "settings and data are kept" in dialog.findChildren(QLabel)[1].text()
+    window.handle_input(InputEvent(InputAction.BACK if not accept else InputAction.RIGHT, "gamepad"))
+    if accept:
+        window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    application.processEvents()
+    assert removals == (["firefox"] if accept else [])
+    assert window._apps.dialog is None
+    window.set_application_busy("firefox", removing=True)
+    row = window._apps.row("firefox")
+    assert row.detail_label.text() == "Removing Firefox"
+    assert open_menu(window, application, "firefox") is None
     window.close()
 
 
 def test_applications_page_navigation_returns_to_rail(application: QApplication) -> None:
-    """Up from the first entry and Left return to the category rail."""
+    """Up from the first row and Left return to the category rail."""
     window = applications_window(application)
-    catalog = window._catalog_list
-    catalog.setCurrentRow(1)
+    rows = window._apps.rows()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
-    assert catalog.currentRow() == 2
+    assert rows[1].hasFocus()
     window.handle_input(InputEvent(InputAction.LEFT, "gamepad"))
-    assert window.focusWidget() is window._nav_buttons[window._apps_page]
+    assert window.focusWidget() is window._nav_buttons[1]
     window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
-    assert window.focusWidget() is catalog and catalog.currentRow() == 0
-    QTest.keyClick(catalog, Qt.Key.Key_Up)
-    assert window.focusWidget() is window._nav_buttons[window._apps_page]
+    assert rows[0].hasFocus()
+    QTest.keyClick(rows[0], Qt.Key.Key_Up)
+    assert window.focusWidget() is window._nav_buttons[1]
     window.close()
 
 
@@ -256,8 +291,8 @@ def test_non_actionable_update_cannot_start(
     configuration = YamlConfigurationParser().parse(configuration_document())
     window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), update_service=service)
     window.show()
-    window._select_page(2)
-    row = window._update_rows["browser"]
+    window._select_page(1)
+    row = window._apps._rows["browser"]
     row.set_info(UpdateInfo("browser", "Browser", status))
     application.processEvents()
     QTest.keyClick(row, Qt.Key.Key_Return)
@@ -279,7 +314,7 @@ def test_pideck_activation_is_guarded(
     requests: list[bool] = []
     window.pideck_update_requested.connect(lambda: requests.append(True))
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     application.processEvents()
     assert window._pideck_row is not None
     QTest.keyClick(window._pideck_row, Qt.Key.Key_Return)
@@ -300,7 +335,7 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     window.pideck_update_requested.connect(lambda: requests.append(True))
     window.show()
     application.processEvents()
-    window._select_page(3)
+    window._select_page(2)
     row = window._pideck_row
     assert row is not None
     assert row.hasFocus()
@@ -315,8 +350,8 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     assert "neu starten" in row.status_label.text()
     QTest.keyClick(row, Qt.Key.Key_Down)
     assert row.hasFocus()
-    window._select_page(2)
-    assert window._update_rows["browser"].hasFocus()
+    window._select_page(1)
+    assert window._apps._rows["browser"].hasFocus()
     window.close()
 
 
@@ -333,7 +368,7 @@ def test_pideck_manual_check_is_guarded(application: QApplication, status: PiDec
     window.pideck_check_requested.connect(lambda: checks.append(True))
     window.pideck_update_requested.connect(lambda: updates.append(True))
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     application.processEvents()
     enabled = status in (PiDeckUpdateStatus.UP_TO_DATE, PiDeckUpdateStatus.AVAILABLE, PiDeckUpdateStatus.FAILED)
     assert window._pideck_check_button.isEnabled() is enabled
@@ -354,7 +389,7 @@ def test_pideck_manual_check_navigation_and_language(application: QApplication) 
     checks: list[bool] = []
     window.pideck_check_requested.connect(lambda: checks.append(True))
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     application.processEvents()
     row = window._pideck_row
     assert row is not None
@@ -391,11 +426,11 @@ def test_versions_and_build_date_are_visible(application: QApplication) -> None:
         build_date="2026-01-01T10:00:00+00:00",
     )
     window.show()
-    window._select_page(3)
+    window._select_page(2)
     assert "January 2026" in window._build_date_label.text()
     assert "T10:00" not in window._build_date_label.text()
     assert "1.2.3" in window._pideck_row.version_label.text()
-    row = window._update_rows["browser"]
+    row = window._apps._rows["browser"]
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE, "2.3"))
     assert "2.3" in row.version_label.text()
     assert row.build_label.isHidden()
@@ -436,13 +471,13 @@ def test_sidebar_navigation_hint_is_removed(application: QApplication) -> None:
 
 
 def test_settings_window_loads_current_values(application: QApplication) -> None:
-    """The dialog reflects the current theme, motion, and application selection."""
+    """The dialog reflects the current theme, motion, and applications."""
     window = settings_window(application)
 
     assert window._theme_combo.currentData() == "default"
     assert window._reduced_motion.isChecked() is False
-    assert window._applications.count() == 1
-    assert window._applications.item(0).checkState() is Qt.CheckState.Checked
+    assert [row.item.key for row in window._apps.rows()] == ["browser"]
+    assert window._apps.row("browser").item.visible
 
     window.close()
 
@@ -485,8 +520,7 @@ def test_german_language_updates_settings_labels(application: QApplication) -> N
     application.processEvents()
 
     assert window._nav_buttons[0].text() == "Darstellung"
-    assert window._nav_buttons[1].text() == "Startbildschirm"
-    assert window._nav_buttons[2].text() == "Aktualisierungen"
+    assert window._nav_buttons[1].text() == "Anwendungen"
     assert window._clock_labels[0].text() == "Uhr"
     assert window._language_labels[0].text() == "Sprache"
     assert window._show_clock.state_text() == "Ein"
@@ -542,7 +576,7 @@ def test_settings_are_responsive_and_controls_reachable(
         application.processEvents()
         assert window.size().toTuple() == (width, height)
 
-    window._select_page(3)
+    window._select_page(2)
     window._pideck_check_button.setFocus()
     application.processEvents()
     viewport = window._pideck_scroll.viewport()
@@ -612,26 +646,27 @@ def test_language_dropdown_renders_visible_selected_item(application: QApplicati
     window.close()
 
 
-def test_application_visibility_change_emits_immediately(application: QApplication) -> None:
-    """Toggling a home-screen application emits a persisted settings update."""
+def test_appearance_changes_keep_saved_visibility(application: QApplication) -> None:
+    """Appearance updates carry the saved tiles; the all-visible sentinel is resolved."""
     document = configuration_document()
     document["applications"] = [
         {"id": identifier, "name": identifier.title(), "executable": identifier}
         for identifier in ("one", "two")
     ]
-    document["home"]["visible_applications"] = ["one", "two"]
+    document["home"]["visible_applications"] = []
     configuration = YamlConfigurationParser().parse(document)
     window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd())
     updates: list[SettingsUpdate] = []
     window.settings_changed.connect(updates.append)
     window.show()
-    application.processEvents()
+    window._reduced_motion.setChecked(True)
+    assert updates[-1].visible_applications == ("one", "two")
+    from pideck.application.home_layout import set_visibility
 
-    window._applications.item(0).setCheckState(Qt.CheckState.Unchecked)
-    application.processEvents()
-
-    assert updates
+    window.set_configuration(set_visibility(configuration, "one", False))
+    window._reduced_motion.setChecked(False)
     assert updates[-1].visible_applications == ("two",)
+    assert window._apps.row("one").detail_label.text() == "Hidden from the home screen"
     window.close()
 
 
@@ -664,16 +699,14 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     assert window._nav_buttons[1].property("active") is True
     assert window._nav_buttons[0].property("active") is False
     QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Down)
-    assert window._nav_buttons[2].hasFocus()
-    QTest.keyClick(window._nav_buttons[2], Qt.Key.Key_Down)
     assert window._back_button.hasFocus()
     QTest.keyClick(window._back_button, Qt.Key.Key_Space)
     assert window.isVisible() is False
     return
 
 
-def test_home_application_list_accepts_keyboard_navigation(application: QApplication) -> None:
-    """The home-screen list moves between application rows before handing off."""
+def test_application_rows_accept_keyboard_navigation(application: QApplication) -> None:
+    """Application rows move vertically before handing focus back to the rail."""
     document = configuration_document()
     document["applications"] = [
         {"id": identifier, "name": identifier.title(), "executable": identifier}
@@ -687,72 +720,43 @@ def test_home_application_list_accepts_keyboard_navigation(application: QApplica
 
     QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Down)
     QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Right)
-    assert window._applications.hasFocus()
-    assert window._applications.currentRow() == 0
-    QTest.keyClick(window._applications, Qt.Key.Key_Down)
-    assert window._applications.currentRow() == 1
-    QTest.keyClick(window._applications, Qt.Key.Key_Up)
-    assert window._applications.currentRow() == 0
-    QTest.keyClick(window._applications, Qt.Key.Key_Left)
+    rows = window._apps.rows()
+    assert rows[0].hasFocus()
+    QTest.keyClick(rows[0], Qt.Key.Key_Down)
+    assert rows[1].hasFocus()
+    QTest.keyClick(rows[1], Qt.Key.Key_Up)
+    assert rows[0].hasFocus()
+    QTest.keyClick(rows[0], Qt.Key.Key_Left)
     assert window._nav_buttons[1].hasFocus()
-    assert [button.property("active") for button in window._nav_buttons] == [False, True, False]
+    assert [button.property("active") for button in window._nav_buttons] == [False, True]
     QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Down)
-    assert window._nav_buttons[2].hasFocus()
-    QTest.keyClick(window._nav_buttons[2], Qt.Key.Key_Down)
     assert window._back_button.hasFocus()
-    assert [button.property("active") for button in window._nav_buttons] == [False, False, False]
+    assert [button.property("active") for button in window._nav_buttons] == [False, False]
 
     window.close()
 
 
-def test_home_page_entry_and_exit_control_list_selection(application: QApplication) -> None:
-    """Rail navigation leaves the list empty; Right enters its first item."""
+
+
+
+def test_application_rows_render_update_status(application: QApplication) -> None:
+    """Rows show availability and spinner state; the action lives in the menu."""
     window = settings_window(application)
 
     QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Down)
-    assert window._nav_buttons[1].hasFocus()
-    assert window._applications.currentRow() == -1
-
     QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Right)
-    assert window._applications.hasFocus()
-    assert window._applications.currentRow() == 0
-
-    QTest.keyClick(window._applications, Qt.Key.Key_Left)
-    assert window._nav_buttons[1].hasFocus()
-    assert window._applications.currentRow() == -1
-    assert window._nav_buttons[1].property("active") is True
-
-    window.close()
-
-
-def test_updates_page_renders_status_spinner_and_navigates(application: QApplication) -> None:
-    """Updates rows show availability, spinner state, and support vertical focus."""
-    window = settings_window(application)
-
-    QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Down)
-    QTest.keyClick(window._nav_buttons[1], Qt.Key.Key_Down)
-    QTest.keyClick(window._nav_buttons[2], Qt.Key.Key_Right)
-    row = window._update_rows["browser"]
+    row = window._apps._rows["browser"]
     assert row.hasFocus()
 
-    row.set_info(
-        UpdateInfo(
-            "browser",
-            "Browser",
-            UpdateStatus.AVAILABLE,
-            available_version="21.3-Omega",
-        )
-    )
-    assert row.action.isEnabled()
-    assert row.action.text() == "Update"
+    row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE, available_version="21.3-Omega"))
+    assert row.action.isHidden()
     assert row.status_label.text() == "Update available: 21.3-Omega"
+    assert row.detail_label.text() == "Shown on the home screen"
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATING))
     assert row.spinner.isVisible()
-    assert row.action.text() == "Cancel"
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE))
-    assert row.action.isHidden() is True
     QTest.keyClick(row, Qt.Key.Key_Down)
-    assert window._update_rows["browser"].hasFocus()
+    assert window._apps._rows["browser"].hasFocus()
 
     window.close()
 
@@ -769,13 +773,13 @@ def test_long_update_list_scrolls_with_keyboard_focus(application: QApplication)
     window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd())
     window.resize(1280, 720)
     window.show()
-    window._select_page(2)
+    window._select_page(1)
     application.processEvents()
     for index in range(11):
-        QTest.keyClick(window._update_rows[f"app{index}"], Qt.Key.Key_Down)
+        QTest.keyClick(window._apps._rows[f"app{index}"], Qt.Key.Key_Down)
         application.processEvents()
-    assert window._update_rows["app11"].hasFocus()
-    assert window._update_scroll.verticalScrollBar().value() > 0
+    assert window._apps._rows["app11"].hasFocus()
+    assert window._apps.verticalScrollBar().value() > 0
     window.close()
 
 
@@ -786,8 +790,7 @@ def test_gamepad_actions_navigate_settings(application: QApplication) -> None:
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert window._nav_buttons[1].hasFocus()
     window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
-    assert window._applications.hasFocus()
-    assert window._applications.currentRow() == 0
+    assert window._apps.rows()[0].hasFocus()
     window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
     assert window.isVisible() is False
 
@@ -814,21 +817,20 @@ def test_gamepad_arrows_navigate_open_language_dropdown(application: QApplicatio
 def test_password_prompt_abort_restores_available_update(application: QApplication, monkeypatch) -> None:
     """Cancelling authentication leaves the update available and actionable."""
     window = settings_window(application)
-    row = window._update_rows["browser"]
+    row = window._apps._rows["browser"]
     available = UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE)
     row.set_info(available)
     monkeypatch.setattr(
-        "pideck.presentation.qt.settings_window.PasswordPrompt.exec",
+        "pideck.presentation.qt.update_rows.PasswordPrompt.exec",
         lambda self: QDialog.DialogCode.Rejected,
     )
 
-    window._handle_update_status(
+    window._apps._handle_update_status(
         UpdateInfo("browser", "Browser", UpdateStatus.PASSWORD_REQUIRED)
     )
 
     assert row.status_label.text() == "Update available"
-    assert row.action.text() == "Update"
-    assert row.action.isHidden() is False
+    assert row.info.status is UpdateStatus.AVAILABLE
     window.close()
 
 
@@ -857,17 +859,17 @@ def test_cancelled_update_is_rechecked(application: QApplication) -> None:
     window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), update_service=service)
     window.show()
     application.processEvents()
-    row = window._update_rows["browser"]
+    row = window._apps._rows["browser"]
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATING))
 
-    window._activate_update("browser")
+    open_menu(window, application, "browser").choose(ApplicationAction.CANCEL_UPDATE)
     assert service.cancelled == ["browser"]
     assert row.status_label.text() == "Checking..."
 
     service.check_callback(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE))
     application.processEvents()
     assert row.status_label.text() == "Update available"
-    assert row.action.text() == "Update"
+    assert open_menu(window, application, "browser").actions()[0] == "update"
     window.close()
 
 
@@ -884,9 +886,9 @@ def test_completed_update_refreshes_installed_version(application: QApplication)
     configuration = YamlConfigurationParser().parse(configuration_document())
     window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), update_service=service)
     window.show()
-    row = window._update_rows["browser"]
+    row = window._apps._rows["browser"]
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE, "1.0", "2.0"))
-    window._handle_update_status(UpdateInfo("browser", "Browser", UpdateStatus.UPDATED))
+    window._apps._handle_update_status(UpdateInfo("browser", "Browser", UpdateStatus.UPDATED))
     assert "1.0" not in row.version_label.text()
     assert len(service.checks) == 2
     service.checks[-1][1](UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE, "2.0"))
@@ -912,3 +914,40 @@ def test_password_prompt_supports_keyboard_navigation(application: QApplication)
     assert prompt.password_input.hasFocus()
     QTest.keyClick(prompt.password_input, Qt.Key.Key_Escape)
     assert prompt.isVisible() is False
+
+
+def test_about_page_shows_scrollable_release_notes(application: QApplication) -> None:
+    """Available updates show combined notes; controller input scrolls before moving on."""
+    from pideck.application.pideck_updates import ReleaseNote
+
+    long_text = "\n".join(f"- change {index}" for index in range(80))
+    info = PiDeckUpdateInfo(
+        PiDeckUpdateStatus.AVAILABLE, "1.0.0", "1.2.0",
+        release_notes=(ReleaseNote("1.2.0", "- **Bold** [link](https://example.org)"), ReleaseNote("1.1.0", long_text)),
+    )
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), pideck_update_info=info)
+    window.resize(1280, 720)
+    window.show()
+    window._select_page(window._pideck_page)
+    application.processEvents()
+    notes = window._release_notes
+    assert notes.isVisible() and window._release_notes_title.text() == "What's new in PiDeck 1.2.0"
+    text = notes.toPlainText()
+    assert text.index("PiDeck 1.2.0") < text.index("PiDeck 1.1.0") and "Bold" in text and "**" not in text
+    window._pideck_row.setFocus()
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert notes.hasFocus()
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert notes.hasFocus() and notes.verticalScrollBar().value() > 0
+    notes.verticalScrollBar().setValue(notes.verticalScrollBar().maximum())
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert window._pideck_check_button.hasFocus()
+    window.apply_language("de")
+    assert window._release_notes_title.text() == "Neu in PiDeck 1.2.0 (auf Englisch)"
+    window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.2.0"))
+    assert notes.isHidden() and window._release_notes_title.isHidden()
+    window._pideck_row.setFocus()
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert window._pideck_check_button.hasFocus()
+    window.close()

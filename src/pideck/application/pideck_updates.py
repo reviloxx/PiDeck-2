@@ -10,12 +10,25 @@ from typing import Callable, Mapping, Protocol
 _LOGGER = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class ReleaseNote:
+    """Markdown release notes of one published PiDeck version (English)."""
+
+    version: str
+    text: str
+
+
 class Release(Protocol):
     """Release metadata required by the update service."""
 
     @property
     def version(self) -> str:
         """Return the stable release version."""
+        ...
+
+    @property
+    def notes(self) -> tuple[ReleaseNote, ...]:
+        """Return notes of recent releases, newest first."""
         ...
 
 
@@ -39,6 +52,8 @@ class PiDeckUpdateInfo:
     current_version: str | None = None
     available_version: str | None = None
     message: str | None = None
+    release_notes: tuple[ReleaseNote, ...] = ()
+    """Notes of every release newer than the installed one, newest first."""
 
 
 class PiDeckUpdateService:
@@ -103,10 +118,15 @@ class PiDeckUpdateService:
             ):
                 return False
             self._checking = True
-            self._state = PiDeckUpdateInfo(PiDeckUpdateStatus.PREPARING, self._current_version, version)
+            notes = self._state.release_notes
+            self._state = PiDeckUpdateInfo(
+                PiDeckUpdateStatus.PREPARING, self._current_version, version, release_notes=notes,
+            )
             state = self._state
         self._on_change(state)
-        threading.Thread(target=self._prepare_release, args=(version,), name="pideck-release-prepare", daemon=True).start()
+        threading.Thread(
+            target=self._prepare_release, args=(version, notes), name="pideck-release-prepare", daemon=True,
+        ).start()
         return True
 
     def _publish(self, state: PiDeckUpdateInfo) -> None:
@@ -117,11 +137,11 @@ class PiDeckUpdateService:
             self._state = state
         self._on_change(state)
 
-    def _prepare_release(self, version: str) -> None:
+    def _prepare_release(self, version: str, notes: tuple[ReleaseNote, ...] = ()) -> None:
         assert self._prepare is not None
         try:
             self._prepare(version)
-            state = PiDeckUpdateInfo(PiDeckUpdateStatus.PENDING, self._current_version, version)
+            state = PiDeckUpdateInfo(PiDeckUpdateStatus.PENDING, self._current_version, version, release_notes=notes)
         except Exception as error:
             _LOGGER.exception("PiDeck update preparation failed")
             state = PiDeckUpdateInfo(PiDeckUpdateStatus.FAILED, self._current_version, message=str(error))
@@ -161,9 +181,23 @@ class PiDeckUpdateService:
                     current,
                     release.version if available else None,
                     previous_failure,
+                    self._newer_notes(release, current) if available else (),
                 )
         except Exception as error:
             _LOGGER.exception("PiDeck release check failed")
             message = f"{previous_failure}; {error}" if previous_failure else str(error)
             state = PiDeckUpdateInfo(PiDeckUpdateStatus.FAILED, current, message=message)
         self._publish(state)
+
+    def _newer_notes(self, release: Release, current: str) -> tuple[ReleaseNote, ...]:
+        """Keep notes of versions after ``current`` up to the available release."""
+        try:
+            notes = tuple(getattr(release, "notes", ()))
+            installed, latest = self._version_key(current), self._version_key(release.version)
+            return tuple(
+                note for note in notes
+                if installed < self._version_key(note.version) <= latest and note.text.strip()
+            )
+        except (TypeError, ValueError):
+            _LOGGER.warning("Ignoring invalid PiDeck release notes")
+            return ()
