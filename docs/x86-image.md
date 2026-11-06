@@ -15,9 +15,9 @@ GPT BIOS boot partition, an EFI system partition and an ext4 root partition.
 It is intended for BIOS and 64-bit UEFI systems with Secure Boot disabled.
 Larger destinations should expand the root partition and filesystem at boot.
 The installed size and package inventories are recorded by the build.
-An earlier private build with every application preinstalled used approximately
-5.3 GiB in the root filesystem and compressed to approximately 2.4 GiB; images
-from v0.5.0 preinstall only Kodi and Red and are smaller.
+The v0.5.0 build, which preinstalls only Kodi and Red, used approximately
+5.3 GiB in the root filesystem and compressed to approximately 2.5 GiB, mostly
+for the NVIDIA driver and Red's KDE Flatpak runtime; later builds may vary.
 
 ## Applications and language
 
