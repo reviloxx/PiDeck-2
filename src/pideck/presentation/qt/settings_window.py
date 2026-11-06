@@ -392,6 +392,7 @@ class SettingsWindow(QDialog):
     audio_requested = Signal()
     display_requested = Signal()
     bluetooth_requested = Signal()
+    system_info_requested = Signal()
     power_requested = Signal(str)
     application_install_requested = Signal(str)
     input_settings_changed = Signal(object)
@@ -795,6 +796,13 @@ class SettingsWindow(QDialog):
             self._network_labels = network_row.findChildren(QLabel)
             layout.addWidget(network_row)
             system_rows.append(network_row)
+        info_row = self._action_row(
+            page, tr(self._language, "system_info"), tr(self._language, "system_info_description"),
+        )
+        self._system_info_row = info_row
+        self._system_info_labels = info_row.findChildren(QLabel)
+        layout.addWidget(info_row)
+        system_rows.append(info_row)
         self._power_rows: dict[str, QFrame] = {}
         self._power_labels: dict[str, list[QLabel]] = {}
         for action in ("restart", "shutdown"):
@@ -1184,6 +1192,8 @@ class SettingsWindow(QDialog):
             self.display_requested.emit()
         elif self._system_page is not None and row is self._bluetooth_row:
             self.bluetooth_requested.emit()
+        elif self._system_page is not None and row is self._system_info_row:
+            self.system_info_requested.emit()
         elif self._system_page is not None:
             for action, power_row in self._power_rows.items():
                 if row is power_row:
@@ -1232,10 +1242,13 @@ class SettingsWindow(QDialog):
             self._audio_labels[1].setText(tr(self._language, "audio_description"))
             self._bluetooth_labels[0].setText(tr(self._language, "bluetooth"))
             self._bluetooth_labels[1].setText(tr(self._language, "bluetooth_description"))
+            self._system_info_labels[0].setText(tr(self._language, "system_info"))
+            self._system_info_labels[1].setText(tr(self._language, "system_info_description"))
             for row, labels in (
                 (self._display_row, self._display_labels),
                 (self._audio_row, self._audio_labels),
                 (self._bluetooth_row, self._bluetooth_labels),
+                (self._system_info_row, self._system_info_labels),
             ):
                 row.setAccessibleName(labels[0].text())
                 row.setAccessibleDescription(labels[1].text())

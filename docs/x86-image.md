@@ -79,6 +79,56 @@ CEC. Older releases do not read this file when rolling back. On reboot into an
 older release the attachment service does not start, so that release can use
 the Pulse-Eight USB adapter directly; its own CEC configuration still applies.
 
+## NVIDIA graphics and hardware video decoding
+
+The image enables Debian's `non-free` component and always installs the
+proprietary NVIDIA 550 driver (`nvidia-driver` with `nvidia-kernel-dkms`),
+which supports Maxwell, Pascal (for example the GeForce GT 1030), Turing and
+newer GPUs. Unlike Nouveau, it runs the GPU at full clock speed and decodes
+video in hardware. Intel, AMD and virtual GPUs keep using Mesa: the packaged
+X configuration selects the NVIDIA X driver only for NVIDIA devices.
+
+- **Kernel module:** DKMS builds it for every image kernel during the build,
+  and the build fails if a kernel lacks it. Kernel upgrades installed later
+  rebuild it with the included `linux-headers-amd64` and compiler. Secure
+  Boot must stay disabled because the module is unsigned.
+- **Modesetting:** `/etc/modprobe.d/pideck-nvidia.conf` sets
+  `nvidia-drm modeset=1 fbdev=1`, which rootless X, tear-free output and the
+  VA-API driver require. Like other GPU drivers, the NVIDIA modules stay out
+  of the initramfs and load from the root filesystem.
+- **Nouveau** is blacklisted by the driver package. Kepler and older NVIDIA
+  GPUs are not supported by driver 550 and are therefore unsupported by this
+  image. The package's legacy check runs on the build host, so build on a
+  host without such a GPU.
+- **Flatpak:** the build installs the matching Flathub GL extension
+  (`org.freedesktop.Platform.GL.nvidia-550-…`) so Steam Link and YouTube can
+  use the GPU. It is derived from the installed driver version, and the build
+  fails if Flathub does not provide it. After an apt driver upgrade, Flatpak
+  updates install the extension matching the loaded driver; until then
+  Flatpak applications may fail to start. Run `flatpak update` if that happens.
+
+Hardware video decoding per application:
+
+| Application | API | Status |
+|---|---|---|
+| Kodi | VDPAU | Used automatically. |
+| Firefox ESR | VA-API via `nvidia-vaapi-driver` | Enabled by `/etc/firefox-esr/pideck-video.js`; AV1 is disabled so sites choose VP9 or H.264. |
+| Chromium | VA-API | Best effort, through `/etc/chromium.d/pideck-video`. Chromium falls back to software decoding when the driver is unusable. |
+| Steam Link (Flatpak) | NVIDIA GL extension | GPU rendering; stream decoding follows Steam Link's own settings. |
+| YouTube (Flatpak, QtWebEngine) | NVIDIA GL extension | GPU rendering; video decoding is expected to use the CPU. |
+
+`/etc/profile.d/10-pideck-video.sh` sets `LIBVA_DRIVER_NAME=nvidia`,
+`NVD_BACKEND=direct` and `MOZ_DISABLE_RDD_SANDBOX=1` only when the NVIDIA
+driver is loaded. Pascal GPUs decode H.264, HEVC (including 10-bit), VP9,
+VC-1 and MPEG-2, but not AV1.
+
+**Settings → System → System information** lists the GPU, its driver and
+version, and the codecs VDPAU and VA-API report (`vdpauinfo`, `vainfo`).
+On the device, `nvidia-smi` shows the driver and GPU load.
+
+Existing images cannot gain the driver through a PiDeck application update.
+Build and flash a new image instead.
+
 ## Private build
 
 ### Without a password (Docker)
@@ -218,9 +268,9 @@ the first console waits for udev (up to 20 seconds) before starting X, so the
 session does not start before the graphics driver is ready. The initramfs
 is compressed with zstd, which decompresses faster than the gzip fallback
 used when `zstd` is missing, and it skips the resume lookup because the image
-has no swap. Steam Link's Flatpak runtime is installed with only the default
-GL drivers. Otherwise the build host's proprietary NVIDIA driver could add an
-unused GL extension to the image.
+has no swap. Steam Link's Flatpak runtime is installed with the default GL
+drivers and the GL extension for the image's NVIDIA driver, never one for the
+build host's driver.
 
 New builds use a PiDeck Plymouth splash while Linux starts. Firmware and
 VirtualBox screens before Linux starts are outside its control. Because GPU
@@ -267,7 +317,8 @@ they retain matching filesystem identifiers.
 
 ### NVIDIA graphics recovery
 
-Some NVIDIA GPUs require `firmware-nvidia-graphics` for the Nouveau kernel
+This applies to images built before the proprietary driver was added, which
+still use Nouveau. Some NVIDIA GPUs require `firmware-nvidia-graphics` for the Nouveau kernel
 driver. Without it, the kernel may report missing `nvidia/...` firmware and
 X may fail with `no screens found`. New builds include this package; older
 images need the package installed and their initramfs regenerated. Images
@@ -365,6 +416,13 @@ partition and package manifests, and test:
   connection, both TV switching modes, Kodi startup and exit, manual
   connect/disconnect and restart, missing-device errors, and hotplug.
 - On a release image, unsigned update staging, reboot activation and rollback.
+- On NVIDIA hardware: `nvidia-smi`, `vdpauinfo` and `vainfo` report the GPU
+  and decoders; Kodi's codec overlay shows hardware decoding; Firefox
+  `about:support` and Chromium `chrome://gpu` report hardware decoding; Steam
+  Link and YouTube start with GPU rendering; YouTube playback at 1080p does not
+  drop frames; a kernel upgrade rebuilds the module; System information shows
+  the expected hardware, drivers and audio devices (for example an ASUS Xonar DX
+  with `snd_virtuoso`).
 
 These are release gates, not claims that the current experimental builder
 has already passed them.

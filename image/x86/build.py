@@ -2,6 +2,7 @@
 """Build an experimental Debian amd64 PiDeck disk image on a trusted host."""
 
 import argparse
+from collections.abc import Callable
 from contextlib import ExitStack, contextmanager
 import json
 import os
@@ -30,6 +31,7 @@ PI_FILES = ROOT / "image/stage-pideck/00-pideck/files"
 MIRROR = "http://deb.debian.org/debian"
 DEBIAN_KEYRING = Path("/usr/share/keyrings/debian-archive-keyring.gpg")
 IMAGE_SIZE = 12 * 1024**3
+APT_COMPONENTS = "main contrib non-free non-free-firmware"
 HOST_TOOLS = (
     "debootstrap", "sgdisk", "losetup", "mkfs.ext4", "mkfs.vfat",
     "mount", "umount", "chroot", "xz", "blkid", "openssl", "dpkg-deb", "systemctl", "gpgv", "udevadm",
@@ -215,6 +217,10 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(INPUTS / "grub-pideck.cfg", root / "etc/default/grub.d/90-pideck.cfg")
     _install(INPUTS / "initramfs-pideck.conf", root / "etc/initramfs-tools/conf.d/pideck.conf")
     _install(INPUTS / "initramfs-pideck-slim", root / "etc/initramfs-tools/hooks/pideck-slim", 0o755)
+    _install(INPUTS / "nvidia-pideck.conf", root / "etc/modprobe.d/pideck-nvidia.conf")
+    _install(INPUTS / "pideck-video-profile.sh", root / "etc/profile.d/10-pideck-video.sh")
+    _install(INPUTS / "firefox-pideck.js", root / "etc/firefox-esr/pideck-video.js")
+    _install(INPUTS / "chromium-pideck", root / "etc/chromium.d/pideck-video")
     for name in ("pideck.plymouth", "pideck.script"):
         _install(PI_FILES / name, root / "usr/share/plymouth/themes/pideck" / name)
     for name in ("pideck-updater.service", "pideck-activate.service"):
@@ -229,6 +235,34 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     (lib / "current").symlink_to(f"releases/{version}")
 
 
+def flatpak_nvidia_gl_driver(package_version: str) -> str:
+    """Return the Flatpak GL driver name for a Debian nvidia-driver package version."""
+    upstream = package_version.strip().split(":")[-1].split("-")[0]
+    if re.fullmatch(r"\d+(?:\.\d+)+", upstream) is None:
+        raise ValueError(f"Unexpected NVIDIA driver version: {package_version!r}")
+    return "nvidia-" + upstream.replace(".", "-")
+
+
+def missing_nvidia_modules(modules: Path) -> list[str]:
+    """Return installed kernel versions that lack a built NVIDIA kernel module."""
+    return [
+        kernel.name
+        for kernel in sorted(modules.iterdir())
+        if (kernel / "modules.order").is_file()
+        and not any((kernel / "updates").rglob("nvidia*.ko*"))
+    ]
+
+
+def _build_nvidia_modules(root: Path, chroot: Callable[..., str]) -> None:
+    """Build the NVIDIA module for every image kernel, not the build host's kernel."""
+    modules = root / "usr/lib/modules"
+    for kernel in sorted(path.name for path in modules.iterdir() if (path / "modules.order").is_file()):
+        chroot("dkms", "autoinstall", "-k", kernel)
+    missing = missing_nvidia_modules(modules)
+    if missing:
+        raise RuntimeError(f"NVIDIA kernel module was not built for: {', '.join(missing)}")
+
+
 def _configure(
     root: Path, loop: str, tag: str | None, player: Path | None,
     player_sha256: str | None,
@@ -239,9 +273,9 @@ def _configure(
 
     sources = root / "etc/apt/sources.list"
     sources.write_text(
-        "deb http://deb.debian.org/debian trixie main contrib non-free-firmware\n"
-        "deb http://deb.debian.org/debian trixie-updates main contrib non-free-firmware\n"
-        "deb http://security.debian.org/debian-security trixie-security main contrib non-free-firmware\n",
+        f"deb http://deb.debian.org/debian trixie {APT_COMPONENTS}\n"
+        f"deb http://deb.debian.org/debian trixie-updates {APT_COMPONENTS}\n"
+        f"deb http://security.debian.org/debian-security trixie-security {APT_COMPONENTS}\n",
         encoding="utf-8",
     )
     resolver = root / "etc/resolv.conf"
@@ -253,11 +287,18 @@ def _configure(
     chroot("apt-get", "update")
     packages = (INPUTS / "packages.txt").read_text(encoding="utf-8").split()
     chroot("apt-get", "install", "-y", "--no-install-recommends", *packages)
+    _build_nvidia_modules(root, chroot)
     chroot("flatpak", "remote-add", "--system", "--if-not-exists", "flathub",
            "https://dl.flathub.org/repo/flathub.flatpakrepo")
-    # Do not install GL extensions matching the build host's proprietary driver.
-    chroot("env", "FLATPAK_GL_DRIVERS=default", "flatpak", "install", "--system", "--noninteractive",
-           "--assumeyes", "--arch=x86_64", "flathub", "com.valvesoftware.SteamLink")
+    # Select the GL extensions for the image's NVIDIA driver, not the build host's.
+    gl_driver = flatpak_nvidia_gl_driver(
+        chroot("dpkg-query", "-W", "-f=${Version}", "nvidia-driver", capture=True)
+    )
+    chroot("env", f"FLATPAK_GL_DRIVERS={gl_driver}:default", "flatpak", "install", "--system",
+           "--noninteractive", "--assumeyes", "--arch=x86_64", "flathub", "com.valvesoftware.SteamLink")
+    runtimes = chroot("flatpak", "list", "--system", "--runtime", "--columns=application", capture=True)
+    if f"org.freedesktop.Platform.GL.{gl_driver}" not in runtimes.split():
+        raise RuntimeError(f"Flathub did not provide the {gl_driver} GL extension")
     if player is not None:
         player_copy = root / "tmp/nomachine-player.deb"
         _install(player, player_copy, 0o600)

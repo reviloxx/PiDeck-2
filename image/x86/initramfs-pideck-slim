@@ -1,5 +1,6 @@
 #!/bin/sh
-# Keep GPU drivers and their firmware out of the initramfs. The Plymouth hook
+# Keep GPU drivers (including the proprietary NVIDIA DKMS modules) and their
+# firmware out of the initramfs. The Plymouth hook
 # queues every DRM driver, adding over 100 MiB of firmware that the boot
 # loader must read from slow USB media. The drivers load from the root
 # filesystem instead; tty1 waits for udev before X starts.
@@ -25,13 +26,15 @@ if [ -n "${__MODULES_TO_ADD:-}" ] && [ -f "${__MODULES_TO_ADD}" ] && [ -d "${gpu
 	excluded="$(mktemp)"
 	find "${gpu_modules}" -name '*.ko*' -printf '%f\n' | sed 's/\..*//' | sort -u > "${excluded}"
 	filtered="$(mktemp)"
-	grep -vxF -f "${excluded}" "${__MODULES_TO_ADD}" > "${filtered}" || true
+	# NVIDIA DKMS modules live outside drivers/gpu and may be queued by alias.
+	grep -vxF -f "${excluded}" "${__MODULES_TO_ADD}" | grep -v '^nvidia' > "${filtered}" || true
 	cat "${filtered}" > "${__MODULES_TO_ADD}"
 	rm -f "${excluded}" "${filtered}"
 fi
 
 for base in "${DESTDIR}/usr/lib" "${DESTDIR}/lib"; do
 	rm -rf "${base}/modules/${version}/kernel/drivers/gpu"
+	find "${base}/modules/${version}/updates" -name 'nvidia*.ko*' -delete 2>/dev/null || true
 	for firmware in amdgpu i915 nvidia radeon xe; do
 		rm -rf "${base}/firmware/${firmware}"
 	done

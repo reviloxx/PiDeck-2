@@ -142,6 +142,11 @@ able to replace both the release and its manifest can distribute altered code.
   does not automatically trust devices.
 - NetworkManager connection status and the existing Wi-Fi setup, when
   NetworkManager is available. Advanced IP/DNS settings are not included.
+- Read-only system information: PiDeck, OS and kernel versions, uptime, CPU
+  model, cores and temperature, memory and storage usage, GPUs with their
+  kernel driver and version, hardware video decoding codecs reported by
+  `vdpauinfo`/`vainfo`, ALSA sound cards with their driver, and network
+  addresses. Facts a platform or image cannot provide show as unavailable.
 - Confirmed restart and shutdown requests to systemd. These system actions
   affect the host even when the launcher's ordinary shutdown button is set to
   exit PiDeck only. Requests are noninteractive and require the active user to

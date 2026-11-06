@@ -51,6 +51,7 @@ def _wait(application: QApplication, condition) -> None:
         ("_audio_row", "audio_requested"),
         ("_bluetooth_row", "bluetooth_requested"),
         ("_network_row", "network_requested"),
+        ("_system_info_row", "system_info_requested"),
     ],
 )
 def test_system_rows_activate_with_keyboard_controller_and_mouse(

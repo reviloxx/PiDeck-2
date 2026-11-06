@@ -240,7 +240,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             color: %(muted_text)s;
             font-size: %(settings_heading_size)spx;
         }
-        QLabel#settings_label {
+        QLabel#settings_label, QLabel#system_info_value {
             color: %(text)s;
             font-size: %(settings_body_size)spx;
             font-weight: 700;

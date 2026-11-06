@@ -29,6 +29,16 @@ xserver-xorg-core
 xserver-xorg-input-libinput
 libgl1-mesa-dri
 libglx-mesa0
+nvidia-driver
+nvidia-kernel-dkms
+linux-headers-amd64
+nvidia-smi
+nvidia-vaapi-driver
+libnvcuvid1
+libcuda1
+vdpauinfo
+vainfo
+pciutils
 xinit
 xauth
 openbox

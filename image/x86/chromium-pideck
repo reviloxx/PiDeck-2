@@ -1,0 +1,5 @@
+# PiDeck: best-effort VA-API video decoding on the proprietary NVIDIA driver.
+# Chromium falls back to software decoding when the driver is unusable.
+if [ -r /proc/driver/nvidia/version ]; then
+    export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ignore-gpu-blocklist --enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,VaapiVideoDecodeLinuxGL"
+fi

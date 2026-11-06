@@ -273,6 +273,68 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert {"plymouth", "plymouth-label"} <= packages
 
 
+def test_x86_image_uses_proprietary_nvidia_driver_with_video_decoding(tmp_path: Path) -> None:
+    """Install the NVIDIA driver, DKMS build inputs and per-application decode settings."""
+    packages = set((x86_build.INPUTS / "packages.txt").read_text().split())
+    assert {
+        "nvidia-driver", "nvidia-kernel-dkms", "linux-headers-amd64", "nvidia-vaapi-driver",
+        "libnvcuvid1", "libcuda1", "vdpauinfo", "vainfo", "pciutils",
+    } <= packages
+    assert "nvidia-open-kernel-dkms" not in packages
+    assert x86_build.APT_COMPONENTS.split() == ["main", "contrib", "non-free", "non-free-firmware"]
+    x86_build._write_inputs(tmp_path, None)
+    assert "options nvidia-drm modeset=1 fbdev=1" in (
+        tmp_path / "etc/modprobe.d/pideck-nvidia.conf"
+    ).read_text()
+    profile = tmp_path / "etc/profile.d/10-pideck-video.sh"
+    # /etc/profile sources profile.d in glob order; pideck.sh then execs the session.
+    assert sorted([profile.name, "pideck.sh"])[0] == profile.name
+    assert "LIBVA_DRIVER_NAME=nvidia" in profile.read_text()
+    firefox = (tmp_path / "etc/firefox-esr/pideck-video.js").read_text()
+    assert 'pref("media.ffmpeg.vaapi.enabled", true);' in firefox
+    assert "VaapiVideoDecoder" in (tmp_path / "etc/chromium.d/pideck-video").read_text()
+
+
+@pytest.mark.parametrize("name", ["pideck-video-profile.sh", "chromium-pideck"])
+def test_video_shell_snippets_only_apply_to_nvidia(name: str, tmp_path: Path) -> None:
+    """Keep libva's automatic driver selection on systems without the NVIDIA driver."""
+    script = x86_build.INPUTS / name
+    subprocess.run(["sh", "-n", str(script)], check=True)
+    result = subprocess.run(
+        ["sh", "-c", f'CHROMIUM_FLAGS=""; . "{script}"; echo "${{LIBVA_DRIVER_NAME:-}}|$CHROMIUM_FLAGS"'],
+        check=True, capture_output=True, text=True, env={"PATH": os.environ["PATH"]},
+    )
+    if not Path("/proc/driver/nvidia/version").exists():
+        assert result.stdout.strip() == "|"
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [("550.163.01-2", "nvidia-550-163-01"), ("1:550.163.01-2+deb13u1", "nvidia-550-163-01")],
+)
+def test_flatpak_gl_driver_name_follows_debian_package(version: str, expected: str) -> None:
+    """Derive the Flathub GL extension that matches the installed kernel driver."""
+    assert x86_build.flatpak_nvidia_gl_driver(version) == expected
+
+
+def test_flatpak_gl_driver_rejects_unexpected_versions() -> None:
+    """Fail the build rather than install an unrelated GL extension."""
+    with pytest.raises(ValueError):
+        x86_build.flatpak_nvidia_gl_driver("")
+
+
+def test_missing_nvidia_modules_reports_unbuilt_kernels(tmp_path: Path) -> None:
+    """Require a DKMS-built module for each installed image kernel."""
+    for kernel in ("6.12.1-amd64", "6.12.2-amd64"):
+        (tmp_path / kernel).mkdir()
+        (tmp_path / kernel / "modules.order").touch()
+    built = tmp_path / "6.12.2-amd64/updates/dkms"
+    built.mkdir(parents=True)
+    (built / "nvidia-current.ko.xz").touch()
+    (tmp_path / "6.12.0-headers-only").mkdir()
+    assert x86_build.missing_nvidia_modules(tmp_path) == ["6.12.1-amd64"]
+
+
 @pytest.mark.parametrize("nomachine", [False, True])
 def test_x86_configuration_only_lists_installed_optional_apps(tmp_path: Path, nomachine: bool) -> None:
     """Include Steam Link and gate the player tile on its private package."""
@@ -511,7 +573,11 @@ def test_initramfs_hook_removes_gpu_drivers_and_firmware(tmp_path: Path) -> None
     (source / "kernel/drivers/gpu/drm/nouveau/nouveau.ko.xz").touch()
     (source / "kernel/drivers/gpu/drm/drm.ko.xz").touch()
     queue = tmp_path / "queue"
-    queue.write_text("ahci\nnouveau\ndrm\nusb-storage\n")
+    queue.write_text("ahci\nnouveau\ndrm\nnvidia-drm\nnvidia-current-modeset\nusb-storage\n")
+    dkms = tmp_path / f"usr/lib/modules/{version}/updates/dkms"
+    dkms.mkdir(parents=True)
+    (dkms / "nvidia-current.ko.xz").touch()
+    (dkms / "other.ko.xz").touch()
     hook = x86_build.INPUTS / "initramfs-pideck-slim"
     assert subprocess.run(["sh", str(hook), "prereqs"], capture_output=True, text=True).stdout.strip() == "plymouth"
     subprocess.run(["sh", str(hook)], check=True, env={
@@ -521,6 +587,7 @@ def test_initramfs_hook_removes_gpu_drivers_and_firmware(tmp_path: Path) -> None
     assert queue.read_text() == "ahci\nusb-storage\n"
     assert not (modules / "gpu").exists()
     assert (modules / "ata").is_dir()
+    assert sorted(path.name for path in dkms.iterdir()) == ["other.ko.xz"]
     assert not (firmware / "nvidia").exists() and not (firmware / "amdgpu").exists()
     assert (firmware / "rtl_nic").is_dir()
 

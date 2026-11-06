@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from pideck.presentation.qt.network_window import NetworkWindow
     from pideck.presentation.qt.audio_window import AudioWindow
     from pideck.presentation.qt.display_window import DisplayWindow
+    from pideck.presentation.qt.system_info_window import SystemInfoWindow
     from pideck.presentation.qt.bluetooth_window import BluetoothWindow
 
 _LOGGER = logging.getLogger(__name__)
@@ -261,6 +262,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         catalog_error = str(error)
     network_window: NetworkWindow | None = None
     audio_window: AudioWindow | None = None
+    system_info_window: SystemInfoWindow | None = None
     display_window: DisplayWindow | None = None
     bluetooth_window: BluetoothWindow | None = None
     bluetooth_opening = False
@@ -378,6 +380,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             display_window.handle_input(event)
         elif audio_window is not None and audio_window.isVisible():
             audio_window.handle_input(event)
+        elif system_info_window is not None and system_info_window.isVisible():
+            system_info_window.handle_input(event)
         elif network_window is not None and network_window.isVisible():
             network_window.handle_input(event)
         elif settings_window is not None and settings_window.isVisible():
@@ -593,6 +597,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.audio_requested.connect(open_audio_window)
         settings_window.display_requested.connect(open_display_window)
         settings_window.bluetooth_requested.connect(open_bluetooth_window)
+        settings_window.system_info_requested.connect(open_system_info_window)
         settings_window.power_requested.connect(handle_system_power_request)
         settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.application_install_requested.connect(handle_install_request)
@@ -752,6 +757,21 @@ def main(arguments: Sequence[str] | None = None) -> int:
             PulseAudioGateway(), theme, current_configuration.settings.language, parent,
         )
         audio_window.showFullScreen()
+
+    def open_system_info_window() -> None:
+        """Open the read-only hardware, driver and version overview."""
+        nonlocal system_info_window
+        if system_info_window is not None and system_info_window.isVisible():
+            return
+        from pideck.infrastructure.system_info import LinuxSystemInfoGateway
+        from pideck.presentation.qt.system_info_window import SystemInfoWindow
+
+        parent = settings_window if settings_window is not None and settings_window.isVisible() else window
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        system_info_window = SystemInfoWindow(
+            LinuxSystemInfoGateway(), theme, current_configuration.settings.language, parent,
+        )
+        system_info_window.showFullScreen()
 
     def open_display_window() -> None:
         """Open guarded display settings using the X11 platform adapter."""
