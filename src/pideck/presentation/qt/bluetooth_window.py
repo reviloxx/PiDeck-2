@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from pideck.application.ports.bluetooth import BluetoothDevice, BluetoothError, BluetoothGateway, BluetoothState, PairingRequest
 from pideck.application.ports.input import InputAction, InputEvent
+from pideck.domain.keyboard_layout import DEFAULT_KEYBOARD_LAYOUT, KeyboardLayout
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
@@ -60,9 +61,11 @@ class BluetoothWindow(WallpaperDialog):
     def __init__(
         self, gateway: BluetoothGateway, agent: PairingAgent,
         theme: ThemeDefinition, language: str, parent: QWidget,
+        *, keyboard_layout: KeyboardLayout = DEFAULT_KEYBOARD_LAYOUT,
     ) -> None:
         """Create a Bluetooth settings view using injected system operations."""
         super().__init__(parent)
+        self._keyboard_layout = keyboard_layout
         self._gateway = gateway
         self._agent = agent
         self._theme = theme
@@ -241,6 +244,7 @@ class BluetoothWindow(WallpaperDialog):
                 self._theme, self._language, self,
                 title_key="bluetooth_enter_pin" if request.kind == "pin" else "bluetooth_enter_passkey",
                 max_length=16 if request.kind == "pin" else 6,
+                keyboard_layout=self._keyboard_layout,
             )
             self._pair_dialog = dialog
 

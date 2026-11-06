@@ -3,7 +3,6 @@
 from concurrent.futures import Future, ThreadPoolExecutor
 from collections.abc import Callable
 import logging
-import string
 
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QKeyEvent
@@ -14,9 +13,11 @@ from PySide6.QtWidgets import (
 
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.network import NetworkError, NetworkGateway, WirelessNetwork
+from pideck.domain.keyboard_layout import DEFAULT_KEYBOARD_LAYOUT, KeyboardLayout
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
+from .on_screen_keyboard import ON_SCREEN_COLUMNS, key_label, on_screen_characters, shifted
 from .system_panel import add_action_button, build_system_window, set_status
 from .theme import apply_theme
 from .wallpaper import WallpaperDialog
@@ -31,6 +32,7 @@ class WirelessKeyDialog(QDialog):
     def __init__(
         self, theme: ThemeDefinition, language: str, parent: QWidget,
         *, title_key: str = "wifi_key", max_length: int = 64,
+        keyboard_layout: KeyboardLayout = DEFAULT_KEYBOARD_LAYOUT,
     ) -> None:
         """Create a masked key editor with controller-navigable character keys."""
         super().__init__(parent)
@@ -49,16 +51,16 @@ class WirelessKeyDialog(QDialog):
         self.entry.installEventFilter(self)
         layout.addWidget(self.entry)
         grid = QGridLayout()
-        characters = string.ascii_lowercase + string.digits + "-_=+!@#$%^&*()[]{};:'\",.<>/?\\|`~"
+        characters = on_screen_characters(keyboard_layout)
         self._characters = characters
         for index, character in enumerate(characters):
-            button = QPushButton(character, self)
+            button = QPushButton(key_label(character), self)
             button.setObjectName("network_key")
             button.setMinimumWidth(38)
-            button.clicked.connect(lambda checked=False, item=button: self.entry.insert(item.text()))
+            button.clicked.connect(lambda checked=False, position=index: self.entry.insert(self._character(position)))
             button.installEventFilter(self)
             self._keys.append(button)
-            grid.addWidget(button, index // 10, index % 10)
+            grid.addWidget(button, index // ON_SCREEN_COLUMNS, index % ON_SCREEN_COLUMNS)
         layout.addLayout(grid)
         actions = QHBoxLayout()
         for label, action in (
@@ -78,11 +80,16 @@ class WirelessKeyDialog(QDialog):
         apply_theme(self, theme)
         self._keys[0].setFocus(Qt.FocusReason.OtherFocusReason)
 
+    def _character(self, index: int) -> str:
+        """Return the character typed by the key at ``index`` in the current shift state."""
+        character = self._characters[index]
+        return shifted(character) if self._shifted else character
+
     def _shift(self) -> None:
         """Toggle uppercase letters without changing punctuation."""
         self._shifted = not self._shifted
-        for button, character in zip(self._keys, self._characters):
-            button.setText(character.upper() if self._shifted else character)
+        for index, button in enumerate(self._keys[:len(self._characters)]):
+            button.setText(key_label(self._character(index)))
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         """Move focus predictably between the on-screen keys."""
@@ -110,12 +117,12 @@ class WirelessKeyDialog(QDialog):
         elif key == Qt.Key.Key_Right:
             target = min(len(self._keys) - 1, index + 1)
         elif key == Qt.Key.Key_Up:
-            if index < 10:
+            if index < ON_SCREEN_COLUMNS:
                 self.entry.setFocus(Qt.FocusReason.OtherFocusReason)
                 return True
-            target = max(0, index - 10) if index < character_count else character_count - 1
+            target = max(0, index - ON_SCREEN_COLUMNS) if index < character_count else character_count - 1
         elif key == Qt.Key.Key_Down:
-            target = min(index + 10, character_count) if index < character_count else index
+            target = min(index + ON_SCREEN_COLUMNS, character_count) if index < character_count else index
         else:
             return super().eventFilter(watched, event)
         self._keys[target].setFocus(Qt.FocusReason.OtherFocusReason)
@@ -129,10 +136,11 @@ class NetworkWindow(WallpaperDialog):
 
     def __init__(
         self, gateway: NetworkGateway, theme: ThemeDefinition, language: str,
-        parent: QWidget,
+        parent: QWidget, *, keyboard_layout: KeyboardLayout = DEFAULT_KEYBOARD_LAYOUT,
     ) -> None:
         """Build one network setup surface using an injected gateway."""
         super().__init__(parent)
+        self._keyboard_layout = keyboard_layout
         self._gateway = gateway
         self._theme = theme
         self._language = language
@@ -247,7 +255,9 @@ class NetworkWindow(WallpaperDialog):
         if not network.requires_key:
             self._submit("connect", self._gateway.connect, network, None)
             return
-        dialog = WirelessKeyDialog(self._theme, self._language, self)
+        dialog = WirelessKeyDialog(
+            self._theme, self._language, self, keyboard_layout=self._keyboard_layout,
+        )
         self._key_dialog = dialog
 
         def finish(result: int) -> None:

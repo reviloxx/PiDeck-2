@@ -260,6 +260,11 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "subject.local && subject.active" in policy
     assert "org.freedesktop.NetworkManager.network-control" in policy
     assert "org.freedesktop.policykit.exec" not in policy
+    udisks = (tmp_path / "etc/polkit-1/rules.d/50-pideck-udisks.rules").read_text()
+    assert 'subject.isInGroup("plugdev")' in udisks and "subject.local && subject.active" in udisks
+    assert "org.freedesktop.udisks2.filesystem-mount" in udisks
+    assert 'Option "XkbLayout" "de"' in (tmp_path / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf").read_text()
+    assert {"udisks2", "x11-xkb-utils"} <= packages
     grub = (tmp_path / "etc/default/grub.d/90-pideck.cfg").read_text()
     assert "GRUB_TIMEOUT_STYLE=hidden\n" in grub
     assert "GRUB_TIMEOUT=0\n" in grub

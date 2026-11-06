@@ -219,9 +219,9 @@ def test_pairing_pin_keyboard_accepts_gamepad_input(application: QApplication) -
     dialog._keys[0].setFocus()
     application.processEvents()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert dialog.entry.text() == "a"
+    assert dialog.entry.text() == "1"
     dialog.accept()
-    assert agent.response == "a"
+    assert agent.response == "1"
     window.close()
     parent.close()
 

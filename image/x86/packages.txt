@@ -54,6 +54,8 @@ bluez
 wpasupplicant
 wireless-regdb
 polkitd
+udisks2
+x11-xkb-utils
 ca-certificates
 openssl
 flatpak

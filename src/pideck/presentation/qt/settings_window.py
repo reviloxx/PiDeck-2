@@ -32,6 +32,7 @@ from pideck.application.updates import ApplicationUpdateService
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.configuration import ApplicationDefinition, Configuration
 from pideck.domain.input_settings import CecSettings
+from pideck.domain.keyboard_layout import KeyboardLayout
 from pideck.domain.theme import ThemeDefinition
 from pideck import __version__
 
@@ -390,12 +391,14 @@ class SettingsWindow(QDialog):
     pideck_check_requested = Signal()
     network_requested = Signal()
     audio_requested = Signal()
+    drives_requested = Signal()
     display_requested = Signal()
     bluetooth_requested = Signal()
     system_info_requested = Signal()
     power_requested = Signal(str)
     application_install_requested = Signal(str)
     input_settings_changed = Signal(object)
+    keyboard_layout_changed = Signal(object)
     cec_connection_requested = Signal(bool)
 
     def __init__(
@@ -411,9 +414,11 @@ class SettingsWindow(QDialog):
         build_date: str | None = None,
         catalog: tuple[ApplicationDefinition, ...] = (),
         input_settings: CecSettings | None = None,
+        keyboard_layout: KeyboardLayout | None = None,
     ) -> None:
         """Build the settings menu from the current validated configuration."""
         super().__init__(parent)
+        self._keyboard_layout = keyboard_layout
         self._configuration = configuration
         self._catalog = {
             item.identifier: item for item in available_applications(configuration, catalog)
@@ -787,7 +792,13 @@ class SettingsWindow(QDialog):
         self._bluetooth_row = bluetooth_row
         self._bluetooth_labels = bluetooth_row.findChildren(QLabel)
         layout.addWidget(bluetooth_row)
-        system_rows = [display_row, row, bluetooth_row]
+        drives_row = self._action_row(
+            page, tr(self._language, "drives"), tr(self._language, "drives_description"),
+        )
+        self._drives_row = drives_row
+        self._drives_labels = drives_row.findChildren(QLabel)
+        layout.addWidget(drives_row)
+        system_rows = [display_row, row, bluetooth_row, drives_row]
         if self._network_enabled:
             network_row = self._action_row(
                 page, tr(self._language, "network"), tr(self._language, "network_description"),
@@ -837,6 +848,24 @@ class SettingsWindow(QDialog):
         self._input_auto.setChecked(self._input_settings.auto_connect)
         self._input_switch.setChecked(self._input_settings.switch_input)
         self._input_port.setCurrentIndex(self._input_port.findData(self._input_settings.hdmi_port))
+        self._keyboard_combo: SettingsComboBox | None = None
+        if self._keyboard_layout is not None:
+            self._keyboard_combo = SettingsComboBox(page)
+            configure_combo_box(self._keyboard_combo)
+            for layout_option in KeyboardLayout:
+                self._keyboard_combo.addItem(
+                    tr(self._language, f"keyboard_layout_{layout_option.value}"), layout_option.value,
+                )
+            self._keyboard_combo.setCurrentIndex(self._keyboard_combo.findData(self._keyboard_layout.value))
+            self._keyboard_combo.setObjectName("settings_control")
+            row, _ = self._control_row(
+                page, tr(self._language, "keyboard_layout"),
+                tr(self._language, "keyboard_layout_hint"), self._keyboard_combo,
+            )
+            self._input_rows["keyboard_layout"] = row
+            self._input_labels["keyboard_layout"] = row.findChildren(QLabel)
+            layout.addWidget(row)
+            self._keyboard_combo.currentIndexChanged.connect(self._emit_keyboard_layout)
         for key, control in (
             ("cec_enabled", self._input_enabled), ("cec_auto", self._input_auto),
             ("cec_port", self._input_port), ("cec_switch", self._input_switch),
@@ -871,6 +900,17 @@ class SettingsWindow(QDialog):
             hdmi_port=self._input_port.currentData(),
             switch_input=self._input_switch.isChecked(),
         ))
+
+    def _emit_keyboard_layout(self, *_: object) -> None:
+        """Emit the selected keyboard layout when the dropdown changes."""
+        if self._keyboard_combo is None:
+            return
+        try:
+            layout = KeyboardLayout(self._keyboard_combo.currentData())
+        except ValueError:
+            return
+        self._keyboard_layout = layout
+        self.keyboard_layout_changed.emit(layout)
 
     def set_input_settings(self, settings: CecSettings) -> None:
         """Restore controls after a rejected or externally applied change."""
@@ -1156,6 +1196,8 @@ class SettingsWindow(QDialog):
         combos = [self._theme_combo, self._language_combo]
         if self._input_page is not None:
             combos.append(self._input_port)
+            if self._keyboard_combo is not None:
+                combos.append(self._keyboard_combo)
         for combo in combos:
             if combo.view().isVisible():
                 return combo
@@ -1180,6 +1222,8 @@ class SettingsWindow(QDialog):
                 self._input_switch.toggle()
             elif row is self._input_rows["cec_port"]:
                 self._input_port.showPopup()
+            elif row is self._input_rows.get("keyboard_layout") and self._keyboard_combo is not None:
+                self._keyboard_combo.showPopup()
             elif row is self._input_rows["cec_connect"]:
                 self.cec_connection_requested.emit(True)
             elif row is self._input_rows["cec_disconnect"]:
@@ -1192,6 +1236,8 @@ class SettingsWindow(QDialog):
             self.display_requested.emit()
         elif self._system_page is not None and row is self._bluetooth_row:
             self.bluetooth_requested.emit()
+        elif self._system_page is not None and row is self._drives_row:
+            self.drives_requested.emit()
         elif self._system_page is not None and row is self._system_info_row:
             self.system_info_requested.emit()
         elif self._system_page is not None:
@@ -1222,6 +1268,10 @@ class SettingsWindow(QDialog):
         if self._input_page is not None:
             self._nav_buttons[self._input_page].setText(tr(self._language, "input"))
             self._input_port.setItemText(0, tr(self._language, "cec_auto_port"))
+            if self._keyboard_combo is not None:
+                for index in range(self._keyboard_combo.count()):
+                    option = self._keyboard_combo.itemData(index)
+                    self._keyboard_combo.setItemText(index, tr(self._language, f"keyboard_layout_{option}"))
             for control in (self._input_enabled, self._input_auto, self._input_switch):
                 control.set_state_texts(tr(self._language, "on"), tr(self._language, "off"))
             for key, labels in self._input_labels.items():
@@ -1242,12 +1292,15 @@ class SettingsWindow(QDialog):
             self._audio_labels[1].setText(tr(self._language, "audio_description"))
             self._bluetooth_labels[0].setText(tr(self._language, "bluetooth"))
             self._bluetooth_labels[1].setText(tr(self._language, "bluetooth_description"))
+            self._drives_labels[0].setText(tr(self._language, "drives"))
+            self._drives_labels[1].setText(tr(self._language, "drives_description"))
             self._system_info_labels[0].setText(tr(self._language, "system_info"))
             self._system_info_labels[1].setText(tr(self._language, "system_info_description"))
             for row, labels in (
                 (self._display_row, self._display_labels),
                 (self._audio_row, self._audio_labels),
                 (self._bluetooth_row, self._bluetooth_labels),
+                (self._drives_row, self._drives_labels),
                 (self._system_info_row, self._system_info_labels),
             ):
                 row.setAccessibleName(labels[0].text())

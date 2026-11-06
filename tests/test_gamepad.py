@@ -62,3 +62,29 @@ def test_opening_gamepad_does_not_take_exclusive_control() -> None:
 
     adapter.close()
     assert device.grab_calls == 0
+
+
+def test_keyboard_hotplug_notifies_once_after_the_next_scan() -> None:
+    """Keyboards present at startup are ignored; later ones trigger one callback."""
+    keyboard = SimpleNamespace(name="USB Keyboard", capabilities=lambda: {1: list(range(1, 100))}, close=lambda: None)
+    mouse = SimpleNamespace(name="USB Mouse", capabilities=lambda: {1: [272, 273]}, close=lambda: None)
+    devices = {"/dev/input/event0": mouse}
+    notifications: list[bool] = []
+    scans = 0
+    adapter = EvdevGamepadAdapter(discovery_interval=0, keyboard_added=lambda: notifications.append(True))
+
+    def list_devices() -> list[str]:
+        nonlocal scans
+        scans += 1
+        if scans == 2:
+            devices["/dev/input/event1"] = keyboard
+        if scans == 5:
+            adapter._stop.set()
+        return list(devices)
+
+    evdev = SimpleNamespace(list_devices=list_devices, InputDevice=lambda path: devices[path])
+    adapter._discover_loop(evdev)
+
+    assert EvdevGamepadAdapter._is_keyboard(keyboard) is True
+    assert EvdevGamepadAdapter._is_keyboard(mouse) is False
+    assert notifications == [True]

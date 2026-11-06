@@ -210,6 +210,8 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "pideck-profile.sh", root / "etc/profile.d/pideck.sh")
     _install(INPUTS / "pideck-network-profile.sh", root / "etc/profile.d/00-pideck-network.sh")
     _install(INPUTS / "49-pideck-network.rules", root / "etc/polkit-1/rules.d/49-pideck-network.rules")
+    _install(PI_FILES / "50-pideck-udisks.rules", root / "etc/polkit-1/rules.d/50-pideck-udisks.rules")
+    _install(PI_FILES / "00-pideck-keyboard.conf", root / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf")
     cec_support = ROOT / "src/pideck/infrastructure/cec_support"
     _install(cec_support / "71-pideck-cec-attach.rules", root / "etc/udev/rules.d/71-pideck-cec-attach.rules")
     _install(cec_support / "pideck-cec-attach@.service", root / "etc/systemd/system/pideck-cec-attach@.service")
@@ -326,9 +328,9 @@ def _configure(
     chroot(*arguments)
     app_configurator.unlink()
     app_definitions.unlink()
-    for group in ("audio", "video", "render", "input"):
+    for group in ("audio", "video", "render", "input", "plugdev"):
         chroot("groupadd", "-f", group)
-    chroot("useradd", "-m", "-u", "1000", "-s", "/bin/bash", "-G", "audio,video,render,input", "pideck")
+    chroot("useradd", "-m", "-u", "1000", "-s", "/bin/bash", "-G", "audio,video,render,input,plugdev", "pideck")
     (root / "etc/hostname").write_text("pideck\n", encoding="utf-8")
     (root / "etc/hosts").write_text("127.0.0.1 localhost\n127.0.1.1 pideck\n::1 localhost\n", encoding="utf-8")
     root_uuid = _run("blkid", "-s", "UUID", "-o", "value", f"{loop}p3", capture=True)

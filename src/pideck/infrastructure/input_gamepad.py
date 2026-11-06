@@ -1,5 +1,6 @@
 """Optional Linux evdev gamepad adapter with hot-plug discovery."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 from pathlib import Path
@@ -24,9 +25,17 @@ class _GamepadDevice:
 class EvdevGamepadAdapter:
     """Read standard Linux gamepad events and normalize them for PiDeck."""
 
-    def __init__(self, discovery_interval: float = 1.0) -> None:
-        """Create an optional evdev adapter with runtime device discovery."""
+    def __init__(
+        self, discovery_interval: float = 1.0, keyboard_added: Callable[[], None] | None = None,
+    ) -> None:
+        """Create an optional evdev adapter with runtime device discovery.
+
+        ``keyboard_added`` is called from the discovery thread one scan after a
+        keyboard appears, giving the X server time to register the device.
+        """
         self._discovery_interval = discovery_interval
+        self.keyboard_added = keyboard_added
+        self._keyboards: set[Path] | None = None
         self._lock = threading.RLock()
         self._sink: InputSink | None = None
         self._devices: dict[Path, _GamepadDevice] = {}
@@ -66,19 +75,35 @@ class EvdevGamepadAdapter:
 
     def _discover_loop(self, evdev: Any) -> None:
         """Discover and remove gamepads while the adapter is active."""
+        keyboard_pending = False
         while not self._stop.is_set():
+            callback = self.keyboard_added
+            if keyboard_pending and callback is not None:
+                keyboard_pending = False
+                try:
+                    callback()
+                except Exception:
+                    _LOGGER.exception("Keyboard hot-plug handler failed")
             paths: set[Path] = set()
+            keyboards: set[Path] = set()
             for raw_path in evdev.list_devices():
                 path = Path(raw_path)
                 try:
                     device = evdev.InputDevice(raw_path)
                     is_gamepad = self._is_gamepad(device)
+                    is_keyboard = not is_gamepad and self._is_keyboard(device)
                     device.close()
                 except (OSError, PermissionError):
                     continue
                 if is_gamepad:
                     paths.add(path)
                     self._open_device(evdev, path)
+                elif is_keyboard:
+                    keyboards.add(path)
+            if self._keyboards is not None and keyboards.difference(self._keyboards):
+                _LOGGER.info("Keyboard connected paths=%s", sorted(map(str, keyboards - self._keyboards)))
+                keyboard_pending = True
+            self._keyboards = keyboards
             with self._lock:
                 removed = set(self._devices).difference(paths)
             for path in removed:
@@ -95,6 +120,11 @@ class EvdevGamepadAdapter:
         return bool(absolute_codes.intersection({16, 17}) or button_codes.intersection({304, 305, 307, 308})) or any(
             word in name for word in ("gamepad", "controller", "joystick")
         )
+
+    @staticmethod
+    def _is_keyboard(device: Any) -> bool:
+        """Identify typing keyboards by the presence of letter keys A and Z."""
+        return {30, 44}.issubset(_capability_codes(device.capabilities().get(1, [])))
 
     def _open_device(self, evdev: Any, path: Path) -> None:
         """Open one newly discovered gamepad and start its reader."""

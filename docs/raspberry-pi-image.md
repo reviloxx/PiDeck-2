@@ -238,6 +238,19 @@ an explicitly enabled SSH connection for recovery and inspect `journalctl`.
 After confirmation, the shutdown button requests system power-off; an
 authorization or systemd failure is displayed in PiDeck.
 
+## Drives and keyboard layout
+
+Images built from v0.4.0 or later include `udisks2`, a polkit rule
+(`/etc/polkit-1/rules.d/50-pideck-udisks.rules`) that lets the session user's
+`plugdev` group mount, unmount and power off data drives, and an Xorg snippet
+(`/etc/X11/xorg.conf.d/00-pideck-keyboard.conf`) that makes German QWERTZ the
+default for every keyboard. The pi-gen build also sets the console keymap
+to German; a keyboard chosen in Raspberry Pi Imager still applies to the
+console. The v0.4.0 application update adds the Drives
+window and the keyboard layout setting to older images too, but mounting
+drives there reports that a newer image is required, because application
+updates do not install packages or polkit rules. Reflash to enable it.
+
 ## Application inventory
 
 The following are package-availability findings, not proof that the apps work

@@ -87,7 +87,9 @@ def write_build_config(pi_gen: Path) -> Path:
         "PASSWORDLESS_SUDO=0\n"
         "DISABLE_FIRST_BOOT_USER_RENAME=0\n"
         "FIRST_USER_PASS=''\n"
-        "ENABLE_CLOUD_INIT=0\n",
+        "ENABLE_CLOUD_INIT=0\n"
+        "KEYBOARD_KEYMAP='de'\n"
+        "KEYBOARD_LAYOUT='German'\n",
         encoding="utf-8",
     )
     return config

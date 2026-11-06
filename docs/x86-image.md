@@ -228,6 +228,17 @@ usage, raw image size, source hashes and optional player checksum. Package
 versions and Flatpak references are live; retain the manifests with the image.
 Only the compressed image is covered by `SHA256SUMS`.
 
+## Drives and keyboard layout
+
+Images built from v0.4.0 or later include `udisks2`, a polkit rule
+(`/etc/polkit-1/rules.d/50-pideck-udisks.rules`) that lets the session user's
+`plugdev` group mount, unmount and power off data drives, and an Xorg snippet
+(`/etc/X11/xorg.conf.d/00-pideck-keyboard.conf`) that makes German QWERTZ the
+default for every keyboard. The v0.4.0 application update adds the Drives
+window and the keyboard layout setting to older images too, but mounting
+drives there reports that a newer image is required, because application
+updates do not install packages or polkit rules. Reflash to enable it.
+
 ## VirtualBox
 
 Verify the compressed image, then create a separate virtual disk:

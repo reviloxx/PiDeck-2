@@ -50,6 +50,7 @@ def _wait(application: QApplication, condition) -> None:
         ("_display_row", "display_requested"),
         ("_audio_row", "audio_requested"),
         ("_bluetooth_row", "bluetooth_requested"),
+        ("_drives_row", "drives_requested"),
         ("_network_row", "network_requested"),
         ("_system_info_row", "system_info_requested"),
     ],

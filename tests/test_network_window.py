@@ -66,10 +66,10 @@ def test_wireless_setup_controller_key_entry(application: QApplication) -> None:
     dialog._keys[0].setFocus()
     application.processEvents()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert dialog.entry.text() == "a"
+    assert dialog.entry.text() == "1"
     window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert dialog.entry.text() == "ab"
+    assert dialog.entry.text() == "12"
     dialog.entry.setText("test-key")
     dialog.accept()
     for _ in range(100):
@@ -118,12 +118,12 @@ def test_wireless_keyboard_enter_activates_focus_and_submits_entry(application: 
     dialog.show()
     application.processEvents()
     QTest.keyClick(dialog._keys[1], Qt.Key.Key_Return)
-    assert dialog.entry.text() == "b"
+    assert dialog.entry.text() == "2"
     dialog.entry.setFocus()
     QTest.keyClicks(dialog.entry, "test-key")
     QTest.keyClick(dialog.entry, Qt.Key.Key_Return)
     assert dialog.result() == dialog.DialogCode.Accepted
-    assert dialog.entry.text() == "btest-key"
+    assert dialog.entry.text() == "2test-key"
     parent.close()
 
 

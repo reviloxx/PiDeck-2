@@ -138,6 +138,7 @@ def test_image_configuration_and_assets(tmp_path: Path) -> None:
     packages = (STAGE / "00-pideck" / "00-packages-nr").read_text().split()
     assert {app.executable for app in applications.values()} <= set(packages)
     assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "cec-utils", "inputattach"} <= set(packages)
+    assert {"udisks2", "polkitd", "x11-xkb-utils"} <= set(packages)
     assert "cec" in config.input.enabled_sources
 
     shutil.copytree(ROOT / "assets", tmp_path / "assets")
@@ -167,6 +168,10 @@ def test_prepare_stage_copies_snapshot_and_enables_only_custom_export(tmp_path: 
     assert "systemctl enable getty@tty1.service" in export_script.read_text()
     assert "dpkg-query" in export_script.read_text()
     assert (pi_gen / "stage2" / "01-sys-tweaks" / "00-packages").read_text() == "sudo\n"
+    assert "KEYBOARD_KEYMAP='de'\n" in config.read_text()
+    run_script = (stage / "00-pideck" / "01-run.sh").read_text()
+    assert "etc/polkit-1/rules.d/50-pideck-udisks.rules" in run_script
+    assert "etc/X11/xorg.conf.d/00-pideck-keyboard.conf" in run_script
     assert os.access(stage / "prerun.sh", os.X_OK)
     assert os.access(stage / "00-pideck" / "01-run.sh", os.X_OK)
     assert (stage / "00-pideck" / "files" / "project" / "src" / "pideck" / "bootstrap.py").is_file()

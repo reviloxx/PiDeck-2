@@ -58,6 +58,15 @@ switching. Auto-connect defaults to on; switching defaults to off. PiDeck
 releases CEC before launching an application and restores a requested
 connection afterward. Kodi's CEC settings are separate.
 
+**Settings → Input → Keyboard layout** selects German (QWERTZ, the default)
+or English (US). In the appliance session PiDeck applies the choice with
+`setxkbmap` at startup, when it changes and whenever a keyboard is connected,
+and the controller-operated on-screen keyboard follows the same layout,
+including ä, ö, ü and ß for German. The choice is stored in `keyboard.yaml`
+next to `pideck.yaml`. When run from a desktop session, PiDeck stores the
+choice but leaves the desktop's keyboard layout alone. Images built from this
+release also default the X server and, on Raspberry Pi, the console to German.
+
 Applications with `cec: keyboard` instead keep PiDeck's CEC connection: the
 remote's arrows, OK and Back are sent to the application as arrow keys, Enter
 and Escape, and Play, Pause, Stop, Rewind and Fast-forward as media keys. The
@@ -140,6 +149,16 @@ able to replace both the release and its manifest can distribute altered code.
   disconnecting devices through BlueZ. PiDeck uses the first available adapter
   and asks before authorizing a pairing or confirming a displayed code; it
   does not automatically trust devices.
+- Drives: mount and unmount USB sticks, external disks and additional
+  internal partitions through udisks2, so they appear under
+  `/media/<user>/<label>` for Kodi (its file browser lists them under the
+  root filesystem or removable sources) and other applications. Disks
+  with swap or any filesystem mounted outside `/media`, `/mnt` or
+  `/run/media` (such as root, boot, EFI or home) are never listed. Unmounting
+  a removable drive also powers it off so it can be removed safely. Mounting
+  requires an image built from v0.4.0 or later, which ships udisks2 and a
+  polkit rule for the session user's `plugdev` group; older images show a
+  notice instead.
 - NetworkManager connection status and the existing Wi-Fi setup, when
   NetworkManager is available. Advanced IP/DNS settings are not included.
 - Read-only system information: PiDeck, OS and kernel versions, uptime, CPU

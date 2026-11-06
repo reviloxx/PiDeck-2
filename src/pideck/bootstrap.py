@@ -52,6 +52,8 @@ from pideck.infrastructure.pideck_releases import find_latest_release, version_k
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
 from pideck.infrastructure.input_cec import CecClientAdapter
 from pideck.infrastructure.input_settings import InputPreferences, InputSettingsError
+from pideck.infrastructure.keyboard_layout import KeyboardPreferences, X11KeyboardLayout
+from pideck.domain.keyboard_layout import KeyboardLayout
 from pideck.infrastructure.network_manager import NetworkManagerGateway
 from pideck.application.ports.network import NetworkError
 from pideck.application.ports.bluetooth import BluetoothError
@@ -70,6 +72,7 @@ if TYPE_CHECKING:
     from pideck.presentation.qt.display_window import DisplayWindow
     from pideck.presentation.qt.system_info_window import SystemInfoWindow
     from pideck.presentation.qt.bluetooth_window import BluetoothWindow
+    from pideck.presentation.qt.drives_window import DrivesWindow
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -229,7 +232,15 @@ def main(arguments: Sequence[str] | None = None) -> int:
     update_service = ApplicationUpdateService(
         NativeUpdateGateway(image_mode=image_mode), allow_password_prompt=not image_mode
     )
+    keyboard_preferences = KeyboardPreferences(parsed_arguments.config.parent / "keyboard.yaml")
+    keyboard_layout = keyboard_preferences.load()
+    # Only the appliance session owns its X server; never remap a developer's desktop keyboard.
+    keyboard_applier = X11KeyboardLayout() if image_mode else None
+    if keyboard_applier is not None:
+        keyboard_applier.apply(keyboard_layout)
     gamepad_adapter = EvdevGamepadAdapter()
+    if keyboard_applier is not None:
+        gamepad_adapter.keyboard_added = lambda: keyboard_applier.apply(keyboard_layout)
     input_preferences = InputPreferences(parsed_arguments.config.parent / "input.yaml")
     try:
         input_settings = input_preferences.load()
@@ -262,6 +273,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         catalog_error = str(error)
     network_window: NetworkWindow | None = None
     audio_window: AudioWindow | None = None
+    drives_window: DrivesWindow | None = None
     system_info_window: SystemInfoWindow | None = None
     display_window: DisplayWindow | None = None
     bluetooth_window: BluetoothWindow | None = None
@@ -380,6 +392,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             display_window.handle_input(event)
         elif audio_window is not None and audio_window.isVisible():
             audio_window.handle_input(event)
+        elif drives_window is not None and drives_window.isVisible():
+            drives_window.handle_input(event)
         elif system_info_window is not None and system_info_window.isVisible():
             system_info_window.handle_input(event)
         elif network_window is not None and network_window.isVisible():
@@ -564,6 +578,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             build_date=installed_build_date(),
             catalog=catalog,
             input_settings=input_settings,
+            keyboard_layout=keyboard_layout,
         )
         settings_window.set_cec_status(input_settings_error or cec_adapter.status)
 
@@ -582,6 +597,20 @@ def main(arguments: Sequence[str] | None = None) -> int:
             cec_adapter.configure(settings)
 
         settings_window.input_settings_changed.connect(handle_input_settings_changed)
+
+        def handle_keyboard_layout_changed(layout: KeyboardLayout) -> None:
+            nonlocal keyboard_layout
+            try:
+                keyboard_preferences.save(layout)
+            except OSError as error:
+                dependencies.logger.error("Unable to save keyboard layout: %s", error)
+                if settings_window is not None:
+                    settings_window.show_error(str(error))
+            keyboard_layout = layout
+            if keyboard_applier is not None:
+                keyboard_applier.apply(layout)
+
+        settings_window.keyboard_layout_changed.connect(handle_keyboard_layout_changed)
         settings_window.cec_connection_requested.connect(
             lambda connect: cec_adapter.connect() if connect else cec_adapter.disconnect()
         )
@@ -595,6 +624,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.pideck_check_requested.connect(pideck_update_service.check_async)
         settings_window.network_requested.connect(open_network_window)
         settings_window.audio_requested.connect(open_audio_window)
+        settings_window.drives_requested.connect(open_drives_window)
         settings_window.display_requested.connect(open_display_window)
         settings_window.bluetooth_requested.connect(open_bluetooth_window)
         settings_window.system_info_requested.connect(open_system_info_window)
@@ -741,6 +771,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
         network_window = NetworkWindow(
             network_gateway, theme, current_configuration.settings.language, parent,
+            keyboard_layout=keyboard_layout,
         )
         network_window.showFullScreen()
 
@@ -757,6 +788,21 @@ def main(arguments: Sequence[str] | None = None) -> int:
             PulseAudioGateway(), theme, current_configuration.settings.language, parent,
         )
         audio_window.showFullScreen()
+
+    def open_drives_window() -> None:
+        """Open drive mounting backed by udisks2 on supported images."""
+        nonlocal drives_window
+        if drives_window is not None and drives_window.isVisible():
+            return
+        from pideck.infrastructure.udisks_storage import UDisksStorageGateway
+        from pideck.presentation.qt.drives_window import DrivesWindow
+
+        parent = settings_window if settings_window is not None and settings_window.isVisible() else window
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        drives_window = DrivesWindow(
+            UDisksStorageGateway(), theme, current_configuration.settings.language, parent,
+        )
+        drives_window.showFullScreen()
 
     def open_system_info_window() -> None:
         """Open the read-only hardware, driver and version overview."""
@@ -819,6 +865,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
         bluetooth_window = BluetoothWindow(
             gateway, agent, theme, current_configuration.settings.language, parent,
+            keyboard_layout=keyboard_layout,
         )
         bluetooth_window.showFullScreen()
 
