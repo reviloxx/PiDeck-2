@@ -89,7 +89,9 @@ def write_build_config(pi_gen: Path) -> Path:
         "FIRST_USER_PASS=''\n"
         "ENABLE_CLOUD_INIT=0\n"
         "KEYBOARD_KEYMAP='de'\n"
-        "KEYBOARD_LAYOUT='German'\n",
+        "KEYBOARD_LAYOUT='German'\n"
+        "LOCALE_DEFAULT='de_DE.UTF-8'\n"
+        "TIMEZONE_DEFAULT='Europe/Berlin'\n",
         encoding="utf-8",
     )
     return config

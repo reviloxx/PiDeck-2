@@ -6,6 +6,7 @@ import logging
 from pideck.application.ports.configuration import ConfigurationRepository
 from pideck.application.ports.process import ProcessSupervisor
 from pideck.application.ports.theme import ThemeRepository
+from pideck.domain.catalog import CatalogEntry
 from pideck.domain.configuration import Configuration
 
 
@@ -18,3 +19,5 @@ class ApplicationDependencies:
     theme_repository: ThemeRepository
     process_supervisor: ProcessSupervisor
     logger: logging.Logger
+    catalog: tuple[CatalogEntry, ...] = ()
+    catalog_error: str | None = None

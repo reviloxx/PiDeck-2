@@ -1,0 +1,3 @@
+# PiDeck ships the Google Chrome repository itself; stop the package from adding a duplicate.
+repo_add_once="false"
+repo_reenable_on_distupgrade="false"

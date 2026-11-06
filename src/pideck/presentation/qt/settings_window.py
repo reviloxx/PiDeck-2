@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import TypeVar
 
-from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QBoxLayout,
@@ -24,13 +24,13 @@ from PySide6.QtWidgets import (
 )
 
 from pideck.application.settings import SettingsUpdate
-from pideck.application.catalog import available_applications
+from pideck.application.app_management import CatalogItemStatus
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.installation import InstallProgress
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
-from pideck.domain.configuration import ApplicationDefinition, Configuration
+from pideck.domain.configuration import Configuration
 from pideck.domain.input_settings import CecSettings
 from pideck.domain.keyboard_layout import KeyboardLayout
 from pideck.domain.theme import ThemeDefinition
@@ -39,14 +39,12 @@ from pideck import __version__
 from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperDialog, WallpaperWidget
 from .localization import format_timestamp, tr
-from .install_row import InstallProgressRow
-from .power_dialog import PowerDialog
+from .applications_page import ApplicationsList
+from .power_dialog import ConfirmationDialog, PowerDialog
 from .spinner import BusySpinner
 from .toggle_switch import ToggleSwitch
 
 _UPDATE_SPINNER_SIZE = 22
-# Vertical space taken by the application list's ``::item`` padding and border (theme.py).
-_LIST_ITEM_CHROME = 2 * (12 + 1)
 
 _ControlT = TypeVar("_ControlT", bound=QWidget)
 
@@ -397,6 +395,7 @@ class SettingsWindow(QDialog):
     system_info_requested = Signal()
     power_requested = Signal(str)
     application_install_requested = Signal(str)
+    application_remove_requested = Signal(str)
     input_settings_changed = Signal(object)
     keyboard_layout_changed = Signal(object)
     cec_connection_requested = Signal(bool)
@@ -412,7 +411,7 @@ class SettingsWindow(QDialog):
         network_enabled: bool = False,
         system_enabled: bool = False,
         build_date: str | None = None,
-        catalog: tuple[ApplicationDefinition, ...] = (),
+        catalog_statuses: tuple[CatalogItemStatus, ...] | None = None,
         input_settings: CecSettings | None = None,
         keyboard_layout: KeyboardLayout | None = None,
     ) -> None:
@@ -420,11 +419,7 @@ class SettingsWindow(QDialog):
         super().__init__(parent)
         self._keyboard_layout = keyboard_layout
         self._configuration = configuration
-        self._catalog = {
-            item.identifier: item for item in available_applications(configuration, catalog)
-        }
-        self._installing_id: str | None = None
-        self._install_row: InstallProgressRow | None = None
+        self._catalog_statuses = catalog_statuses
         self._theme = theme
         self._language = configuration.settings.language
         self._asset_root = asset_root
@@ -446,8 +441,14 @@ class SettingsWindow(QDialog):
             + int(self._system_page is not None)
             if input_settings is not None else None
         )
+        self._apps_page = (
+            3 + int(self._pideck_page is not None) + int(self._network_page is not None)
+            + int(self._system_page is not None) + int(self._input_page is not None)
+            if catalog_statuses is not None else None
+        )
+        self._catalog_list: ApplicationsList | None = None
         self._pideck_row: PiDeckUpdateRow | None = None
-        self._power_dialog: PowerDialog | None = None
+        self._power_dialog: ConfirmationDialog | None = None
         self._update_rows: dict[str, UpdateRow] = {}
         self._rechecking_after_cancel: set[str] = set()
         self._update_applications = {
@@ -467,7 +468,6 @@ class SettingsWindow(QDialog):
         self._show_clock.toggled.connect(self._emit_current_settings)
         self._language_combo.currentIndexChanged.connect(self._handle_language_changed)
         self._applications.itemChanged.connect(self._handle_application_item_changed)
-        self._applications.itemClicked.connect(self._activate_catalog_item)
         self.update_status.connect(self._handle_update_status)
         if self._update_service is not None:
             self._update_service.check_async(
@@ -544,6 +544,8 @@ class SettingsWindow(QDialog):
             self._pages.addWidget(self._build_system_page())
         if self._input_page is not None:
             self._pages.addWidget(self._build_input_page())
+        if self._apps_page is not None:
+            self._pages.addWidget(self._build_applications_page())
         content_layout.addWidget(self._pages, stretch=1)
 
         self._error_label = QLabel("", content)
@@ -580,6 +582,8 @@ class SettingsWindow(QDialog):
             self._add_nav_button(layout, tr(self._language, "system"), self._system_page)
         if self._input_page is not None:
             self._add_nav_button(layout, tr(self._language, "input"), self._input_page)
+        if self._apps_page is not None:
+            self._add_nav_button(layout, tr(self._language, "applications"), self._apps_page)
         layout.addStretch()
         self._back_button = QPushButton(tr(self._language, "back"), sidebar)
         self._back_button.setObjectName("settings_back")
@@ -702,12 +706,23 @@ class SettingsWindow(QDialog):
                 if all_visible or application.identifier in visible_ids
                 else Qt.CheckState.Unchecked
             )
-        for application in self._catalog.values():
-            item = QListWidgetItem(tr(self._language, "install_application", name=application.name), self._applications)
-            item.setData(Qt.ItemDataRole.UserRole, application.identifier)
-            item.setData(Qt.ItemDataRole.UserRole + 1, True)
         layout.addWidget(self._applications, stretch=1)
         self._page_controls[1] = [self._applications]
+        return page
+
+    def _build_applications_page(self) -> QWidget:
+        """Create the install/remove list of every supported application."""
+        assert self._apps_page is not None and self._catalog_statuses is not None
+        page = QWidget(self)
+        layout = self._page_layout(page)
+        catalog = ApplicationsList(self._catalog_statuses, self._language, self._theme.colors["primary"], page)
+        catalog.installEventFilter(self)
+        catalog.install_requested.connect(self.application_install_requested.emit)
+        catalog.cancel_requested.connect(self.application_install_requested.emit)
+        catalog.remove_requested.connect(self._confirm_removal)
+        self._catalog_list = catalog
+        layout.addWidget(catalog, stretch=1)
+        self._page_controls[self._apps_page] = [catalog]
         return page
 
     def _build_updates_page(self) -> QWidget:
@@ -1030,6 +1045,9 @@ class SettingsWindow(QDialog):
         if self._input_page is not None:
             page_titles[self._input_page] = tr(self._language, "input")
             page_descriptions[self._input_page] = tr(self._language, "input_description")
+        if self._apps_page is not None:
+            page_titles[self._apps_page] = tr(self._language, "applications")
+            page_descriptions[self._apps_page] = tr(self._language, "applications_description")
         self._page_title.setText(page_titles[index])
         self._page_description.setText(
             page_descriptions[index]
@@ -1056,13 +1074,16 @@ class SettingsWindow(QDialog):
         if controls:
             if self._current_page == 1:
                 self._applications.setCurrentRow(0)
+            elif self._catalog_list is not None and controls[0] is self._catalog_list:
+                self._catalog_list.setCurrentRow(0)
             controls[0].setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _clear_home_selection(self) -> None:
         """Remove Home screen list selection while keeping its check states."""
-        if hasattr(self, "_applications"):
-            self._applications.clearSelection()
-            self._applications.setCurrentRow(-1)
+        for widget in (getattr(self, "_applications", None), self._catalog_list):
+            if widget is not None:
+                widget.clearSelection()
+                widget.setCurrentRow(-1)
 
     def _focus_selected_nav(self) -> None:
         """Return focus to the active category button."""
@@ -1148,15 +1169,16 @@ class SettingsWindow(QDialog):
                 if key == Qt.Key.Key_Up:
                     self._focus_nav(len(self._nav_buttons) - 1)
                 return
-            if current is self._applications:
-                row = self._applications.currentRow()
+            if current is self._applications or (current is not None and current is self._catalog_list):
+                assert isinstance(current, QListWidget)
+                row = current.currentRow()
                 if key == Qt.Key.Key_Left or (key == Qt.Key.Key_Up and row == 0):
                     self._clear_home_selection()
                     self._focus_selected_nav()
                 elif key == Qt.Key.Key_Up:
-                    self._applications.setCurrentRow(max(row - 1, 0))
+                    current.setCurrentRow(max(row - 1, 0))
                 elif key == Qt.Key.Key_Down:
-                    self._applications.setCurrentRow(min(row + 1, self._applications.count() - 1))
+                    current.setCurrentRow(min(row + 1, current.count() - 1))
                 return
             if current in self._page_controls.get(self._current_page, []):
                 if self._current_page == 2 or self._current_page == self._pideck_page:
@@ -1174,6 +1196,8 @@ class SettingsWindow(QDialog):
                 item = self._applications.item(self._applications.currentRow())
                 if item is not None:
                     self._activate_application_item(item)
+            elif self._catalog_list is not None and current is self._catalog_list:
+                self._catalog_list.activate_current()
             elif current in self._page_controls.get(0, []):
                 self._handle_row_activation(current)
             elif current is self._pideck_row and self._pideck_row is not None:
@@ -1324,16 +1348,9 @@ class SettingsWindow(QDialog):
             labels[0].setText(tr(self._language, title_key))
             labels[1].setText(tr(self._language, hint_key))
         self._select_page(self._current_page, focus_first=False)
-        for index in range(self._applications.count()):
-            item = self._applications.item(index)
-            application_id = item.data(Qt.ItemDataRole.UserRole)
-            if item.data(Qt.ItemDataRole.UserRole + 1) and application_id in self._catalog:
-                installing = self._installing_id == application_id
-                item.setText("" if installing else tr(
-                    self._language, "install_application", name=self._catalog[application_id].name,
-                ))
-        if self._install_row is not None:
-            self._install_row.set_language(self._language)
+        if self._apps_page is not None and self._catalog_list is not None:
+            self._nav_buttons[self._apps_page].setText(tr(self._language, "applications"))
+            self._catalog_list.set_language(self._language)
         self._language_combo.setItemText(0, tr(self._language, "english"))
         self._language_combo.setItemText(1, tr(self._language, "german"))
         for row in self._update_rows.values():
@@ -1547,6 +1564,15 @@ class SettingsWindow(QDialog):
                     self._activate_application_item(item)
                 return True
             return super().eventFilter(watched, event)
+        if self._catalog_list is not None and watched is self._catalog_list:
+            if key == Qt.Key.Key_Left or (key == Qt.Key.Key_Up and self._catalog_list.currentRow() == 0):
+                self._clear_home_selection()
+                self._focus_selected_nav()
+                return True
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                self._catalog_list.activate_current()
+                return True
+            return super().eventFilter(watched, event)
         controls = self._page_controls.get(self._current_page, [])
         if watched in controls:
             return super().eventFilter(watched, event)
@@ -1570,8 +1596,6 @@ class SettingsWindow(QDialog):
         state: Qt.CheckState | None = None,
     ) -> None:
         """Keep one application visible and emit valid list changes immediately."""
-        if item.data(Qt.ItemDataRole.UserRole + 1):
-            return
         state = item.checkState() if state is None else state
         if state is Qt.CheckState.Unchecked and not any(
             self._applications.item(index).checkState() is Qt.CheckState.Checked
@@ -1590,7 +1614,6 @@ class SettingsWindow(QDialog):
             self._applications.item(index).data(Qt.ItemDataRole.UserRole)
             for index in range(self._applications.count())
             if self._applications.item(index).checkState() is Qt.CheckState.Checked
-            and not self._applications.item(index).data(Qt.ItemDataRole.UserRole + 1)
         )
         if not selected_applications:
             self.show_error(tr(self._language, "at_least_one"))
@@ -1604,61 +1627,58 @@ class SettingsWindow(QDialog):
             language=self._language,
         )
 
-    def _activate_catalog_item(self, item: QListWidgetItem) -> None:
-        """Start or cancel installation when an installable list item is clicked."""
-        if item.data(Qt.ItemDataRole.UserRole + 1):
-            self.application_install_requested.emit(item.data(Qt.ItemDataRole.UserRole))
-
     def _activate_application_item(self, item: QListWidgetItem) -> None:
-        """Activate an installable entry or toggle an installed entry."""
-        if item.data(Qt.ItemDataRole.UserRole + 1):
-            self._activate_catalog_item(item)
-            return
+        """Toggle the Home screen visibility of an installed application."""
         item.setCheckState(
             Qt.CheckState.Unchecked if item.checkState() is Qt.CheckState.Checked else Qt.CheckState.Checked
         )
 
-    def set_installing(self, application_id: str | None) -> None:
-        """Show or remove installation progress without modifying user visibility."""
-        if application_id == self._installing_id:
+    def select_applications_page(self) -> None:
+        """Show the Applications page and focus its list."""
+        if self._apps_page is not None:
+            self._select_page(self._apps_page)
+
+    def set_catalog_statuses(self, statuses: tuple[CatalogItemStatus, ...]) -> None:
+        """Refresh the install state of every supported application."""
+        self._catalog_statuses = statuses
+        if self._catalog_list is not None:
+            self._catalog_list.set_statuses(statuses)
+
+    def set_application_busy(self, application_id: str | None, *, removing: bool = False) -> None:
+        """Show or clear progress for an application being installed or removed."""
+        if self._catalog_list is not None:
+            self._catalog_list.set_busy(application_id, removing=removing)
+
+    def set_application_progress(self, application_id: str, progress: InstallProgress) -> None:
+        """Render the latest progress of the running install or removal."""
+        if self._catalog_list is not None:
+            self._catalog_list.set_progress(application_id, progress)
+
+    def _confirm_removal(self, application_id: str) -> None:
+        """Ask before removing an application; its user data is kept."""
+        if self._power_dialog is not None or self._catalog_statuses is None:
             return
-        self._remove_install_row()
-        self._installing_id = application_id
-        item = self._catalog_item(application_id) if application_id is not None else None
-        if item is not None and application_id is not None:
-            row = InstallProgressRow(self._catalog[application_id].name, self._language)
-            row.spinner.set_color(self._theme.colors["primary"])
-            self._install_row = row
-            self._applications.setItemWidget(item, row)
-            row.ensurePolished()
-            for label in row.findChildren(QLabel):
-                label.ensurePolished()
-            hint = row.layout().sizeHint()
-            item.setSizeHint(QSize(hint.width(), hint.height() + _LIST_ITEM_CHROME))
-        self.apply_language(self._language)
+        name = next(
+            (status.entry.name for status in self._catalog_statuses if status.identifier == application_id),
+            application_id,
+        )
+        dialog = ConfirmationDialog(
+            tr(self._language, "remove_confirm_title", name=name),
+            tr(self._language, "remove_confirm_message", name=name),
+            tr(self._language, "remove"), tr(self._language, "cancel"), self._theme, self,
+        )
+        self._power_dialog = dialog
 
-    def set_install_progress(self, application_id: str, progress: InstallProgress) -> None:
-        """Render progress for the application that is currently being installed."""
-        if application_id == self._installing_id and self._install_row is not None:
-            self._install_row.set_progress(progress)
+        def finish(result: int) -> None:
+            self._power_dialog = None
+            if result == QDialog.DialogCode.Accepted:
+                self.application_remove_requested.emit(application_id)
+            dialog.deleteLater()
+            if self._catalog_list is not None:
+                self._catalog_list.setFocus(Qt.FocusReason.OtherFocusReason)
 
-    def _catalog_item(self, application_id: str) -> QListWidgetItem | None:
-        """Return the installable list entry for a catalog application."""
-        for index in range(self._applications.count()):
-            item = self._applications.item(index)
-            if item.data(Qt.ItemDataRole.UserRole + 1) and item.data(Qt.ItemDataRole.UserRole) == application_id:
-                return item
-        return None
-
-    def _remove_install_row(self) -> None:
-        """Restore the plain installable entry after an installation ends."""
-        if self._install_row is None or self._installing_id is None:
-            return
-        item = self._catalog_item(self._installing_id)
-        if item is not None:
-            self._applications.removeItemWidget(item)
-            item.setSizeHint(QSize())
-        self._install_row = None
+        dialog.finished.connect(finish)
+        dialog.open()
 
     def apply_theme_definition(self, theme: ThemeDefinition) -> None:
         """Apply a persisted theme change while the settings view remains open."""

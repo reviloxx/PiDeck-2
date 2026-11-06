@@ -41,5 +41,5 @@ def default_configuration() -> Configuration:
             enabled_sources=("cec", "gamepad", "keyboard", "mouse"),
             bindings={"home": "Ctrl+Alt+H"},
         ),
-        settings=SettingsConfiguration(),
+        settings=SettingsConfiguration(language="de"),
     )

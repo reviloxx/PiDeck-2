@@ -78,6 +78,8 @@ Power On → Automatic Login → Launcher → Application → Launcher
 - Red (YouTube)
 - Steam Link
 - Chromium
+- Chrome
+- Brave
 - Firefox
 - NoMachine
 - RetroArch

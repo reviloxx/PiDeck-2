@@ -4,6 +4,8 @@
 import argparse
 from collections.abc import Callable
 from contextlib import ExitStack, contextmanager
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -15,6 +17,8 @@ import subprocess
 import sys
 import tempfile
 from typing import Generator
+import urllib.request
+import zipfile
 
 if __package__:
     from ..build import _validate_release_checkout, file_hash
@@ -34,8 +38,11 @@ IMAGE_SIZE = 12 * 1024**3
 APT_COMPONENTS = "main contrib non-free non-free-firmware"
 HOST_TOOLS = (
     "debootstrap", "sgdisk", "losetup", "mkfs.ext4", "mkfs.vfat",
-    "mount", "umount", "chroot", "xz", "blkid", "openssl", "dpkg-deb", "systemctl", "gpgv", "udevadm",
+    "mount", "umount", "chroot", "xz", "blkid", "openssl", "systemctl", "gpgv", "udevadm",
 )
+PREINSTALLED_FLATPAK = "com.ktechpit.red"
+LOCALE = "de_DE.UTF-8"
+TIMEZONE = "Europe/Berlin"
 
 
 class _MountCleanupError(RuntimeError):
@@ -159,10 +166,7 @@ def _input_hashes() -> dict[str, str]:
     return {str(path.relative_to(ROOT)): file_hash(path) for path in paths}
 
 
-def _check_host(
-    work_dir: Path, tag: str | None,
-    player: Path | None, player_sha256: str | None,
-) -> None:
+def _check_host(work_dir: Path, tag: str | None) -> None:
     """Reject unsupported hosts and invalid release inputs before making files."""
     if platform.system() != "Linux" or platform.machine() not in ("x86_64", "amd64"):
         raise RuntimeError("A native x86-64 Linux build host is required")
@@ -175,17 +179,6 @@ def _check_host(
         raise RuntimeError(f"Missing host tools: {', '.join(missing)}")
     if not DEBIAN_KEYRING.is_file():
         raise RuntimeError(f"Debian archive signing keyring is missing: {DEBIAN_KEYRING}")
-    if (player is None) != (player_sha256 is None):
-        raise ValueError("NoMachine player package and SHA-256 must be supplied together")
-    if player is not None and player_sha256 is not None:
-        if re.fullmatch(r"[a-fA-F0-9]{64}", player_sha256) is None:
-            raise ValueError("Invalid NoMachine player SHA-256")
-        if file_hash(player) != player_sha256.lower():
-            raise ValueError("NoMachine player package checksum does not match")
-        package = _run("dpkg-deb", "--field", str(player), "Package", capture=True)
-        architecture = _run("dpkg-deb", "--field", str(player), "Architecture", capture=True)
-        if package != "nomachine-player" or architecture != "amd64":
-            raise ValueError("Expected the amd64 nomachine-player package")
     if tag is not None:
         _validate_release_checkout(ROOT, tag)
 
@@ -223,6 +216,7 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(INPUTS / "pideck-video-profile.sh", root / "etc/profile.d/10-pideck-video.sh")
     _install(INPUTS / "firefox-pideck.js", root / "etc/firefox-esr/pideck-video.js")
     _install(INPUTS / "chromium-pideck", root / "etc/chromium.d/pideck-video")
+    _write_application_prerequisites(root)
     for name in ("pideck.plymouth", "pideck.script"):
         _install(PI_FILES / name, root / "usr/share/plymouth/themes/pideck" / name)
     for name in ("pideck-updater.service", "pideck-activate.service"):
@@ -235,6 +229,53 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     shutil.copytree(ROOT / "assets", release / "assets")
     (release / "config").mkdir()
     (lib / "current").symlink_to(f"releases/{version}")
+
+
+def _write_application_prerequisites(root: Path) -> None:
+    """Install image-level files needed by applications installed later from Settings."""
+    for name in ("google-chrome.gpg", "brave-browser.gpg"):
+        _install(PI_FILES / "keyrings" / name, root / "usr/share/pideck/keyrings" / name)
+    for name in ("google-chrome.sources", "brave-browser.sources"):
+        _install(PI_FILES / name, root / "etc/apt/sources.list.d" / name)
+    _install(PI_FILES / "google-chrome.default", root / "etc/default/google-chrome")
+    _install(PI_FILES / "firefox-policies.json", root / "etc/firefox/policies/policies.json")
+
+
+def kodi_language_pin(path: Path = PI_FILES / "kodi-language.env") -> tuple[str, str]:
+    """Return the pinned URL and SHA-256 of Kodi's German language add-on."""
+    values = dict(
+        line.split("=", 1) for line in path.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    )
+    url, sha256 = values["KODI_LANGUAGE_URL"], values["KODI_LANGUAGE_SHA256"]
+    if not url.startswith("https://") or re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
+        raise ValueError("Invalid Kodi language add-on pin")
+    return url, sha256
+
+
+def _install_kodi_language(root: Path) -> None:
+    """Install the verified German add-on as a bundled Kodi add-on."""
+    url, sha256 = kodi_language_pin()
+    with urllib.request.urlopen(url, timeout=120) as response:
+        data = response.read()
+    if hashlib.sha256(data).hexdigest() != sha256:
+        raise ValueError("Kodi language add-on checksum does not match")
+    target = root / "usr/share/kodi/addons"
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        if any(name.startswith("/") or ".." in Path(name).parts for name in archive.namelist()):
+            raise ValueError("Unsafe path in Kodi language add-on")
+        archive.extractall(target)
+
+
+def _configure_locale(root: Path, chroot: Callable[..., str]) -> None:
+    """Default the appliance to German with the Berlin time zone."""
+    (root / "etc/locale.gen").write_text(f"{LOCALE} UTF-8\nen_US.UTF-8 UTF-8\n", encoding="utf-8")
+    chroot("locale-gen")
+    (root / "etc/default/locale").write_text(f"LANG={LOCALE}\n", encoding="utf-8")
+    (root / "etc/timezone").write_text(f"{TIMEZONE}\n", encoding="utf-8")
+    localtime = root / "etc/localtime"
+    localtime.unlink(missing_ok=True)
+    localtime.symlink_to(f"/usr/share/zoneinfo/{TIMEZONE}")
 
 
 def flatpak_nvidia_gl_driver(package_version: str) -> str:
@@ -265,10 +306,7 @@ def _build_nvidia_modules(root: Path, chroot: Callable[..., str]) -> None:
         raise RuntimeError(f"NVIDIA kernel module was not built for: {', '.join(missing)}")
 
 
-def _configure(
-    root: Path, loop: str, tag: str | None, player: Path | None,
-    player_sha256: str | None,
-) -> None:
+def _configure(root: Path, loop: str, tag: str | None) -> None:
     """Install packages and configure the mounted Debian appliance."""
     def chroot(*args: str, capture: bool = False) -> str:
         return _run("chroot", str(root), *args, capture=capture)
@@ -296,38 +334,20 @@ def _configure(
     gl_driver = flatpak_nvidia_gl_driver(
         chroot("dpkg-query", "-W", "-f=${Version}", "nvidia-driver", capture=True)
     )
+    chroot("flatpak", "config", "--system", "--set", "languages", "de;en")
     chroot("env", f"FLATPAK_GL_DRIVERS={gl_driver}:default", "flatpak", "install", "--system",
-           "--noninteractive", "--assumeyes", "--arch=x86_64", "flathub", "com.valvesoftware.SteamLink")
+           "--noninteractive", "--assumeyes", "--arch=x86_64", "flathub", PREINSTALLED_FLATPAK)
     runtimes = chroot("flatpak", "list", "--system", "--runtime", "--columns=application", capture=True)
     if f"org.freedesktop.Platform.GL.{gl_driver}" not in runtimes.split():
         raise RuntimeError(f"Flathub did not provide the {gl_driver} GL extension")
-    if player is not None:
-        player_copy = root / "tmp/nomachine-player.deb"
-        _install(player, player_copy, 0o600)
-        if player_sha256 is None or file_hash(player_copy) != player_sha256.lower():
-            raise ValueError("NoMachine player package changed during the build")
-        _run("systemctl", "--root", str(root), "mask", "nxserver.service")
-        chroot("apt-get", "install", "-y", "--no-install-recommends", "/tmp/nomachine-player.deb")
-        player_copy.unlink()
-        if not (root / "usr/NX/bin/nxplayer").is_file():
-            raise RuntimeError("NoMachine Player did not install its expected executable")
+    # A NoMachine Player installed later from Settings must never start a server.
+    _run("systemctl", "--root", str(root), "mask", "nxserver.service")
     policy.unlink()
     _write_inputs(root, tag)
+    _install_kodi_language(root)
+    _configure_locale(root, chroot)
     chroot("plymouth-set-default-theme", "pideck")
     chroot("update-initramfs", "-u", "-k", "all")
-    app_configurator = root / "tmp/pideck-configure-apps.py"
-    app_definitions = root / "tmp/pideck-x86-applications.yaml"
-    _install(INPUTS / "configure_apps.py", app_configurator)
-    _install(INPUTS / "applications.yaml", app_definitions)
-    arguments = [
-        "python3", "/tmp/pideck-configure-apps.py",
-        "/usr/share/pideck/config/pideck.yaml", "/tmp/pideck-x86-applications.yaml",
-    ]
-    if player is not None:
-        arguments.append("--nomachine")
-    chroot(*arguments)
-    app_configurator.unlink()
-    app_definitions.unlink()
     for group in ("audio", "video", "render", "input", "plugdev"):
         chroot("groupadd", "-f", group)
     chroot("useradd", "-m", "-u", "1000", "-s", "/bin/bash", "-G", "audio,video,render,input,plugdev", "pideck")
@@ -347,30 +367,23 @@ def _configure(
     chroot("update-grub")
     manifest = chroot("dpkg-query", "-W", "-f=${binary:Package}\\t${Version}\\n", capture=True)
     (root / "usr/share/pideck/package-manifest.tsv").write_text(manifest + "\n", encoding="utf-8")
-    commit = chroot("flatpak", "info", "--system", "--show-commit",
-                    "com.valvesoftware.SteamLink", capture=True)
+    commit = chroot("flatpak", "info", "--system", "--show-commit", PREINSTALLED_FLATPAK, capture=True)
     (root / "usr/share/pideck/flatpak-manifest.tsv").write_text(
-        f"com.valvesoftware.SteamLink\t{commit}\n", encoding="utf-8",
+        f"{PREINSTALLED_FLATPAK}\t{commit}\n", encoding="utf-8",
     )
     chroot("apt-get", "clean")
 
 
-def build(
-    work_dir: Path, tag: str | None = None,
-    player: Path | None = None, player_sha256: str | None = None,
-) -> Path:
+def build(work_dir: Path, tag: str | None = None) -> Path:
     """Build one raw image in a new directory and return its compressed path."""
     work_dir = work_dir.resolve()
-    _check_host(work_dir, tag, player, player_sha256)
+    _check_host(work_dir, tag)
     input_hashes = _input_hashes()
     with _output_directory(work_dir):
-        return _build_image(work_dir, tag, player, player_sha256, input_hashes)
+        return _build_image(work_dir, tag, input_hashes)
 
 
-def _build_image(
-    work_dir: Path, tag: str | None, player: Path | None,
-    player_sha256: str | None, input_hashes: dict[str, str],
-) -> Path:
+def _build_image(work_dir: Path, tag: str | None, input_hashes: dict[str, str]) -> Path:
     """Build the image inside a private, prevalidated output directory."""
     image = work_dir / "pideck-x86_64.img"
     with image.open("xb") as stream:
@@ -388,7 +401,7 @@ def _build_image(
         _mount(stack, f"{loop}p2", root / "boot/efi")
         for name in ("dev", "proc", "sys"):
             _mount(stack, f"/{name}", root / name, "--bind")
-        _configure(root, loop, tag, player, player_sha256)
+        _configure(root, loop, tag)
         shutil.copyfile(root / "usr/share/pideck/package-manifest.tsv", work_dir / "package-manifest.tsv")
         shutil.copyfile(root / "usr/share/pideck/flatpak-manifest.tsv", work_dir / "flatpak-manifest.tsv")
         stats = os.statvfs(root)
@@ -402,7 +415,6 @@ def _build_image(
         "distribution": "Debian trixie amd64",
         "root_filesystem_used_bytes": installed_bytes,
         "raw_image_bytes": IMAGE_SIZE,
-        "nomachine_player_sha256": player_sha256,
         "inputs": input_hashes,
     }, indent=2) + "\n", encoding="utf-8")
     return compressed
@@ -413,13 +425,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--release-tag")
-    parser.add_argument("--nomachine-deb", type=Path, help="Trusted local amd64 NoMachine Player package")
-    parser.add_argument("--nomachine-sha256", help="Expected SHA-256 of the supplied player package")
     args = parser.parse_args()
     try:
-        if args.nomachine_deb is None:
-            print("NoMachine Player is omitted; supply --nomachine-deb and --nomachine-sha256.", file=sys.stderr)
-        image = build(args.work_dir, args.release_tag, args.nomachine_deb, args.nomachine_sha256)
+        image = build(args.work_dir, args.release_tag)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"Image build failed: {error}", file=sys.stderr)
         return 1

@@ -1,4 +1,4 @@
-"""Restricted root service for image updates and installed-package upgrades."""
+"""Restricted root service for image updates, package upgrades and catalog app installs."""
 
 import argparse
 from dataclasses import dataclass
@@ -13,10 +13,12 @@ import socketserver
 import struct
 import subprocess
 import threading
+from _thread import LockType
 import time
 from uuid import uuid4
 
 from pideck.infrastructure.image_update_store import ImageUpdateStore
+from pideck.infrastructure.privileged_apps import ApplicationOperations, ApplicationPlans
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,9 +39,10 @@ class _Operation:
 class PackageOperations:
     """Run only noninteractive upgrades of already-installed packages."""
 
-    def __init__(self) -> None:
-        """Create the process registry for one daemon instance."""
+    def __init__(self, guard: LockType | None = None) -> None:
+        """Create the process registry; ``guard`` serializes all package-manager use."""
         self._lock = threading.Lock()
+        self._guard = guard or threading.Lock()
         self._operations: dict[str, _Operation] = {}
 
     def start(self, kind: str, name: str) -> str:
@@ -70,21 +73,30 @@ class PackageOperations:
                 raise RuntimeError("Too many uncollected package update results")
             if any(operation.process.poll() is None for operation in self._operations.values()):
                 raise RuntimeError("Another package update is already running")
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=None,
-                stderr=subprocess.STDOUT,
-                env=_ENV,
-                start_new_session=True,
-            )
+            if not self._guard.acquire(blocking=False):
+                raise RuntimeError("Another package operation is already running")
+            try:
+                process = subprocess.Popen(
+                    command,
+                    stdin=subprocess.DEVNULL,
+                    stdout=None,
+                    stderr=subprocess.STDOUT,
+                    env=_ENV,
+                    start_new_session=True,
+                )
+            except BaseException:
+                self._guard.release()
+                raise
             token = uuid4().hex
             self._operations[token] = _Operation(process)
             threading.Thread(target=self._record_completion, args=(token, process), daemon=True).start()
             return token
 
     def _record_completion(self, token: str, process: subprocess.Popen[bytes]) -> None:
-        process.wait()
+        try:
+            process.wait()
+        finally:
+            self._guard.release()
         with self._lock:
             operation = self._operations.get(token)
             if operation is not None:
@@ -145,11 +157,16 @@ class UpdateServer(socketserver.ThreadingUnixStreamServer):
 
     daemon_threads = True
 
-    def __init__(self, path: Path, store: ImageUpdateStore, allowed_uid: int = 1000) -> None:
+    def __init__(
+        self, path: Path, store: ImageUpdateStore, allowed_uid: int = 1000,
+        plans: ApplicationPlans | None = None,
+    ) -> None:
         """Bind the Unix socket and initialize operations."""
         self.store = store
         self.allowed_uid = allowed_uid
-        self.packages = PackageOperations()
+        guard = threading.Lock()
+        self.packages = PackageOperations(guard)
+        self.applications = ApplicationOperations(plans or ApplicationPlans(), guard)
         self._slots = threading.BoundedSemaphore(16)
         super().__init__(str(path), _RequestHandler)
         path.chmod(0o666)
@@ -185,6 +202,11 @@ class UpdateServer(socketserver.ThreadingUnixStreamServer):
             "package_start": {"action", "kind", "name"},
             "package_status": {"action", "token"},
             "package_cancel": {"action", "token"},
+            "capabilities": {"action"},
+            "app_install": {"action", "id"},
+            "app_remove": {"action", "id"},
+            "app_status": {"action", "token"},
+            "app_cancel": {"action", "token"},
         }
         if action not in keys or set(request) != keys[action]:
             raise ValueError("Unsupported updater request")
@@ -204,6 +226,16 @@ class UpdateServer(socketserver.ThreadingUnixStreamServer):
             return {"token": self.packages.start(request["kind"], request["name"])}
         if action == "package_status":
             return self.packages.status(request["token"])
+        if action == "capabilities":
+            return {"applications": 1}
+        if action in ("app_install", "app_remove"):
+            kind = "install" if action == "app_install" else "remove"
+            return {"token": self.applications.start(kind, request["id"])}
+        if action == "app_status":
+            return self.applications.status(request["token"])
+        if action == "app_cancel":
+            self.applications.cancel(request["token"])
+            return {}
         self.packages.cancel(request["token"])
         return {}
 

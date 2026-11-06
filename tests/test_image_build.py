@@ -14,6 +14,7 @@ import yaml
 
 from image import build as image_build
 from image.imager_repo import write_repository
+from pideck.infrastructure.config.catalog import load_catalog
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.infrastructure.theme.loader import FileThemeRepository
 
@@ -132,11 +133,18 @@ def test_image_configuration_and_assets(tmp_path: Path) -> None:
     """Image tiles, commands, package names, and asset paths agree."""
     config = YamlConfigurationParser().load(FILES / "pideck.yaml")
     applications = {app.identifier: app for app in config.applications}
-    assert set(applications) == {"kodi", "chromium", "firefox", "retroarch"}
-    assert applications["firefox"].executable == "firefox-esr"
+    assert list(applications) == ["kodi", "youtube"]
+    assert applications["youtube"].arguments == ("run", "com.ktechpit.red", "--tv")
     assert set(config.home.visible_applications) == set(applications)
+    assert config.settings.language == "de"
     packages = (STAGE / "00-pideck" / "00-packages-nr").read_text().split()
-    assert {app.executable for app in applications.values()} <= set(packages)
+    assert {"kodi", "flatpak"} <= set(packages)
+    catalog = load_catalog(ROOT / "assets/catalog/applications.yaml")
+    optional = {
+        package for entry in catalog if entry.identifier not in applications
+        for package in entry.spec_for("arm64").packages
+    }
+    assert not optional & set(packages)
     assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "cec-utils", "inputattach"} <= set(packages)
     assert {"udisks2", "polkitd", "x11-xkb-utils"} <= set(packages)
     assert "cec" in config.input.enabled_sources
@@ -169,7 +177,16 @@ def test_prepare_stage_copies_snapshot_and_enables_only_custom_export(tmp_path: 
     assert "dpkg-query" in export_script.read_text()
     assert (pi_gen / "stage2" / "01-sys-tweaks" / "00-packages").read_text() == "sudo\n"
     assert "KEYBOARD_KEYMAP='de'\n" in config.read_text()
+    assert "LOCALE_DEFAULT='de_DE.UTF-8'\n" in config.read_text()
+    assert "TIMEZONE_DEFAULT='Europe/Berlin'\n" in config.read_text()
     run_script = (stage / "00-pideck" / "01-run.sh").read_text()
+    assert "flatpak install --system --noninteractive --assumeyes flathub com.ktechpit.red" in run_script
+    assert 'flatpak config --system --set languages "de;en"' in run_script
+    assert "systemctl mask nxserver.service" in run_script
+    assert 'sha256sum -c -' in run_script and "usr/share/kodi/addons" in run_script
+    assert "usr/lib/udev/rules.d/56-steamlink.rules" in run_script
+    for name in ("google-chrome.sources", "brave-browser.sources", "keyrings/brave-browser.gpg"):
+        assert (stage / "00-pideck" / "files" / name).is_file()
     assert "etc/polkit-1/rules.d/50-pideck-udisks.rules" in run_script
     assert "etc/X11/xorg.conf.d/00-pideck-keyboard.conf" in run_script
     assert os.access(stage / "prerun.sh", os.X_OK)

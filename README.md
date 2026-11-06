@@ -116,21 +116,45 @@ provided, its commit is shown as an identifier instead. Other unavailable
 versions are shown as unknown. PiDeck self-updates update the application,
 not the operating system or image dependencies.
 
-**Settings > Home screen** offers **YouTube** for installation. This is the
-independent [Red](https://flathub.org/en/apps/com.ktechpit.red) Flatpak, not
-an official YouTube application. Select it to install; PiDeck then adds it to
-the home screen and starts Red in TV mode. While it installs, the entry shows
-the current step, a progress bar and a busy indicator; select it again to
-cancel. The installation needs internet and disk space. If Flatpak is absent, PiDeck requests an administrator password to
-install the Flatpak system package; the account must be permitted to use
-`sudo`. Red and its runtimes are otherwise installed for the current user from
-Flathub, or an existing installation is reused. Errors are shown in Settings.
-An interrupted system-package operation may need to finish before cancellation
-takes effect. Red has its own license and settings; video playback, sign-in and
-controller support depend on Red, the device and YouTube.
+**Settings > Applications** lists every supported application: Kodi, YouTube,
+Steam Link, Chromium, Chrome, Brave, Firefox, NoMachine and RetroArch. Images
+only preinstall Kodi and YouTube; select any other entry to install it, or an
+installed entry to remove it after confirming. While an application installs,
+its entry shows the current step, a progress bar and a busy indicator; select
+it again to cancel while it is still downloading. Removals cannot be cancelled.
+Installing adds the application to the home screen and removing takes it off.
+Removing keeps the application's settings and data, so they come back after
+reinstalling. **Settings > Home screen** shows or hides installed applications.
+Installation needs internet and disk space; errors are shown in Settings.
+
+YouTube is the independent [Red](https://flathub.org/en/apps/com.ktechpit.red)
+Flatpak, not an official YouTube application; it starts in TV mode. Red has its
+own license and settings; video playback, sign-in and controller support
+depend on Red, the device and YouTube.
+
+The applications and how to install them on each architecture are defined in
+[`assets/catalog/applications.yaml`](assets/catalog/applications.yaml); adding an
+application needs no code changes. Images built from v0.5.0 or later install
+Debian packages, the checksum-verified NoMachine Player package and system
+Flatpaks through the image's restricted root service. That service accepts only
+catalog application IDs, never package names or commands. Packages must come
+from repositories the image already configures (Debian, Raspberry Pi OS, Google
+Chrome and Brave), and the service downloads `.deb` packages only from
+NoMachine's servers, so an altered release cannot make it install software from
+elsewhere. On older images and on desktops, only Flatpak applications
+can be installed, for the current user; others show that a newer image is
+required. If Flatpak itself is missing there, PiDeck requests an administrator
+password to install it; the account must be permitted to use `sudo`.
+
+PiDeck, the system locale and time zone default to German (`de_DE.UTF-8`,
+Europe/Berlin) on new images and fresh configurations. Applications follow the
+system language; Firefox additionally gets its German language pack and policy,
+and Kodi gets German first-run settings and its bundled German language add-on.
+Existing configurations keep their language, and an application's own settings
+are never overwritten.
 
 New release images support unsigned PiDeck application updates. Installing a
-PiDeck update does not itself install Red. Older signed-update and development
+PiDeck update does not itself install any application. Older signed-update and development
 images cannot switch to the new unsigned updater through an application update;
 they need a separate system migration or a new image. Updates use HTTPS and
 check the bundle's size and hash, but do not authenticate the publisher: anyone

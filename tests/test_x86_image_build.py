@@ -10,7 +10,7 @@ import tempfile
 import pytest
 
 from image.x86 import build as x86_build
-from image.x86.configure_apps import configure
+from pideck.infrastructure.config.catalog import load_catalog
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 
 
@@ -230,7 +230,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     x86_build._write_inputs(tmp_path, None)
     config = YamlConfigurationParser().load(tmp_path / "usr/share/pideck/config/pideck.yaml")
     packages = set((x86_build.INPUTS / "packages.txt").read_text().split())
-    assert {app.executable for app in config.applications} <= packages
+    assert [app.identifier for app in config.applications] == ["kodi", "youtube"]
+    assert {"kodi", "flatpak"} <= packages
+    assert config.settings.language == "de"
     assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "cec-utils", "inputattach"} <= packages
     assert (tmp_path / "etc/udev/rules.d/71-pideck-cec-attach.rules").is_file()
     assert (tmp_path / "etc/systemd/system/pideck-cec-attach@.service").is_file()
@@ -340,34 +342,68 @@ def test_missing_nvidia_modules_reports_unbuilt_kernels(tmp_path: Path) -> None:
     assert x86_build.missing_nvidia_modules(tmp_path) == ["6.12.1-amd64"]
 
 
-@pytest.mark.parametrize("nomachine", [False, True])
-def test_x86_configuration_only_lists_installed_optional_apps(tmp_path: Path, nomachine: bool) -> None:
-    """Include Steam Link and gate the player tile on its private package."""
-    x86_build._write_inputs(tmp_path, None)
-    path = tmp_path / "usr/share/pideck/config/pideck.yaml"
-    configure(path, x86_build.INPUTS / "applications.yaml", nomachine=nomachine)
-    config = YamlConfigurationParser().load(path)
-    applications = {app.identifier: app for app in config.applications}
-    assert applications["steam-link"].executable == "flatpak"
-    assert "com.valvesoftware.SteamLink" in applications["steam-link"].arguments
-    assert ("nomachine" in applications) is nomachine
-    assert set(config.home.visible_applications) == set(applications)
+def test_x86_image_only_preinstalls_kodi_and_red() -> None:
+    """Every other catalog application is installed later from Settings."""
+    packages = set((x86_build.INPUTS / "packages.txt").read_text().split())
+    catalog = load_catalog(ROOT / "assets/catalog/applications.yaml")
+    optional = {
+        package
+        for entry in catalog if entry.identifier not in ("kodi", "youtube")
+        for package in entry.spec_for("amd64").packages
+    }
+    assert not optional & packages
+    assert x86_build.PREINSTALLED_FLATPAK == "com.ktechpit.red"
+    assert {"steam-devices", "locales", "tzdata", "nvidia-vaapi-driver"} <= packages
+    assert not (x86_build.INPUTS / "applications.yaml").exists()
 
 
-def test_x86_application_definitions_are_configurable(tmp_path: Path) -> None:
-    """Load application details from YAML rather than embedding them in code."""
+def test_x86_image_ships_application_prerequisites(tmp_path: Path) -> None:
+    """Vendor repositories and the Firefox language policy are part of the image."""
     x86_build._write_inputs(tmp_path, None)
-    path = tmp_path / "usr/share/pideck/config/pideck.yaml"
-    definitions = tmp_path / "apps.yaml"
-    definitions.write_text(
-        "always:\n  - id: custom\n    name: Custom\n    executable: custom-player\n"
-        "    arguments: []\n    profiles: []\n    preferred_input: gamepad\nnomachine: []\n",
-        encoding="utf-8",
-    )
-    configure(path, definitions, nomachine=False)
-    config = YamlConfigurationParser().load(path)
-    assert any(app.identifier == "custom" and app.executable == "custom-player" for app in config.applications)
-    assert "custom" in config.home.visible_applications
+    for name in ("google-chrome", "brave-browser"):
+        source = (tmp_path / f"etc/apt/sources.list.d/{name}.sources").read_text()
+        keyring = f"/usr/share/pideck/keyrings/{name}.gpg"
+        assert f"Signed-By: {keyring}" in source and "URIs: https://" in source
+        assert (tmp_path / keyring.lstrip("/")).stat().st_size > 1000
+    assert 'repo_add_once="false"' in (tmp_path / "etc/default/google-chrome").read_text()
+    policy = json.loads((tmp_path / "etc/firefox/policies/policies.json").read_text())
+    assert policy["policies"]["RequestedLocales"][0] == "de"
+
+
+def test_x86_locale_defaults_to_german(tmp_path: Path) -> None:
+    """The system locale and time zone default to Germany."""
+    commands: list[tuple[str, ...]] = []
+    (tmp_path / "etc/default").mkdir(parents=True)
+    x86_build._configure_locale(tmp_path, lambda *command: commands.append(command) or "")
+    assert commands == [("locale-gen",)]
+    assert "de_DE.UTF-8 UTF-8" in (tmp_path / "etc/locale.gen").read_text()
+    assert (tmp_path / "etc/default/locale").read_text() == "LANG=de_DE.UTF-8\n"
+    assert os.readlink(tmp_path / "etc/localtime") == "/usr/share/zoneinfo/Europe/Berlin"
+
+
+def test_kodi_language_pin_is_verified() -> None:
+    """The German Kodi add-on is pinned to an HTTPS URL and SHA-256."""
+    url, sha256 = x86_build.kodi_language_pin()
+    assert url.startswith("https://") and "resource.language.de_de" in url
+    assert len(sha256) == 64
+
+
+def test_kodi_language_install_rejects_wrong_checksum(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A tampered download never reaches the image."""
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self) -> bytes:
+            return b"tampered"
+
+    monkeypatch.setattr(x86_build.urllib.request, "urlopen", lambda *args, **kwargs: Response())
+    with pytest.raises(ValueError, match="checksum"):
+        x86_build._install_kodi_language(tmp_path)
+    assert not (tmp_path / "usr/share/kodi/addons").exists()
 
 
 def test_x86_release_is_update_enabled_without_key(tmp_path: Path) -> None:
@@ -381,24 +417,6 @@ def test_x86_release_is_update_enabled_without_key(tmp_path: Path) -> None:
     assert os.readlink(root / "current") == f"releases/{version}"
     assert (root / "current/python/pideck/bootstrap.py").is_file()
     assert not (tmp_path / "usr/share/pideck/update-public.pem").exists()
-
-
-def test_private_player_checksum_is_required_before_creating_image(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Reject unverified private packages before any privileged image work."""
-    monkeypatch.setattr(x86_build.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(x86_build.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(x86_build.os, "geteuid", lambda: 0)
-    monkeypatch.setattr(x86_build.shutil, "which", lambda name: "/usr/bin/" + name)
-    keyring = tmp_path / "debian-archive-keyring.gpg"
-    keyring.touch()
-    monkeypatch.setattr(x86_build, "DEBIAN_KEYRING", keyring)
-    player = tmp_path / "player.deb"
-    player.write_bytes(b"not the expected package")
-    with pytest.raises(ValueError, match="checksum"):
-        x86_build.build(tmp_path / "image", player=player, player_sha256="0" * 64)
-    assert not (tmp_path / "image").exists()
 
 
 @pytest.mark.skipif(shutil.which("sgdisk") is None, reason="sgdisk is required for partition inspection")
@@ -598,22 +616,17 @@ def test_initramfs_hook_removes_gpu_drivers_and_firmware(tmp_path: Path) -> None
 
 
 def test_container_build_command_maps_inputs_and_owner(tmp_path: Path) -> None:
-    """Run build.py in the container with mapped output, player and invoking user."""
+    """Run build.py in the container with mapped output and invoking user."""
     from image.x86.container_build import BuildRequest, docker_run_command
 
-    player = tmp_path / "player.deb"
-    request = BuildRequest(tmp_path / "out/x86", "v1.2.3", player, "a" * 64)
+    request = BuildRequest(tmp_path / "out/x86", "v1.2.3")
     command = docker_run_command(request, 1000, 1001)
     assert command[:4] == ["docker", "run", "--rm", "--privileged"]
     assert f"type=bind,source={x86_build.ROOT},target=/pideck,readonly" in command
     assert f"type=bind,source={tmp_path / 'out'},target=/output" in command
-    assert f"type=bind,source={player},target=/inputs/nomachine-player.deb,readonly" in command
     assert "SUDO_UID=1000" in command and "SUDO_GID=1001" in command
     build_args = command[command.index("image/x86/build.py") + 1:]
-    assert build_args == [
-        "--work-dir", "/output/x86.new", "--release-tag", "v1.2.3",
-        "--nomachine-deb", "/inputs/nomachine-player.deb", "--nomachine-sha256", "a" * 64,
-    ]
+    assert build_args == ["--work-dir", "/output/x86.new", "--release-tag", "v1.2.3"]
 
 
 def test_container_build_replaces_previous_output_only_with_staging(tmp_path: Path) -> None:

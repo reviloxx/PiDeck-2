@@ -7,7 +7,7 @@ packages. A development build has booted in QEMU and nested VirtualBox using
 BIOS and UEFI; **physical hardware remains unverified**. WPA2 connection and
 reconnection have also been exercised with simulated Wi-Fi radios. Do not use
 it as your only system until the acceptance checks below pass. Debian packages and the
-Steam Link Flatpak runtime change over time, so the builder does not claim
+Red (YouTube) Flatpak runtime change over time, so the builder does not claim
 reproducible or globally minimal size.
 
 The raw image is 12 GiB and requires a disk at least that large. It contains a
@@ -15,8 +15,39 @@ GPT BIOS boot partition, an EFI system partition and an ext4 root partition.
 It is intended for BIOS and 64-bit UEFI systems with Secure Boot disabled.
 Larger destinations should expand the root partition and filesystem at boot.
 The installed size and package inventories are recorded by the build.
-One private test build including NoMachine used approximately 5.3 GiB in the
-root filesystem and compressed to approximately 2.4 GiB; later builds may vary.
+An earlier private build with every application preinstalled used approximately
+5.3 GiB in the root filesystem and compressed to approximately 2.4 GiB; images
+from v0.5.0 preinstall only Kodi and Red and are smaller.
+
+## Applications and language
+
+Images from v0.5.0 preinstall only Kodi (Debian package) and Red as YouTube
+(system Flatpak). Steam Link, Chromium, Chrome, Brave, Firefox ESR, NoMachine
+Player and RetroArch are installed and removed from **Settings > Applications**
+through the restricted update service; see [Settings](../README.md#settings).
+Everything those applications need from the image is included:
+
+- Flatpak with the system Flathub remote and the NVIDIA GL extension; Steam
+  Link's controller rules (`steam-devices`).
+- The Google Chrome and Brave apt repositories with their signing keys in
+  `/usr/share/pideck/keyrings`, and `/etc/default/google-chrome`, which stops
+  Chrome from adding a duplicate repository.
+- The VA-API settings for Firefox ESR and Chromium described below; Chrome and
+  Brave receive the same decoder flags as launch arguments.
+- A masked `nxserver.service`, so installing NoMachine Player never starts a
+  remote-desktop server. The player is downloaded from NoMachine on the device
+  (the service accepts no other download host) and must match the SHA-256
+  pinned in the catalog; when NoMachine withdraws
+  that version, a PiDeck release with an updated pin is needed.
+
+The system locale is `de_DE.UTF-8` and the time zone Europe/Berlin. Flatpak
+installs German translations (`languages de;en`), Firefox ESR gets the
+`firefox-esr-l10n-de` language pack and a `RequestedLocales` policy in
+`/etc/firefox/policies/policies.json`, and Kodi's German language add-on is
+bundled in `/usr/share/kodi/addons`, downloaded at build time and verified
+against the SHA-256 in `kodi-language.env`. Existing images cannot gain these
+prerequisites through an application update; there, only Flatpak applications
+can be installed.
 
 ## HDMI-CEC
 
@@ -101,8 +132,8 @@ X configuration selects the NVIDIA X driver only for NVIDIA devices.
   image. The package's legacy check runs on the build host, so build on a
   host without such a GPU.
 - **Flatpak:** the build installs the matching Flathub GL extension
-  (`org.freedesktop.Platform.GL.nvidia-550-…`) so Steam Link and YouTube can
-  use the GPU. It is derived from the installed driver version, and the build
+  (`org.freedesktop.Platform.GL.nvidia-550-…`) with Red, so YouTube and a later
+  installed Steam Link can use the GPU. It is derived from the installed driver version, and the build
   fails if Flathub does not provide it. After an apt driver upgrade, Flatpak
   updates install the extension matching the loaded driver; until then
   Flatpak applications may fail to start. Run `flatpak update` if that happens.
@@ -114,6 +145,7 @@ Hardware video decoding per application:
 | Kodi | VDPAU | Used automatically. |
 | Firefox ESR | VA-API via `nvidia-vaapi-driver` | Enabled by `/etc/firefox-esr/pideck-video.js`; AV1 is disabled so sites choose VP9 or H.264. |
 | Chromium | VA-API | Best effort, through `/etc/chromium.d/pideck-video`. Chromium falls back to software decoding when the driver is unusable. |
+| Chrome, Brave | VA-API | Best effort, through decoder flags in the catalog's launch arguments. |
 | Steam Link (Flatpak) | NVIDIA GL extension | GPU rendering; stream decoding follows Steam Link's own settings. |
 | YouTube (Flatpak, QtWebEngine) | NVIDIA GL extension | GPU rendering; video decoding is expected to use the CPU. |
 
@@ -149,8 +181,7 @@ security boundary. The image is built in `image-output/x86.new`. Only after a
 successful build does that directory replace `image-output/x86`, deleting the
 previous image. A failed build leaves `x86.new` for inspection; remove it
 before trying again. Use `--output DIR` for another output directory.
-`--release-tag`, `--nomachine-deb` and `--nomachine-sha256` work as described
-below, and the player package is mounted read-only into the container. The
+`--release-tag` works as described below. The
 build needs about 40 GiB of free space while both the old and new images exist.
 
 ### With sudo
@@ -169,9 +200,8 @@ The installed Debian archive keyring must contain the keys for Debian 13.
 The builder requires signature verification and fails if the keyring is
 missing or cannot validate the repository metadata.
 
-The build runs package installation scripts as root, including any supplied
-third-party package. A chroot is not a security boundary: use a dedicated,
-trusted build host and only trusted source checkouts and packages. The working
+The build runs package installation scripts as root. A chroot is not a security boundary: use a dedicated,
+trusted build host and only trusted source checkouts. The working
 directory must not exist; failures leave it for inspection. Run the following
 commands from the repository root. Image output is kept in the ignored
 `image-output/x86` directory. If it already exists, preserve any image you
@@ -185,26 +215,8 @@ mkdir -p image-output
 sudo python3 image/x86/build.py --work-dir "$PWD/image-output/x86"
 ```
 
-By default this includes Kodi, Chromium, Firefox ESR, RetroArch and mGBA,
-plus Steam Link from Flathub. Steam Link adds a Flatpak runtime and requires
-a separate Steam host. The x86-specific application definitions are configured in
-[`applications.yaml`](../image/x86/applications.yaml). For NoMachine, download the **amd64 NoMachine Player**
-`.deb` from the official [NoMachine Player page](https://download.nomachine.com/player/)
-and independently verify that it is the package you trust. Supply the package
-and its expected SHA-256:
-
-```bash
-sudo python3 image/x86/build.py --work-dir "$PWD/image-output/x86" \
-  --nomachine-deb /path/to/nomachine-player_amd64.deb \
-  --nomachine-sha256 EXPECTED_64_CHARACTER_SHA256
-```
-
-The builder checks the hash, package name and architecture before creating
-the image. A checksum calculated from the same unverified download only
-checks consistency, not authenticity. The optional package is not committed
-to this repository. Without it, the builder reports the omission and does not
-add a broken NoMachine tile. NoMachine Player's server service is masked.
-Only build and store this image privately under your applicable licenses.
+This preinstalls Kodi and Red; all other applications are installed later
+from Settings. The build no longer accepts a NoMachine package.
 The builder needs root for disk, mount and installation operations. When
 invoked with `sudo` or `pkexec`, it gives the completed output directory and
 its top-level files to the invoking user, retaining private directory
@@ -224,7 +236,7 @@ the x86 image does not use Raspberry Pi Imager provisioning.
 The build directory contains the raw `.img`, compressed `.img.xz`,
 `SHA256SUMS`, `source-manifest.json`, `package-manifest.tsv` and
 `flatpak-manifest.tsv`. The source manifest records the root filesystem
-usage, raw image size, source hashes and optional player checksum. Package
+usage, raw image size and source hashes. Package
 versions and Flatpak references are live; retain the manifests with the image.
 Only the compressed image is covered by `SHA256SUMS`.
 
@@ -373,8 +385,8 @@ firmware errors; support for a particular GPU is not guaranteed.
 
 The appliance account is UID 1000 and logs in automatically on the first
 console. It has no configured login password or passwordless sudo. SSH is not
-installed or enabled, and NoMachine's server is masked if the optional player
-is present. Anyone with physical access can operate the appliance and initiate
+installed or enabled, and NoMachine's server is masked in case NoMachine Player
+is installed. Anyone with physical access can operate the appliance and initiate
 the restricted package updater; this is not an authenticated multi-user setup.
 Use trusted physical and network environments. Recovery requires external
 rescue media; there is no password-based administrative login.
@@ -397,8 +409,8 @@ and an authorized active session. See [Settings](../README.md#settings) for
 backend limitations and behavior.
 Network setup is authorized only for the active local appliance account.
 Third-party app updates use the existing apt/Flatpak integration when
-available; the locally supplied NoMachine package has no configured update
-repository and is reported as unsupported. Signed PiDeck application updates
+available; NoMachine Player has no update repository and is reported as
+unsupported. Signed PiDeck application updates
 do not upgrade the underlying OS or the image's boot components.
 NoMachine Player installation warns that printer forwarding requires CUPS
 configuration; printing is not included in this minimal image.
@@ -415,8 +427,9 @@ partition and package manifests, and test:
 - Display mode confirmation, timeout rollback, and restoration after reboot;
   audio device selection and volume; Bluetooth discovery, pairing confirmation,
   connect/disconnect and cancellation; restart and shutdown authorization.
-- Every included application, its external window, return to PiDeck, audio,
-  video, updates, and persistence across reboot.
+- Installing, launching and removing every catalog application from Settings,
+  its external window, return to PiDeck, audio, video, updates, German user
+  interface, and persistence across reboot and reinstallation.
 - The same boot, display, audio, network and input checks on the target
   physical hardware, including its specific firmware.
 - Pulse-Eight detection and local-seat access; remote navigation and repeats

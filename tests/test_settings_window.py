@@ -12,11 +12,13 @@ from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QLabel
 
+from pideck.application.app_management import CatalogItemStatus
 from pideck.application.settings import SettingsUpdate
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.installation import InstallProgress, InstallStage
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
+from pideck.domain.catalog import InstallState
 from pideck.domain.configuration import Configuration
 from pideck.domain.input_settings import CecSettings
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
@@ -68,46 +70,132 @@ def test_input_settings_are_accessible_and_immediate(application: QApplication) 
     window.close()
 
 
-def test_catalog_item_installs_without_changing_visibility(application: QApplication) -> None:
-    """Keyboard and controller activate an installable item without toggling settings."""
+def catalog_statuses() -> tuple[CatalogItemStatus, ...]:
+    """Represent every install state with real catalog entries."""
+    entries = {entry.identifier: entry for entry in load_catalog(Path.cwd() / "assets/catalog/applications.yaml")}
+    return (
+        CatalogItemStatus(entries["kodi"], InstallState.INSTALLED, removable=True),
+        CatalogItemStatus(entries["youtube"], InstallState.NOT_INSTALLED),
+        CatalogItemStatus(entries["chrome"], InstallState.UNAVAILABLE),
+        CatalogItemStatus(entries["brave"], InstallState.REQUIRES_NEWER_IMAGE),
+        CatalogItemStatus(entries["firefox"], InstallState.INSTALLED),
+    )
+
+
+def applications_window(application: QApplication) -> SettingsWindow:
+    """Open settings on the Applications page."""
     configuration = YamlConfigurationParser().parse(configuration_document())
-    catalog = load_catalog(Path.cwd() / "assets/catalog/applications.yaml")
-    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), catalog=catalog)
-    requests = []
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), catalog_statuses=catalog_statuses())
+    window.show()
+    window.select_applications_page()
+    application.processEvents()
+    return window
+
+
+def test_applications_page_shows_every_install_state(application: QApplication) -> None:
+    """Every supported application is listed with its state, in both languages."""
+    window = applications_window(application)
+    catalog = window._catalog_list
+    assert catalog is not None and window.focusWidget() is catalog
+    assert window._page_title.text() == "Applications"
+    assert [catalog.item(index).text() for index in range(catalog.count())] == [
+        "Remove Kodi",
+        "Install YouTube",
+        "Chrome · Not available on this device",
+        "Brave · Requires a newer PiDeck image",
+        "Firefox · Installed",
+    ]
+    assert window._applications.count() == len(window._configuration.applications)
+    window.apply_language("de")
+    assert catalog.item(0).text() == "Kodi entfernen"
+    assert catalog.item(2).text() == "Chrome · Auf diesem Gerät nicht verfügbar"
+    assert window._nav_buttons[window._apps_page].text() == "Anwendungen"
+    window.close()
+
+
+def test_applications_page_installs_and_cancels_with_keyboard_and_controller(application: QApplication) -> None:
+    """Activating an installable app requests installation; activating it again cancels."""
+    window = applications_window(application)
+    catalog = window._catalog_list
+    requests: list[str] = []
     changes = []
     window.application_install_requested.connect(requests.append)
     window.settings_changed.connect(changes.append)
-    window.show()
-    window._select_page(1)
-    window._applications.setCurrentRow(window._applications.count() - 1)
-    window._applications.setFocus()
-    QTest.keyClick(window._applications, Qt.Key.Key_Return)
+    catalog.setCurrentRow(1)
+    QTest.keyClick(catalog, Qt.Key.Key_Return)
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert requests == ["youtube", "youtube"]
-    assert changes == []
-    window.set_installing("youtube")
-    item = window._applications.currentItem()
-    row = window._applications.itemWidget(item)
+    for row in (2, 3, 4):
+        catalog.setCurrentRow(row)
+        window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert requests == ["youtube", "youtube"]
+    window.set_application_busy("youtube")
+    catalog.setCurrentRow(1)
+    row = catalog.progress_row()
     assert isinstance(row, InstallProgressRow)
-    assert item.text() == ""
+    assert catalog.item(1).text() == ""
     assert row.title_label.text() == "Installing YouTube"
     assert row.cancel_label.text() == "Select to cancel"
-    assert row.spinner.running
-    assert row.progress_bar.maximum() == 0
-    window.set_install_progress("youtube", InstallProgress(InstallStage.DOWNLOADING, 42, 2, 3))
+    assert row.spinner.running and row.progress_bar.maximum() == 0
+    window.set_application_progress("youtube", InstallProgress(InstallStage.DOWNLOADING, 42, 2, 3))
     assert row.progress_bar.maximum() == 100 and row.progress_bar.value() == 42
     assert row.status_label.text() == "Step 2 of 3 · 42%"
-    window.set_install_progress("other", InstallProgress(InstallStage.FINISHING, 100))
+    window.set_application_progress("other", InstallProgress(InstallStage.FINISHING, 100))
     assert row.progress_bar.value() == 42
+    window.set_catalog_statuses(catalog_statuses())
+    assert catalog.progress_row().progress_bar.value() == 42
     window.apply_language("de")
-    assert row.title_label.text() == "YouTube wird installiert"
-    assert row.status_label.text() == "Schritt 2 von 3 · 42 %"
+    assert catalog.progress_row().title_label.text() == "YouTube wird installiert"
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert requests[-1] == "youtube"
+    assert requests[-1] == "youtube" and len(requests) == 3
+    catalog.setCurrentRow(0)
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert window._power_dialog is None
+    window.set_application_busy(None)
+    assert catalog.progress_row() is None
+    assert catalog.item(1).text() == "YouTube installieren"
     assert changes == []
-    window.set_installing(None)
-    assert window._applications.itemWidget(item) is None
-    assert item.text() == "YouTube installieren"
+    window.close()
+
+
+@pytest.mark.parametrize("accept", [True, False])
+def test_removal_requires_confirmation(application: QApplication, accept: bool) -> None:
+    """Removing asks first, explains that data is kept and cannot be cancelled midway."""
+    window = applications_window(application)
+    catalog = window._catalog_list
+    removals: list[str] = []
+    window.application_remove_requested.connect(removals.append)
+    catalog.setCurrentRow(0)
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    dialog = window._power_dialog
+    assert dialog is not None and "settings and data are kept" in dialog.findChildren(QLabel)[1].text()
+    (dialog.accept if accept else dialog.reject)()
+    application.processEvents()
+    assert removals == (["kodi"] if accept else [])
+    assert window._power_dialog is None
+    window.set_application_busy("kodi", removing=True)
+    row = catalog.progress_row()
+    assert row.title_label.text() == "Removing Kodi" and row.cancel_label.text() == ""
+    requests: list[str] = []
+    window.application_install_requested.connect(requests.append)
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert requests == []
+    window.close()
+
+
+def test_applications_page_navigation_returns_to_rail(application: QApplication) -> None:
+    """Up from the first entry and Left return to the category rail."""
+    window = applications_window(application)
+    catalog = window._catalog_list
+    catalog.setCurrentRow(1)
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert catalog.currentRow() == 2
+    window.handle_input(InputEvent(InputAction.LEFT, "gamepad"))
+    assert window.focusWidget() is window._nav_buttons[window._apps_page]
+    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
+    assert window.focusWidget() is catalog and catalog.currentRow() == 0
+    QTest.keyClick(catalog, Qt.Key.Key_Up)
+    assert window.focusWidget() is window._nav_buttons[window._apps_page]
     window.close()
 
 

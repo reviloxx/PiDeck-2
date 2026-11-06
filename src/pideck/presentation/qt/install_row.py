@@ -1,8 +1,9 @@
-"""Progress presentation for a catalog application that is being installed.
+"""Progress presentation for a catalog application being installed or removed.
 
-The row is embedded into the Home-screen application list as an item widget,
-so list focus and keyboard/controller/CEC navigation stay unchanged. It ignores
-pointer input; activating the underlying list item cancels the installation.
+The row is embedded into the Applications list as an item widget, so list
+focus and keyboard/controller/CEC navigation stay unchanged. It ignores
+pointer input; activating the underlying list item cancels an installation.
+Removals change the package database and cannot be cancelled.
 """
 
 from PySide6.QtCore import Qt
@@ -29,6 +30,8 @@ def install_status_text(language: str, progress: InstallProgress) -> str:
         InstallStage.PREPARING: "install_preparing",
         InstallStage.INSTALLING_FLATPAK: "install_installing_flatpak",
         InstallStage.DOWNLOADING: "install_starting_download",
+        InstallStage.INSTALLING: "install_installing",
+        InstallStage.REMOVING: "install_removing",
         InstallStage.FINISHING: "install_finishing",
     }
     return tr(language, keys[progress.stage])
@@ -37,13 +40,16 @@ def install_status_text(language: str, progress: InstallProgress) -> str:
 class InstallProgressRow(QWidget):
     """Show name, stage, a progress bar, a spinner and the cancel hint."""
 
-    def __init__(self, application_name: str, language: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, application_name: str, language: str, parent: QWidget | None = None, *, removing: bool = False,
+    ) -> None:
         """Create an indeterminate row until the first progress report arrives."""
         super().__init__(parent)
         self.setObjectName("install_progress_row")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._application_name = application_name
         self._language = language
+        self._removing = removing
         self._progress = InstallProgress(InstallStage.PREPARING)
         self.title_label = QLabel(self)
         self.title_label.setObjectName("install_title")
@@ -93,6 +99,7 @@ class InstallProgressRow(QWidget):
         self._render_text()
 
     def _render_text(self) -> None:
-        self.title_label.setText(tr(self._language, "installing_application", name=self._application_name))
-        self.cancel_label.setText(tr(self._language, "install_cancel_hint"))
+        title = "removing_application" if self._removing else "installing_application"
+        self.title_label.setText(tr(self._language, title, name=self._application_name))
+        self.cancel_label.setText("" if self._removing else tr(self._language, "install_cancel_hint"))
         self.status_label.setText(install_status_text(self._language, self._progress))

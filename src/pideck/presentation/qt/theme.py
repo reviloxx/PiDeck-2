@@ -322,7 +322,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             background-color: %(primary)s;
             border-color: %(primary)s;
         }
-        QListWidget#settings_applications {
+        QListWidget#settings_applications, QListWidget#settings_catalog {
             background-color: %(surface)s;
             border: 1px solid %(border)s;
             border-radius: 8px;
@@ -331,13 +331,15 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             outline: none;
             padding: 8px;
         }
-        QListWidget#settings_applications::item {
+        QListWidget#settings_applications::item, QListWidget#settings_catalog::item {
             border: 1px solid transparent;
             border-radius: 6px;
             padding: 12px;
         }
         QListWidget#settings_applications::item:selected,
-        QListWidget#settings_applications::item:focus {
+        QListWidget#settings_applications::item:focus,
+        QListWidget#settings_catalog::item:selected,
+        QListWidget#settings_catalog::item:focus {
             background-color: %(active_surface)s;
             border-color: %(focus)s;
             color: %(text)s;

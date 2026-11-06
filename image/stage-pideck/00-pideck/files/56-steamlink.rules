@@ -1,0 +1,5 @@
+# Steam Link (Raspberry Pi package): controller and virtual input access for the
+# input/plugdev groups. The launcher expects this file and otherwise asks for sudo.
+SUBSYSTEM=="usb", GROUP="plugdev"
+KERNEL=="hidraw*", GROUP="input", MODE:="0660"
+KERNEL=="uinput", GROUP="input", MODE:="0660"

@@ -47,8 +47,9 @@ including Kodi handoff, remains necessary.
 
 Wallpaper scales proportionally to fill the window, cropping edges when
 necessary. The default policies in `/usr/share/pideck/config/window-modes.yaml`
-request maximized main windows for Chromium, Firefox, RetroArch and NoMachine
-if configured. Existing fullscreen windows stay fullscreen. User overrides can
+request maximized main windows for Chromium, Chrome, Brave, Firefox, RetroArch
+and NoMachine; the application catalog declares the same defaults for releases
+that know newer applications. Existing fullscreen windows stay fullscreen. User overrides can
 be placed in `~/.config/pideck/window-modes.yaml`, for example `firefox: normal`.
 Dialogs are not maximized, and the separate policy file keeps the existing
 launcher settings compatible with older releases.
@@ -251,22 +252,38 @@ window and the keyboard layout setting to older images too, but mounting
 drives there reports that a newer image is required, because application
 updates do not install packages or polkit rules. Reflash to enable it.
 
-## Application inventory
+## Applications and language
+
+Images from v0.5.0 preinstall only Kodi (Raspberry Pi OS package) and Red as
+YouTube (system Flatpak from Flathub). Everything else is installed and removed
+from **Settings > Applications**; see [Settings](../README.md#settings). The
+image contains what those applications need: Flatpak with the system Flathub
+remote, the Google Chrome and Brave apt repositories with signing keys in
+`/usr/share/pideck/keyrings`, Steam Link's udev rule
+(`/usr/lib/udev/rules.d/56-steamlink.rules`) and `uinput` module so its launcher
+never asks for `sudo`, and a masked `nxserver.service`.
+
+The pi-gen build sets the locale to `de_DE.UTF-8` and the time zone to
+Europe/Berlin; a time zone chosen in Raspberry Pi Imager still applies. Flatpak
+installs German translations, Firefox ESR uses its German language pack and the
+`RequestedLocales` policy in `/etc/firefox/policies/policies.json`, and Kodi's
+German language add-on is bundled in `/usr/share/kodi/addons` after the build
+verifies its pinned SHA-256 from `kodi-language.env`.
 
 The following are package-availability findings, not proof that the apps work
 with PiDeck on a Raspberry Pi 5:
 
-| Application | Findings | Remaining work |
+| Application | Source on the Pi | Remaining work |
 | --- | --- | --- |
-| Kodi | Debian publishes an [ARM64 package](https://packages.debian.org/trixie/arm64/kodi). | Verify the Raspberry Pi OS package, graphics, audio and process/window lifecycle. The checked-in configuration currently specifies an x86_64 Flatpak and is not suitable for this image. |
-| Chromium | Debian publishes an [ARM64 package](https://packages.debian.org/trixie/arm64/chromium). | Verify the Raspberry Pi OS package and fullscreen launch/return behavior. |
-| Firefox | Debian publishes an [ARM64 Firefox ESR package](https://packages.debian.org/trixie/arm64/firefox-esr). | Verify launch behavior and map `firefox-esr` to its package for updates. |
-| RetroArch | Debian publishes an [ARM64 package](https://packages.debian.org/trixie/arm64/retroarch) and [mGBA core](https://packages.debian.org/trixie/arm64/libretro-mgba). | Verify graphics, controllers and core loading. Users must supply any legally obtained games and system files. |
-| Steam Link | The [Raspberry Pi OS ARM64 package index](https://archive.raspberrypi.com/debian/dists/trixie/main/binary-arm64/Packages.gz) lists `steamlink` version 1.0.16 as architecture `all`; its package documentation says it downloads the actual program at runtime. | Omitted until Pi 5 compatibility, runtime dependencies, redistribution terms and the process/window lifecycle are verified. It also requires a Steam host. |
-| NoMachine | The [NoMachine license](https://www.nomachine.com/licensing/nomachine-end-user-license-agreement) prohibits redistribution of its software without written permission. | Omitted without that permission. Verify an appropriate user-installed ARM64 client separately. |
-
-The image-specific launcher configuration omits the excluded applications and
-replaces the development configuration's x86_64 Kodi command.
+| Kodi | Raspberry Pi OS `kodi` (preinstalled). | Verify graphics, audio and process/window lifecycle. |
+| YouTube (Red) | Flathub `com.ktechpit.red` for aarch64 (preinstalled). | Verify playback performance and remote control. |
+| Steam Link | Raspberry Pi OS `steamlink`, which downloads Valve's program at first start; the catalog installs its runtime libraries. | Verify Pi 5 streaming and the process/window lifecycle. Requires a Steam host. |
+| Chromium | Raspberry Pi OS `chromium`, `chromium-l10n` and `rpi-chromium-mods`. | Verify fullscreen launch/return behavior. |
+| Chrome | Google's arm64 `google-chrome-stable`. | Verify launch behavior and video playback. |
+| Brave | Brave's arm64 `brave-browser`. | Verify launch behavior and video playback. |
+| Firefox | Debian `firefox-esr` and `firefox-esr-l10n-de`. | Verify launch behavior. |
+| RetroArch | Debian `retroarch` and `libretro-mgba`. | Verify graphics, controllers and core loading. Users must supply any legally obtained games and system files. |
+| NoMachine | NoMachine Player arm64 `.deb`, downloaded from NoMachine on the device and checked against the catalog's SHA-256. The image does not redistribute it. | Verify the client and its window lifecycle. |
 
 ## Hardware acceptance checklist
 
@@ -278,8 +295,10 @@ minimum storage capacity. On a Pi 5, verify:
   auto-login without an Imager-provisioned account.
 - HDMI video and audio; Ethernet or configured Wi-Fi; keyboard and controller
   navigation and hot-plug behavior.
-- Kodi, Chromium, Firefox ESR and RetroArch including mGBA core loading, with
-  external-window detection, closing the app and returning to PiDeck.
+- Kodi and YouTube, then installing, launching and removing every other
+  catalog application including RetroArch with mGBA core loading, with
+  external-window detection, closing the app, returning to PiDeck and a German
+  user interface.
 - Built-in CEC discovery and local-seat access; remote navigation and repeats
   in PiDeck and settings; Kodi remote operation; release/reacquisition on
   launch, failure, replacement and exit; unplug/reconnect and no unwanted

@@ -1,4 +1,4 @@
-"""Immutable progress model reported while a catalog application is installed."""
+"""Immutable progress model reported while a catalog application is installed or removed."""
 
 from dataclasses import dataclass
 from enum import StrEnum
@@ -11,6 +11,8 @@ class InstallStage(StrEnum):
     PREPARING = "preparing"
     INSTALLING_FLATPAK = "installing_flatpak"
     DOWNLOADING = "downloading"
+    INSTALLING = "installing"
+    REMOVING = "removing"
     FINISHING = "finishing"
 
 

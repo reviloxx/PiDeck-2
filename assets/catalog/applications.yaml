@@ -1,9 +1,137 @@
+# Every application PiDeck can install from Settings > Applications.
+#
+# Shared keys match pideck.yaml applications. Catalog-only keys are never
+# written to pideck.yaml, so saved settings stay readable by older releases:
+#   window         default window mode (overridden by window-modes.yaml)
+#   install        per Debian architecture: method apt, flatpak or deb
+#                  apt:     packages (installed and removed with the app),
+#                           dependencies (installed, never removed)
+#                  flatpak: flatpak (Flathub application ID, system-wide)
+#                  deb:     packages (one name), url (HTTPS), sha256
+#                  executable/arguments override the launch command
+#   user_defaults  first-run files copied into $HOME when absent
+# The image's root update service reads install instructions from this file,
+# so apt packages must come from repositories the image already configures.
 applications:
+  - id: kodi
+    name: Kodi
+    executable: kodi
+    icon: ../assets/icons/kodi.svg
+    preferred_input: cec
+    install:
+      amd64: {method: apt, packages: [kodi]}
+      arm64: {method: apt, packages: [kodi]}
+    user_defaults:
+      - source: ../app-defaults/kodi/guisettings.xml
+        target: .kodi/userdata/guisettings.xml
   - id: youtube
     name: YouTube
     executable: flatpak
     arguments: [run, com.ktechpit.red, --tv]
-    profiles: []
     icon: ../assets/icons/youtube.svg
     preferred_input: gamepad
     cec: keyboard
+    install:
+      amd64: {method: flatpak, flatpak: com.ktechpit.red}
+      arm64: {method: flatpak, flatpak: com.ktechpit.red}
+  - id: steam-link
+    name: Steam Link
+    executable: flatpak
+    arguments: [run, com.valvesoftware.SteamLink]
+    icon: ../assets/icons/steam-link.svg
+    preferred_input: gamepad
+    install:
+      amd64: {method: flatpak, flatpak: com.valvesoftware.SteamLink}
+      arm64:
+        method: apt
+        packages: [steamlink]
+        # Libraries the downloaded Steam Link runtime needs; without them its
+        # launcher would try to install them with sudo on first start.
+        dependencies: [
+          libavcodec61, libavutil59, libdbus-1-3, libdouble-conversion3, libdrm2, libegl1, libepoxy0,
+          libfontconfig1, libfreetype6, libgbm1, libgles2, libglib2.0-0t64, libgssapi-krb5-2,
+          libharfbuzz0b, libice6, libinput10, libjpeg62-turbo, libmd4c0, libmtdev1t64, libpng16-16t64,
+          libsm6, libudev1, libwayland-client0, libwayland-egl1, libx11-6, libx11-xcb1, libxcb-icccm4,
+          libxcb-image0, libxcb-keysyms1, libxcb-randr0, libxcb-render-util0, libxcb-render0,
+          libxcb-shape0, libxcb-shm0, libxcb-sync1, libxcb-xfixes0, libxcb-xinerama0, libxcb-xinput0,
+          libxcb-xkb1, libxcb1, libxkbcommon-x11-0, libxkbcommon0, libzstd1, zlib1g,
+        ]
+        executable: steamlink
+        arguments: []
+  - id: chromium
+    name: Chromium
+    executable: chromium
+    arguments: [--no-first-run, --no-default-browser-check, --password-store=basic]
+    icon: ../assets/icons/chromium.svg
+    preferred_input: mouse
+    window: maximized
+    install:
+      amd64: {method: apt, packages: [chromium, chromium-l10n]}
+      arm64: {method: apt, packages: [chromium, chromium-l10n, rpi-chromium-mods]}
+  - id: chrome
+    name: Chrome
+    executable: google-chrome-stable
+    arguments: [--no-first-run, --no-default-browser-check, --password-store=basic]
+    icon: ../assets/icons/chrome.svg
+    preferred_input: mouse
+    window: maximized
+    install:
+      amd64:
+        method: apt
+        packages: [google-chrome-stable]
+        arguments: [
+          --no-first-run, --no-default-browser-check, --password-store=basic, --ignore-gpu-blocklist,
+          "--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,VaapiVideoDecodeLinuxGL",
+        ]
+      arm64: {method: apt, packages: [google-chrome-stable]}
+  - id: brave
+    name: Brave
+    executable: brave-browser
+    arguments: [--no-first-run, --no-default-browser-check, --password-store=basic]
+    icon: ../assets/icons/brave.svg
+    preferred_input: mouse
+    window: maximized
+    install:
+      amd64:
+        method: apt
+        packages: [brave-browser]
+        arguments: [
+          --no-first-run, --no-default-browser-check, --password-store=basic, --ignore-gpu-blocklist,
+          "--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,VaapiVideoDecodeLinuxGL",
+        ]
+      arm64: {method: apt, packages: [brave-browser]}
+  - id: firefox
+    name: Firefox
+    executable: firefox-esr
+    icon: ../assets/icons/firefox.svg
+    preferred_input: mouse
+    window: maximized
+    install:
+      amd64: {method: apt, packages: [firefox-esr, firefox-esr-l10n-de], dependencies: [libavcodec61]}
+      arm64: {method: apt, packages: [firefox-esr, firefox-esr-l10n-de], dependencies: [libavcodec61]}
+  - id: nomachine
+    name: NoMachine
+    executable: /usr/NX/bin/nxplayer
+    icon: ../assets/icons/nomachine.svg
+    preferred_input: mouse
+    window: maximized
+    install:
+      amd64:
+        method: deb
+        packages: [nomachine-player]
+        url: https://download.nomachine.com/download/10.2/Linux/nomachine-player_10.2.3_1_amd64.deb
+        sha256: 5c78e76af53acc0ad975c57dcfce9fd31e49ccbf942edc9601574dc50c5301ff
+      arm64:
+        method: deb
+        packages: [nomachine-player]
+        url: https://download.nomachine.com/download/10.2/Raspberry/nomachine-player_10.2.3_1_arm64.deb
+        sha256: ef8b79d21128a52c7b3094f4fd6ce143a715d7b12045cebe8016e774b3548464
+  - id: retroarch
+    name: RetroArch
+    executable: retroarch
+    icon: ../assets/icons/retroarch.svg
+    preferred_input: gamepad
+    window: maximized
+    install:
+      amd64: {method: apt, packages: [retroarch, libretro-mgba]}
+      arm64: {method: apt, packages: [retroarch, libretro-mgba]}

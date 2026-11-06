@@ -1,4 +1,4 @@
-chromium firefox-esr kodi retroarch libretro-mgba
+kodi flatpak
 python3-pyside6.qtwidgets python3-pyside6.qtdbus python3-yaml python3-evdev cec-utils inputattach
 plymouth plymouth-label
 qt6-qpa-plugins qt6-svg-plugins fonts-dejavu-core

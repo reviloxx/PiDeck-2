@@ -1,27 +1,36 @@
-"""Register explicitly installed catalog applications without replacing user settings."""
+"""Register and unregister catalog applications without replacing other user settings."""
 
+from collections.abc import Iterable
 from dataclasses import replace
 import logging
 from pathlib import Path
 import shlex
 
-from pideck.domain.configuration import ApplicationDefinition, CecMode, Configuration
+from pideck.domain.catalog import CatalogEntry
+from pideck.domain.configuration import ApplicationDefinition, CecMode, Configuration, WindowMode
 from pideck.domain.errors import ConfigurationValidationError
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def available_applications(
-    configuration: Configuration, catalog: tuple[ApplicationDefinition, ...],
-) -> tuple[ApplicationDefinition, ...]:
-    """Exclude catalog entries already represented by a user's application."""
-    identifiers = {item.identifier for item in configuration.applications}
-    targets = {_flatpak_target(item) for item in configuration.applications}
-    return tuple(
-        item for item in catalog
-        if item.identifier not in identifiers
-        and (_flatpak_target(item) is None or _flatpak_target(item) not in targets)
-    )
+def configured_application(
+    configuration: Configuration, entry: CatalogEntry,
+) -> ApplicationDefinition | None:
+    """Return the user's application that represents a catalog entry, if any.
+
+    Besides the identifier, a matching Flatpak target counts, so custom
+    entries for the same Flatpak are recognized as installed.
+    """
+    for item in configuration.applications:
+        if item.identifier == entry.identifier:
+            return item
+    targets = {
+        target for target in (
+            _flatpak_target(entry.application),
+            *(spec.flatpak for spec in entry.install.values()),
+        ) if target is not None
+    }
+    return next((item for item in configuration.applications if _flatpak_target(item) in targets), None)
 
 
 def _flatpak_target(application: ApplicationDefinition) -> str | None:
@@ -38,7 +47,7 @@ def _flatpak_target(application: ApplicationDefinition) -> str | None:
 
 
 def effective_cec_mode(
-    application: ApplicationDefinition, catalog: tuple[ApplicationDefinition, ...],
+    application: ApplicationDefinition, catalog: Iterable[CatalogEntry],
 ) -> CecMode:
     """Resolve CEC handling, inheriting it from a matching catalog entry when unset.
 
@@ -50,10 +59,15 @@ def effective_cec_mode(
         return application.cec_mode
     target = _flatpak_target(application)
     if target is not None:
-        for item in catalog:
-            if item.cec_mode is not None and _flatpak_target(item) == target:
-                return item.cec_mode
+        for entry in catalog:
+            if entry.application.cec_mode is not None and _flatpak_target(entry.application) == target:
+                return entry.application.cec_mode
     return CecMode.RELEASE
+
+
+def catalog_window_modes(catalog: Iterable[CatalogEntry]) -> dict[str, WindowMode]:
+    """Return default window modes declared by the catalog, keyed by identifier."""
+    return {entry.identifier: entry.window_mode for entry in catalog if entry.window_mode is not None}
 
 
 def register_application(configuration: Configuration, application: ApplicationDefinition) -> Configuration:
@@ -71,5 +85,22 @@ def register_application(configuration: Configuration, application: ApplicationD
     return replace(
         configuration,
         applications=(*configuration.applications, application),
+        home=replace(configuration.home, visible_applications=visible),
+    )
+
+
+def unregister_application(configuration: Configuration, identifier: str) -> Configuration:
+    """Remove an uninstalled application and its home-screen entry.
+
+    An empty visibility list means "show all", so removing the last visible
+    application leaves the remaining ones visible rather than hiding them all.
+    """
+    applications = tuple(item for item in configuration.applications if item.identifier != identifier)
+    if len(applications) == len(configuration.applications):
+        return configuration
+    visible = tuple(item for item in configuration.home.visible_applications if item != identifier)
+    return replace(
+        configuration,
+        applications=applications,
         home=replace(configuration.home, visible_applications=visible),
     )

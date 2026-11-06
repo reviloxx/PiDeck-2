@@ -22,7 +22,6 @@ BUILDER_IMAGE = "pideck-x86-builder:trixie"
 DEFAULT_OUTPUT = ROOT / "image-output/x86"
 CONTAINER_ROOT = "/pideck"
 CONTAINER_OUTPUT = "/output"
-CONTAINER_PLAYER = "/inputs/nomachine-player.deb"
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,8 +30,6 @@ class BuildRequest:
 
     output: Path
     release_tag: str | None = None
-    player: Path | None = None
-    player_sha256: str | None = None
 
     @property
     def staging(self) -> Path:
@@ -62,11 +59,6 @@ def docker_run_command(request: BuildRequest, uid: int, gid: int) -> list[str]:
     build_args = ["--work-dir", f"{CONTAINER_OUTPUT}/{request.staging.name}"]
     if request.release_tag is not None:
         build_args += ["--release-tag", request.release_tag]
-    if request.player is not None:
-        command += _bind(request.player, CONTAINER_PLAYER, read_only=True)
-        build_args += ["--nomachine-deb", CONTAINER_PLAYER]
-    if request.player_sha256 is not None:
-        build_args += ["--nomachine-sha256", request.player_sha256]
     return [*command, BUILDER_IMAGE, "python3", "image/x86/build.py", *build_args]
 
 
@@ -98,13 +90,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Output directory to replace")
     parser.add_argument("--release-tag")
-    parser.add_argument("--nomachine-deb", type=Path, help="Trusted local amd64 NoMachine Player package")
-    parser.add_argument("--nomachine-sha256", help="Expected SHA-256 of the supplied player package")
     args = parser.parse_args()
-    request = BuildRequest(
-        args.output.resolve(), args.release_tag,
-        args.nomachine_deb.resolve() if args.nomachine_deb else None, args.nomachine_sha256,
-    )
+    request = BuildRequest(args.output.resolve(), args.release_tag)
     try:
         image = build(request)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:

@@ -11,13 +11,11 @@ dosfstools
 e2fsprogs
 cloud-guest-utils
 zstd
-chromium
-firefox-esr
+locales
+tzdata
 kodi
 cec-utils
 inputattach
-retroarch
-libretro-mgba
 python3-pyside6.qtwidgets
 python3-pyside6.qtdbus
 python3-yaml
@@ -59,6 +57,7 @@ x11-xkb-utils
 ca-certificates
 openssl
 flatpak
+steam-devices
 firmware-linux
 firmware-nvidia-graphics
 firmware-iwlwifi

@@ -1,4 +1,4 @@
-"""Install an explicitly selected Flatpak without granting PiDeck root privileges."""
+"""Install or remove a user Flatpak without granting PiDeck root privileges."""
 
 import os
 import re
@@ -13,6 +13,7 @@ from pideck.application.ports.installation import (
     InstallProgressCallback,
     InstallStage,
 )
+from pideck.application.ports.packages import PackageOperationCancelled, PackageOperationError
 from pideck.domain.configuration import ApplicationDefinition
 from pideck.infrastructure.flatpak_progress import FlatpakProgressParser
 
@@ -20,11 +21,11 @@ _APP_ID = re.compile(r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_-]+)+")
 _FLATHUB_URL = "https://dl.flathub.org/repo/"
 
 
-class InstallationError(Exception):
+class InstallationError(PackageOperationError):
     """Report a failed or cancelled application installation."""
 
 
-class InstallationCancelled(InstallationError):
+class InstallationCancelled(InstallationError, PackageOperationCancelled):
     """Report an installation stopped at the user's request."""
 
 
@@ -120,11 +121,19 @@ class FlatpakInstaller:
 
         ``on_progress`` is called from the calling (worker) thread.
         """
-        report = on_progress or (lambda _: None)
         if application.executable != "flatpak" or len(application.arguments) < 2:
             raise InstallationError("Unsupported application definition")
-        app_id = application.arguments[1]
-        if application.arguments[0] != "run" or _APP_ID.fullmatch(app_id) is None:
+        if application.arguments[0] != "run":
+            raise InstallationError("Invalid Flatpak application definition")
+        self.install_ref(application.arguments[1], password, on_progress)
+
+    def install_ref(
+        self, app_id: str, password: str | None = None,
+        on_progress: InstallProgressCallback | None = None,
+    ) -> None:
+        """Install one Flatpak application ID from Flathub for the current user."""
+        report = on_progress or (lambda _: None)
+        if _APP_ID.fullmatch(app_id) is None:
             raise InstallationError("Invalid Flatpak application definition")
         report(InstallProgress(InstallStage.PREPARING))
         if self.needs_password():
@@ -161,3 +170,13 @@ class FlatpakInstaller:
         self._run(["flatpak", "install", "--user", "--assumeyes", "flathub", app_id], on_line=forward)
         report(InstallProgress(InstallStage.FINISHING, 100))
         self._run(["flatpak", "info", "--user", "--show-ref", app_id])
+
+    def uninstall(self, app_id: str, on_progress: InstallProgressCallback | None = None) -> None:
+        """Remove a user Flatpak and unused runtimes but keep its data in ``~/.var/app``."""
+        if _APP_ID.fullmatch(app_id) is None:
+            raise InstallationError("Invalid Flatpak application ID")
+        report = on_progress or (lambda _: None)
+        report(InstallProgress(InstallStage.REMOVING))
+        self._run(["flatpak", "uninstall", "--user", "--noninteractive", "--assumeyes", app_id])
+        report(InstallProgress(InstallStage.FINISHING))
+        self._run(["flatpak", "uninstall", "--user", "--unused", "--noninteractive", "--assumeyes"])

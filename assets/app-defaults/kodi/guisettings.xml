@@ -1,0 +1,8 @@
+<settings version="2">
+    <setting id="locale.language">resource.language.de_de</setting>
+    <setting id="locale.country">Deutschland</setting>
+    <setting id="locale.keyboardlayouts">German QWERTZ|English QWERTY</setting>
+    <setting id="locale.activekeyboardlayout">German QWERTZ</setting>
+    <setting id="locale.timezonecountry">Germany</setting>
+    <setting id="locale.timezone">Europe/Berlin</setting>
+</settings>

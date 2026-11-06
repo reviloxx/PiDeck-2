@@ -19,12 +19,14 @@ from pideck.application.session import (
     SessionState,
 )
 from pideck.application.settings import SettingsService, SettingsUpdate
-from pideck.application.catalog import effective_cec_mode, register_application
+from pideck.application.app_management import ApplicationManagementService
+from pideck.application.catalog import catalog_window_modes, effective_cec_mode
 from pideck.application.input_forwarding import InputForwardingService
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
 from pideck.application.ports.input import InputEvent
 from pideck.application.ports.installation import InstallProgress
+from pideck.domain.catalog import CatalogEntry
 from pideck.domain.configuration import (
     ApplicationDefinition,
     ApplicationProfile,
@@ -38,11 +40,9 @@ from pideck.infrastructure.config import FileConfigurationRepository
 from pideck.infrastructure.build_info import installed_build_date
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.catalog import load_catalog
-from pideck.infrastructure.flatpak_installer import (
-    FlatpakInstaller,
-    InstallationCancelled,
-    InstallationError,
-)
+from pideck.infrastructure.packages.installed import device_architecture
+from pideck.infrastructure.packages.manager import SystemPackageManager
+from pideck.infrastructure.user_defaults import UserDefaultsInstaller
 from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
@@ -121,6 +121,22 @@ def _apply_window_modes(configuration: Configuration, window_modes: dict[str, Wi
     )
 
 
+def _load_catalog(asset_root: Path, logger: logging.Logger) -> tuple[tuple[CatalogEntry, ...], str | None]:
+    """Load the release catalog with icon paths resolved against the asset root."""
+    try:
+        catalog = load_catalog(asset_root.parent / "assets/catalog/applications.yaml")
+    except ConfigurationError as error:
+        logger.error("Unable to load application catalog: %s", error)
+        return (), str(error)
+    resolved = []
+    for entry in catalog:
+        icon = entry.application.icon
+        if icon is not None and not icon.is_absolute():
+            icon = Path(os.path.abspath(asset_root / icon))
+        resolved.append(replace(entry, application=replace(entry.application, icon=icon)))
+    return tuple(resolved), None
+
+
 def build_dependencies(
     configuration_path: Path,
     asset_root: Path | None = None,
@@ -131,7 +147,8 @@ def build_dependencies(
     logger = configure_logging(level=log_level, log_file=log_file)
     configuration_repository = FileConfigurationRepository(configuration_path)
     configuration = configuration_repository.load()
-    window_modes: dict[str, WindowMode] = {}
+    catalog, catalog_error = _load_catalog(asset_root or configuration_path.parent, logger)
+    window_modes: dict[str, WindowMode] = catalog_window_modes(catalog)
     policy_paths = []
     image_mode = os.environ.get("PIDECK_IMAGE") == "1"
     if image_mode:
@@ -163,6 +180,8 @@ def build_dependencies(
         theme_repository=theme_repository,
         process_supervisor=process_supervisor,
         logger=logger,
+        catalog=catalog,
+        catalog_error=catalog_error,
     )
 
 
@@ -261,16 +280,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
     )
     power = SystemPower() if parsed_arguments.power_off_on_shutdown else None
     settings_window: SettingsWindow | None = None
-    installer: FlatpakInstaller | None = None
-    installing_id: str | None = None
-    install_progress: InstallProgress | None = None
-    try:
-        catalog = load_catalog(asset_root.parent / "assets/catalog/applications.yaml")
-        catalog_error: str | None = None
-    except ConfigurationError as error:
-        dependencies.logger.error("Unable to load application catalog: %s", error)
-        catalog = ()
-        catalog_error = str(error)
+    catalog = dependencies.catalog
+    catalog_error = dependencies.catalog_error
+    catalog_by_id = {entry.identifier: entry for entry in catalog}
+    application_manager = ApplicationManagementService(catalog, SystemPackageManager(), device_architecture())
+    user_defaults = UserDefaultsInstaller()
+    from pideck.presentation.qt.application_operations import ApplicationOperationsController
+
+    application_operations = ApplicationOperationsController(application_manager)
     network_window: NetworkWindow | None = None
     audio_window: AudioWindow | None = None
     drives_window: DrivesWindow | None = None
@@ -292,14 +309,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
         status_received = Signal(object)
 
     update_bridge = PiDeckUpdateBridge()
-    class InstallationBridge(QObject):
-        """Forward installer progress and completion from its worker thread."""
-
-        progress = Signal(str, object)
-        cancelled = Signal(str)
-        finished = Signal(str, object)
-
-    installation_bridge = InstallationBridge()
     class PowerBridge(QObject):
         """Forward a completed host power request to the Qt thread."""
 
@@ -436,6 +445,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     def handle_application_request(application_definition: ApplicationDefinition) -> None:
         """Resolve profile and replacement decisions for a tile activation."""
+        entry = catalog_by_id.get(application_definition.identifier)
+        if entry is not None:
+            user_defaults.apply(entry)
         result = session_service.request_launch(application_definition)
         if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
             selected_profile = window.choose_profile(result.profiles)
@@ -576,7 +588,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             network_enabled=network_gateway is not None,
             system_enabled=True,
             build_date=installed_build_date(),
-            catalog=catalog,
+            catalog_statuses=application_manager.statuses(current_configuration),
             input_settings=input_settings,
             keyboard_layout=keyboard_layout,
         )
@@ -631,121 +643,97 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.power_requested.connect(handle_system_power_request)
         settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.application_install_requested.connect(handle_install_request)
+        settings_window.application_remove_requested.connect(handle_remove_request)
         settings_window.finished.connect(lambda _: window.show_launcher())
         settings_window.finished.connect(cancel_install_on_close)
         window.hide()
         settings_window.show_fullscreen()
-        if installing_id is not None:
-            settings_window.set_installing(installing_id)
-            if install_progress is not None:
-                settings_window.set_install_progress(installing_id, install_progress)
+        active_id = application_operations.active_id
+        if active_id is not None:
+            settings_window.set_application_busy(active_id, removing=application_operations.removing)
+            if application_operations.last_progress is not None:
+                settings_window.set_application_progress(active_id, application_operations.last_progress)
         if catalog_error is not None:
             settings_window.show_error(catalog_error)
 
     def cancel_install_on_close(_: int) -> None:
         """Cancel an active user-requested installation when settings closes."""
-        if installer is not None:
-            try:
-                installer.cancel()
-            except PermissionError:
-                dependencies.logger.warning("Unable to cancel privileged installation process")
+        try:
+            application_operations.cancel()
+        except PermissionError:
+            dependencies.logger.warning("Unable to cancel privileged installation process")
 
     def handle_install_request(application_id: str) -> None:
         """Start or cancel a catalog install without running package commands in Qt."""
-        nonlocal installer, installing_id, install_progress
+        from pideck.domain.catalog import InstallState
+        from pideck.presentation.qt.localization import tr
+
         if settings_window is None:
             return
-        if installer is not None:
-            if application_id == installing_id:
+        if application_operations.active_id is not None:
+            if application_id == application_operations.active_id:
                 try:
-                    installer.cancel()
+                    application_operations.cancel()
                 except PermissionError as error:
-                    from pideck.presentation.qt.localization import tr
-                    settings_window.show_error(tr(current_configuration.settings.language, "install_cancel_deferred", message=str(error)))
+                    settings_window.show_error(tr(
+                        current_configuration.settings.language, "install_cancel_deferred", message=str(error),
+                    ))
             return
-        definition = next((item for item in catalog if item.identifier == application_id), None)
-        if definition is None or any(item.identifier == application_id for item in current_configuration.applications):
+        status = application_manager.status(current_configuration, application_id)
+        if status.state is not InstallState.NOT_INSTALLED:
             settings_window.show_error("Application is no longer available for installation")
             return
         password = None
-        if FlatpakInstaller.needs_password():
+        if application_manager.needs_password(application_id):
             from pideck.presentation.qt.settings_window import PasswordPrompt
             from PySide6.QtWidgets import QDialog
 
-            prompt = PasswordPrompt(definition.name, dependencies.theme_repository.get(current_configuration.home.theme),
+            prompt = PasswordPrompt(status.entry.name, dependencies.theme_repository.get(current_configuration.home.theme),
                                     settings_window, current_configuration.settings.language, installing=True)
             if prompt.exec() != QDialog.DialogCode.Accepted:
                 return
             password = prompt.password()
             prompt.password_input.clear()
-        operation = FlatpakInstaller()
-        installer = operation
-        installing_id = application_id
-        install_progress = None
-        settings_window.set_installing(application_id)
+        application_operations.start_install(application_id, password)
+        settings_window.set_application_busy(application_id)
 
-        def run_install() -> None:
-            try:
-                operation.install(
-                    definition, password,
-                    lambda progress: installation_bridge.progress.emit(application_id, progress),
-                )
-            except InstallationCancelled:
-                installation_bridge.cancelled.emit(application_id)
-                return
-            except InstallationError as error:
-                installation_bridge.finished.emit(application_id, str(error))
-                return
-            except Exception:
-                dependencies.logger.exception("Unexpected application installation failure")
-                installation_bridge.finished.emit(application_id, "Unexpected application installation failure")
-                return
-            installation_bridge.finished.emit(application_id, None)
-
-        threading.Thread(target=run_install, name="pideck-application-install", daemon=True).start()
+    def handle_remove_request(application_id: str) -> None:
+        """Remove an installed catalog application after the user confirmed it."""
+        if settings_window is None or application_operations.active_id is not None:
+            return
+        application_operations.start_remove(application_id)
+        settings_window.set_application_busy(application_id, removing=True)
 
     def show_install_progress(application_id: str, progress: InstallProgress) -> None:
-        """Remember and display the latest progress of the active installation."""
-        nonlocal install_progress
-        if application_id != installing_id:
-            return
-        install_progress = progress
+        """Display the latest progress of the running operation."""
         if settings_window is not None:
-            settings_window.set_install_progress(application_id, progress)
+            settings_window.set_application_progress(application_id, progress)
 
     def cancel_install_finished(application_id: str) -> None:
         """Restore the installable entry after a user-requested cancellation."""
-        nonlocal installer, installing_id, install_progress
-        installer = None
-        installing_id = None
-        install_progress = None
-        dependencies.logger.info("Application installation cancelled application=%s", application_id)
         if settings_window is not None:
-            settings_window.set_installing(None)
+            settings_window.set_application_busy(None)
 
-    def finish_install(application_id: str, error: str | None) -> None:
-        """Persist a successful installation and refresh launcher and settings."""
-        nonlocal installer, installing_id, install_progress, current_configuration
-        installer = None
-        installing_id = None
-        install_progress = None
+    def finish_application_operation(application_id: str, removing: bool, error: str | None) -> None:
+        """Persist an installed or removed application and refresh launcher and settings."""
+        nonlocal current_configuration
         active = settings_window is not None and settings_window.isVisible()
         if error is not None:
-            dependencies.logger.warning("Application installation failed: %s", error)
             if active and settings_window is not None:
-                settings_window.set_installing(None)
+                settings_window.set_application_busy(None)
                 settings_window.show_error(error)
             return
-        definition = next(item for item in catalog if item.identifier == application_id)
-        if definition.icon is not None and not definition.icon.is_absolute():
-            definition = replace(definition, icon=Path(os.path.abspath(asset_root / definition.icon)))
         try:
-            updated = register_application(current_configuration, definition)
-            dependencies.configuration_repository.save(updated)
+            if removing:
+                updated = application_manager.unregistered(current_configuration, application_id)
+            else:
+                updated = application_manager.registered(current_configuration, application_id)
+            if updated is not current_configuration:
+                dependencies.configuration_repository.save(updated)
         except ConfigurationError as save_error:
-            dependencies.logger.error("Unable to register installed application: %s", save_error)
+            dependencies.logger.error("Unable to save application change: %s", save_error)
             if active and settings_window is not None:
-                settings_window.set_installing(None)
+                settings_window.set_application_busy(None)
                 settings_window.show_error(str(save_error))
             return
         current_configuration = updated
@@ -754,11 +742,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if active:
             handle_settings_request()
             if settings_window is not None:
-                settings_window._select_page(1)
+                settings_window.select_applications_page()
 
-    installation_bridge.progress.connect(show_install_progress, Qt.ConnectionType.QueuedConnection)
-    installation_bridge.cancelled.connect(cancel_install_finished, Qt.ConnectionType.QueuedConnection)
-    installation_bridge.finished.connect(finish_install, Qt.ConnectionType.QueuedConnection)
+    application_operations.progress.connect(show_install_progress)
+    application_operations.cancelled.connect(cancel_install_finished)
+    application_operations.finished.connect(finish_application_operation)
 
     def open_network_window() -> None:
         """Open wireless setup without giving presentation code system privileges."""

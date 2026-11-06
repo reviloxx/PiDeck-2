@@ -161,6 +161,21 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "install_downloading": "Downloading · {percent}%",
         "install_downloading_step": "Step {step} of {steps} · {percent}%",
         "install_finishing": "Finishing...",
+        "install_installing": "Installing...",
+        "install_removing": "Removing...",
+        "applications": "Applications",
+        "applications_description": "Install or remove applications. Removing an application keeps its settings.",
+        "remove_application": "Remove {name}",
+        "removing_application": "Removing {name}",
+        "application_installed": "{name} · Installed",
+        "application_unavailable": "{name} · Not available on this device",
+        "application_requires_image": "{name} · Requires a newer PiDeck image",
+        "remove": "Remove",
+        "remove_confirm_title": "Remove {name}?",
+        "remove_confirm_message": (
+            "{name} will be removed from this device. Its settings and data are kept "
+            "and are used again if you install it later."
+        ),
         "install_password_message": "Enter your administrator password to install Flatpak for {name}.",
         "install_cancel_deferred": "Cancellation will take effect after the system package operation finishes: {message}",
         "updates_description": "Check and install updates for configured applications.",
@@ -236,6 +251,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "install_downloading": "Download · {percent} %",
         "install_downloading_step": "Schritt {step} von {steps} · {percent} %",
         "install_finishing": "Wird abgeschlossen...",
+        "install_installing": "Wird installiert...",
+        "install_removing": "Wird entfernt...",
+        "applications": "Anwendungen",
+        "applications_description": (
+            "Anwendungen installieren oder entfernen. Beim Entfernen bleiben ihre Einstellungen erhalten."
+        ),
+        "remove_application": "{name} entfernen",
+        "removing_application": "{name} wird entfernt",
+        "application_installed": "{name} · Installiert",
+        "application_unavailable": "{name} · Auf diesem Gerät nicht verfügbar",
+        "application_requires_image": "{name} · Erfordert ein neueres PiDeck-Image",
+        "remove": "Entfernen",
+        "remove_confirm_title": "{name} entfernen?",
+        "remove_confirm_message": (
+            "{name} wird von diesem Gerät entfernt. Einstellungen und Daten bleiben erhalten "
+            "und werden bei einer späteren Installation wieder verwendet."
+        ),
         "install_password_message": "Administratorpasswort eingeben, um Flatpak für {name} zu installieren.",
         "install_cancel_deferred": "Der Abbruch erfolgt nach Abschluss der Systempaket-Installation: {message}",
         "choose_application": "Anwendung auswählen",

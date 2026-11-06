@@ -95,5 +95,5 @@ input:
 settings:
   reduced_motion: true
   show_clock: true
-  language: en
+  language: de
   update_check_interval_hours: 6

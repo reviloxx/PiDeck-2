@@ -9,7 +9,13 @@ import pytest
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
-from pideck.application.catalog import available_applications, effective_cec_mode, register_application
+from pideck.application.catalog import (
+    catalog_window_modes,
+    configured_application,
+    effective_cec_mode,
+    register_application,
+    unregister_application,
+)
 from pideck.application.ports.installation import InstallProgress, InstallStage
 from pideck.domain.configuration import ApplicationDefinition, CecMode
 from pideck.domain.errors import ConfigurationError
@@ -21,9 +27,14 @@ from tests.test_configuration import configuration_document
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def entry(identifier: str = "youtube"):
+    """Load one actual bundled catalog entry."""
+    return next(item for item in load_catalog(ROOT / "assets/catalog/applications.yaml") if item.identifier == identifier)
+
+
 def youtube():
-    """Load the actual bundled application definition."""
-    return load_catalog(ROOT / "assets/catalog/applications.yaml")[0]
+    """Load the actual bundled YouTube application definition."""
+    return entry().application
 
 
 def test_catalog_is_launchable_in_tv_mode() -> None:
@@ -59,19 +70,37 @@ def test_registration_preserves_existing_choices() -> None:
     assert added.settings == config.settings
     assert added.applications[:-1] == config.applications
     assert added.applications[-1].cec_mode is None
-    assert effective_cec_mode(added.applications[-1], (youtube(),)) is CecMode.KEYBOARD
+    assert effective_cec_mode(added.applications[-1], (entry(),)) is CecMode.KEYBOARD
     all_visible = replace(config, home=replace(config.home, visible_applications=()))
     assert register_application(all_visible, youtube()).home.visible_applications == ()
     with pytest.raises(ConfigurationError, match="already exists"):
         register_application(added, youtube())
 
 
-def test_catalog_does_not_duplicate_existing_flatpak() -> None:
-    """Custom identifiers for the same Flatpak remain untouched."""
+def test_catalog_recognizes_existing_flatpak_under_custom_identifier() -> None:
+    """Custom identifiers for the same Flatpak count as the installed catalog application."""
     config = YamlConfigurationParser().parse(configuration_document())
+    assert configured_application(config, entry()) is None
     custom = replace(youtube(), identifier="my-red", name="My Red")
     config = replace(config, applications=(*config.applications, custom))
-    assert available_applications(config, (youtube(),)) == ()
+    assert configured_application(config, entry()) == custom
+
+
+def test_unregistration_removes_application_and_visibility() -> None:
+    """Removing an application drops its tile and keeps every other choice."""
+    config = register_application(YamlConfigurationParser().parse(configuration_document()), youtube())
+    removed = unregister_application(config, "youtube")
+    assert all(item.identifier != "youtube" for item in removed.applications)
+    assert "youtube" not in removed.home.visible_applications
+    assert removed.settings == config.settings
+    assert unregister_application(removed, "youtube") is removed
+
+
+def test_catalog_declares_window_defaults() -> None:
+    """Browsers start maximized unless a window-modes.yaml policy overrides it."""
+    modes = catalog_window_modes(load_catalog(ROOT / "assets/catalog/applications.yaml"))
+    assert modes["chrome"].value == "maximized"
+    assert "youtube" not in modes
 
 
 @pytest.mark.parametrize("installed", [False, True])
@@ -227,7 +256,7 @@ def test_catalog_youtube_keeps_cec_for_keyboard_forwarding() -> None:
 
 def test_effective_cec_mode_inherits_from_matching_catalog_flatpak() -> None:
     """Existing installs gain the catalog mode; explicit and unrelated apps do not."""
-    catalog = (youtube(),)
+    catalog = (entry(),)
     legacy = replace(youtube(), identifier="my-red", cec_mode=None)
     assert effective_cec_mode(legacy, catalog) is CecMode.KEYBOARD
     explicit = replace(legacy, cec_mode=CecMode.RELEASE)

@@ -7,26 +7,12 @@ applications:
     profiles: []
     icon: ../assets/icons/kodi.svg
     preferred_input: cec
-  - id: chromium
-    name: Chromium
-    executable: chromium
-    arguments: []
+  - id: youtube
+    name: YouTube
+    executable: flatpak
+    arguments: [run, com.ktechpit.red, --tv]
     profiles: []
-    icon: ../assets/icons/chromium.svg
-    preferred_input: mouse
-  - id: firefox
-    name: Firefox
-    executable: firefox-esr
-    arguments: []
-    profiles: []
-    icon: ../assets/icons/firefox.svg
-    preferred_input: mouse
-  - id: retroarch
-    name: RetroArch
-    executable: retroarch
-    arguments: []
-    profiles: []
-    icon: ../assets/icons/retroarch.svg
+    icon: ../assets/icons/youtube.svg
     preferred_input: gamepad
 themes:
   - id: default
@@ -60,7 +46,7 @@ themes:
       duration_ms: 180
       reduced_motion_duration_ms: 0
 home:
-  visible_applications: [kodi, chromium, firefox, retroarch]
+  visible_applications: [kodi, youtube]
   theme: default
 input:
   enabled_sources: [cec, gamepad, keyboard, mouse]
@@ -69,5 +55,5 @@ input:
 settings:
   reduced_motion: true
   show_clock: true
-  language: en
+  language: de
   update_check_interval_hours: 6
