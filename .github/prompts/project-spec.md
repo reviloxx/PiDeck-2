@@ -2,52 +2,77 @@
 
 ## Vision
 
-PiDeck is a TV-first launcher for Raspberry Pi.
+PiDeck is a TV-first launcher for Linux-based living room devices.
 
-It transforms Raspberry Pi OS into a living room appliance.
-
-The Linux desktop should never be visible during normal operation.
+It turns a minimal Linux install into a living room appliance.
+The Linux desktop must never be visible during normal operation.
 
 ---
 
 ## Supported Platforms
 
-Primary:
+| Role | Platform | Base system | Image |
+|---|---|---|---|
+| Primary | Raspberry Pi 5 | Raspberry Pi OS Lite 64-bit | Raspberry Pi image |
+| Secondary | x86 (64-bit) hardware | Debian minimal | x86 image (optimized for Intel and NVIDIA hardware) |
+| Development | VirtualBox VM | Debian minimal | VirtualBox image |
 
-- Raspberry Pi 5
-- Raspberry Pi OS 64-bit
+Notes:
 
-Development:
+- All targets are based on a minimal system without a desktop environment.
+  PiDeck brings its own display stack (e.g. a minimal Wayland compositor
+  or X server, started automatically).
+- Platform differences (hardware video decoding, CEC adapter, GPU drivers)
+  are isolated in a platform abstraction layer.
+- The VirtualBox target must be fully usable for UI and logic development.
+  Features without VM support (HDMI-CEC, hardware decoding) are mockable
+  or simulated.
 
-- Linux Mint
+---
+
+## Release Model
+
+PiDeck is delivered in two independent ways: platform images and
+application updates.
+
+### Platform images
+
+- There are three independent images, one per target platform
+  (Raspberry Pi, x86, VirtualBox).
+- Only platform-specific changes, such as hardware support or boot
+  optimizations, require a new image version, and only for the affected
+  platform.
+- Each image has its own version, independent of the other images and of
+  the application version.
+- An image ships with a specific application release, which can then be
+  updated in place.
+
+### Application updates
+
+- Any change to the PiDeck application itself is shipped via the built-in
+  update function and reaches all platforms.
+- Every application release must run on all currently supported images.
+  Platform features that are unavailable must degrade gracefully.
+- Saved configuration must stay readable by older application releases.
+
+### Decision rule
+
+| Change | Delivery |
+|---|---|
+| Change to the PiDeck application | Application update (all platforms) |
+| Platform-specific change (e.g. hardware support, boot optimization) | New image version for the affected platform only |
 
 ---
 
 ## Boot Flow
 
-Power On
-
-↓
-
-Automatic Login
-
-↓
-
-Launcher
-
-↓
-
-Application
-
-↓
-
-Launcher
+Power On → Automatic Login → Launcher → Application → Launcher
 
 ---
 
 ## Applications
 
-Initially support:
+### Supported applications
 
 - Kodi
 - Steam Link
@@ -56,17 +81,36 @@ Initially support:
 - NoMachine
 - RetroArch
 
-Applications are configured through YAML.
-For each application different user with specific launch parameters can be configured.
-This is optional. If there are users there is a user selection pop-up when starting the application.
-No code changes should be required to add new applications.
+### Installation model
+
+- Only **Kodi** is pre-installed.
+- All other applications are optional and can be installed
+  (and removed) from the Settings menu.
+- Applications that are not installed are not shown on the home screen.
+- The Settings menu shows the install state of every supported application.
+- Installation uses the system package manager (apt, Flatpak, or a
+  per-app install method defined in the app's YAML).
+- Installation requires network access. Progress and errors are shown
+  in the UI.
+
+### Configuration
+
+- Applications are defined in YAML (one file per application or one
+  combined file).
+- Each entry defines: name, icon, preferred input device, launch command,
+  install method and package, and optional user profiles.
+- Per-application user profiles with specific launch parameters are
+  optional.
+  - If profiles exist, a user selection popup appears on launch.
+  - If none exist, the application starts directly.
+- Adding a new application requires no code changes.
 
 ---
 
 ## User Interface
 
 The interface should resemble a modern Smart TV.
-The user interface should adapt to the actual screen resolution.
+It adapts to the actual screen resolution and scales accordingly.
 
 Requirements:
 
@@ -90,54 +134,59 @@ Priority:
 
 ---
 
-## HDMI CEC
+## HDMI-CEC
 
-Support libCEC.
+Support via libCEC.
 
 Desired features:
 
 - navigation
 - OK
 - Back
+- media buttons
 - optional power management
+
+Availability depends on the platform (Pi 5 has native CEC; x86 needs a
+USB-CEC adapter; VirtualBox has none).
 
 ---
 
 ## Launcher
 
 The launcher displays configurable tiles.
-The tiles have a modern design and include the official application icons.
-Navigation to a tile should highlight it with a glowing effect.
-The currently running application should be highlighted differently.
-The tiles also show the prefferred input device as a minimalistic material icon.
-When an application is started the launcher should minimize.
-When the application is closed the launcher should maximize.
-There is a hotkey to maximize the launcher from any application.
-If an application is running and the user selects a different one there should be a popup to ask if the running application should be closed.
 
-Example:
+Tile design:
 
-📺 Kodi - tv remote icon
+- modern look with abstract versions of the official application icons
+- glowing highlight on the focused tile
+- a minimalistic Material icon showing the preferred input device
 
-🎮 Steam - gamepad icon
+Behavior:
 
-🌍 Browser - mouse icon
+- Starting an application minimizes the launcher.
+- Closing the application maximizes the launcher again.
 
-🖥 NoMachine - mouse icon
+Example tiles:
 
-🎲 RetroArch - gamepad icon
+| Application | Input icon |
+|---|---|
+| Kodi | TV remote |
+| Red | TV remote |
+| Steam Link | Gamepad |
+| Browser | Mouse |
+| NoMachine | Mouse |
+| RetroArch | Gamepad |
 
-Additional buttons which are not part of the application tiles:
+Fixed buttons (not application tiles):
 
-⚙ Settings
-
-⏻ Shutdown
+- Settings
+- Shutdown
 
 ---
 
 ## Themes
 
-Support configurable:
+Configurable:
 
 - colors
 - fonts
@@ -153,24 +202,27 @@ Support configurable:
 - Bluetooth
 - Audio
 - Display
+- Applications (install / remove, see Installation model)
 - Updates
 - Themes
-- Home screen settings like showing / hiding applications
+- Home screen (show / hide applications, tile order)
 
 ---
 
 ## Performance Goals
 
-Startup: <2 seconds
-Idle RAM: <150 MB
-Idle CPU: <2%
-Animations: 60 FPS
+| Metric | Target |
+|---|---|
+| Startup | < 2 s (launcher visible after boot completes) |
+| Idle RAM | < 150 MB |
+| Idle CPU | < 2 % |
+| Animations | 60 FPS |
+
+Targets are measured on the Raspberry Pi 5.
 
 ---
 
 ## Long-Term Goals
-
-Possible future additions:
 
 - Plugin system
 - Home Assistant integration

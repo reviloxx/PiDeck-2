@@ -310,13 +310,13 @@ releases can still read those settings after a rollback.
 carefully with `lsblk`; use the whole target disk, not a partition, and never
 the disk containing your build or running system. Unmount all mounted
 partitions on the target disk first. Verify `SHA256SUMS` and run the following
-from the repository root. The example overwrites `/dev/sda`; change it to the
+from the repository root. The example overwrites `/dev/sde`; change it to the
 verified target disk:
 
 ```bash
 (cd image-output/x86 && sha256sum -c SHA256SUMS)
 bash -o pipefail -c 'xz -dc ./pideck-x86_64.img.xz |
-  sudo dd of=/dev/sda bs=4M conv=fsync status=progress'
+  sudo dd of=/dev/sde bs=4M conv=fsync status=progress'
 ```
 
 Boot the target from that disk with Secure Boot disabled. On a larger disk,
