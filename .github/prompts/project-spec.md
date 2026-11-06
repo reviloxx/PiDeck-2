@@ -75,6 +75,7 @@ Power On → Automatic Login → Launcher → Application → Launcher
 ### Supported applications
 
 - Kodi
+- Red (YouTube)
 - Steam Link
 - Chromium
 - Firefox
@@ -83,7 +84,7 @@ Power On → Automatic Login → Launcher → Application → Launcher
 
 ### Installation model
 
-- Only **Kodi** is pre-installed.
+- Only **Kodi** and **Red** are pre-installed.
 - All other applications are optional and can be installed
   (and removed) from the Settings menu.
 - Applications that are not installed are not shown on the home screen.
