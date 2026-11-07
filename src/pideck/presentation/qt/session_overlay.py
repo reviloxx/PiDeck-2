@@ -94,7 +94,7 @@ class SessionOverlay(QDialog):
         self._heading.setObjectName("settings_heading")
         card_layout.addWidget(self._heading)
         self._message = QLabel(tr(language, "session_overlay_message"), self._card)
-        self._message.setObjectName("settings_label")
+        self._message.setObjectName("settings_description")
         self._message.setWordWrap(True)
         card_layout.addWidget(self._message)
         card_layout.addStretch()

@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.14
+
+- Home-return overlay explanation uses the settings description style.
+- Changelog headings no longer mention that notes are in English.
+- After a PiDeck update is ready, a dialog offers an immediate restart.
+
 ## v0.5.13
 
 - The in-app overlay now shows the PiDeck title and clock, and asks

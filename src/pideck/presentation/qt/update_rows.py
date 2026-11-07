@@ -171,14 +171,19 @@ class UpdateRow(QFrame):
         updating = info.status is UpdateStatus.UPDATING
         busy = updating or info.status is UpdateStatus.PREPARING
         self.spinner.set_running(busy)
-        self.action.setText(
-            tr(self._language, "cancel")
-            if updating
-            else tr(self._language, "update")
-            if info.status is UpdateStatus.AVAILABLE
-            else ""
+        if updating:
+            self.action.setText(tr(self._language, "cancel"))
+        elif info.status is UpdateStatus.AVAILABLE:
+            self.action.setText(tr(self._language, "update"))
+        elif info.status is UpdateStatus.RESTART_REQUIRED:
+            self.action.setText(tr(self._language, "restart"))
+        else:
+            self.action.setText("")
+        actionable = info.status in (
+            UpdateStatus.AVAILABLE,
+            UpdateStatus.UPDATING,
+            UpdateStatus.RESTART_REQUIRED,
         )
-        actionable = info.status in (UpdateStatus.AVAILABLE, UpdateStatus.UPDATING)
         self.action.setEnabled(actionable)
         self.action.setVisible(actionable)
 

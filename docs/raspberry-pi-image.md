@@ -173,7 +173,8 @@ On a release image, PiDeck checks for stable releases at startup and every six
 hours while running. The check interval can be set with
 `settings.update_check_interval_hours` in the user YAML (a whole number from
 1 to 596). In **Settings > About**, select the PiDeck row to download and
-verify an available update. The update is activated at the next boot; user
+verify an available update. When the update is ready, PiDeck offers an
+immediate restart; the new release is activated on that reboot. User
 configuration and data are not replaced. If the new launcher does not reach
 readiness, the previous release is restored on the following boot and the
 failure is shown in Settings. Failures after readiness are not automatically

@@ -14,8 +14,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "close_application_hint": "Close an application to return to PiDeck (Alt+F4 in most apps).",
         "session_overlay_return": "Return home",
         "session_overlay_title": "Return home?",
-        "session_overlay_message": "Close this app and go back to the PiDeck home screen?",
+        "session_overlay_message": (
+            "This closes the current app and returns you to the PiDeck home screen."
+        ),
         "session_overlay_confirm": "Return home",
+        "update_restart_title": "Restart to finish the update?",
+        "update_restart_message": (
+            "PiDeck {version} is ready. Restart now to apply it."
+        ),
+        "later": "Later",
         "settings": "Settings",
         "shutdown": "Shutdown",
         "power_off_failed": "Shutdown failed: {message}",
@@ -281,7 +288,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "application_sorting_hint": "Hoch/Runter zum Verschieben · OK zum Speichern · Zurück zum Abbrechen",
         "action_install": "Installieren",
         "action_remove": "Entfernen",
-        "release_notes_title": "Neu in PiDeck {version} (auf Englisch)",
+        "release_notes_title": "Neu in PiDeck {version}",
         "removing_application": "{name} wird entfernt",
         "application_unavailable": "Auf diesem Gerät nicht verfügbar",
         "application_requires_image": "Erfordert ein neueres PiDeck-Image",
@@ -297,8 +304,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "close_application_hint": "Anwendung schließen, um zu PiDeck zurückzukehren (meist Alt+F4).",
         "session_overlay_return": "Zur Startseite",
         "session_overlay_title": "Zurück zur Startseite?",
-        "session_overlay_message": "Diese App schließen und zum PiDeck-Startbildschirm zurückkehren?",
+        "session_overlay_message": (
+            "Die aktuelle App wird geschlossen und Sie kehren zum PiDeck-Startbildschirm zurück."
+        ),
         "session_overlay_confirm": "Zur Startseite",
+        "update_restart_title": "Neu starten, um die Aktualisierung abzuschließen?",
+        "update_restart_message": (
+            "PiDeck {version} ist bereit. Jetzt neu starten, um sie zu aktivieren."
+        ),
+        "later": "Später",
         "settings": "Einstellungen",
         "shutdown": "Herunterfahren",
         "power_off_failed": "Herunterfahren fehlgeschlagen: {message}",

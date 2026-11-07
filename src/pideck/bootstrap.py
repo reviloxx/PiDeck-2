@@ -385,9 +385,21 @@ def main(arguments: Sequence[str] | None = None) -> int:
         ready=confirm_image_ready,
     )
 
+    last_pideck_status: PiDeckUpdateStatus | None = None
+
     def display_pideck_update(info: PiDeckUpdateInfo) -> None:
+        """Refresh About and offer an immediate reboot when an update is ready."""
+        nonlocal last_pideck_status
+        previous = last_pideck_status
+        last_pideck_status = info.status
         if settings_window is not None:
             settings_window.set_pideck_update_info(info)
+            if (
+                info.status is PiDeckUpdateStatus.PENDING
+                and previous is PiDeckUpdateStatus.PREPARING
+                and settings_window.isVisible()
+            ):
+                settings_window.offer_update_restart()
 
     update_bridge.status_received.connect(display_pideck_update, Qt.ConnectionType.QueuedConnection)
     application.aboutToQuit.connect(pideck_update_service.close)

@@ -94,7 +94,9 @@ def test_overlay_shows_home_chrome_and_confirmation(application: QApplication) -
     overlay = SessionOverlay(DEFAULT_THEME, "en")
     overlay.open_overlay()
     assert overlay._heading.text() == "Return home?"
+    assert overlay._message.objectName() == "settings_description"
     assert "home screen" in overlay._message.text()
+    assert "?" not in overlay._message.text()
     assert overlay.confirm_button.text() == "Return home"
     assert overlay.cancel_button.text() == "Cancel"
     assert overlay._clock_label.text()

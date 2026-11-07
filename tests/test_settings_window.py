@@ -402,7 +402,9 @@ def test_non_actionable_update_cannot_start(
 
 @pytest.mark.parametrize("status", list(PiDeckUpdateStatus))
 def test_pideck_activation_is_guarded(
-    application: QApplication, status: PiDeckUpdateStatus,
+    application: QApplication,
+    status: PiDeckUpdateStatus,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """PiDeck requests are only emitted for available updates and retries."""
     configuration = YamlConfigurationParser().parse(configuration_document())
@@ -411,7 +413,13 @@ def test_pideck_activation_is_guarded(
         pideck_update_info=PiDeckUpdateInfo(status, "1.0.0", "1.1.0"),
     )
     requests: list[bool] = []
+    restarts: list[str] = []
     window.pideck_update_requested.connect(lambda: requests.append(True))
+    window.power_requested.connect(lambda action: restarts.append(action))
+    monkeypatch.setattr(
+        "pideck.presentation.qt.settings_window.ConfirmationDialog.exec",
+        lambda self: QDialog.DialogCode.Accepted,
+    )
     window.show()
     window._select_page(2)
     application.processEvents()
@@ -420,6 +428,10 @@ def test_pideck_activation_is_guarded(
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     expected = 2 if status in (PiDeckUpdateStatus.AVAILABLE, PiDeckUpdateStatus.FAILED) else 0
     assert len(requests) == expected
+    if status is PiDeckUpdateStatus.PENDING:
+        assert restarts == ["restart", "restart"]
+    else:
+        assert restarts == []
     window.close()
 
 
@@ -447,6 +459,8 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.PENDING, "1.0.0", "1.1.0"))
     window.apply_language("de")
     assert "neu starten" in row.status_label.text()
+    assert row.action.isVisible()
+    assert row.action.text() == "Neu starten"
     QTest.keyClick(row, Qt.Key.Key_Down)
     assert row.hasFocus()
     window._select_page(1)
@@ -1045,7 +1059,7 @@ def test_about_page_shows_scrollable_release_notes(application: QApplication) ->
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert window._pideck_check_button.hasFocus()
     window.apply_language("de")
-    assert window._release_notes_title.text() == "Neu in PiDeck 1.2.0 (auf Englisch)"
+    assert window._release_notes_title.text() == "Neu in PiDeck 1.2.0"
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.2.0"))
     assert notes.isHidden() and window._release_notes_title.isHidden()
     window._pideck_row.setFocus()

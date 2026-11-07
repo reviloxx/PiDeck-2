@@ -1048,13 +1048,38 @@ class SettingsWindow(QDialog):
         """Display a failed host power request in the active settings view."""
         self.show_error(tr(self._language, "power_action_failed", message=message))
 
+    def offer_update_restart(self) -> None:
+        """Ask whether to reboot now that a PiDeck update is ready to apply."""
+        version = ""
+        if self._pideck_info is not None:
+            version = self._pideck_info.available_version or ""
+        dialog = ConfirmationDialog(
+            tr(self._language, "update_restart_title"),
+            tr(self._language, "update_restart_message", version=version),
+            tr(self._language, "restart"),
+            tr(self._language, "later"),
+            self._theme,
+            self,
+        )
+        self._power_dialog = dialog
+        try:
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.power_requested.emit("restart")
+        finally:
+            self._power_dialog = None
+            dialog.deleteLater()
+
     def _activate_pideck_update(self) -> None:
-        """Request a PiDeck update or retry only when the state permits it."""
-        if self._pideck_info is not None and self._pideck_info.status in (
+        """Request a PiDeck update, retry a failure, or reboot when pending."""
+        if self._pideck_info is None:
+            return
+        if self._pideck_info.status in (
             PiDeckUpdateStatus.AVAILABLE,
             PiDeckUpdateStatus.FAILED,
         ):
             self.pideck_update_requested.emit()
+        elif self._pideck_info.status is PiDeckUpdateStatus.PENDING:
+            self.offer_update_restart()
 
     def _handle_update_navigation(self, key: int) -> None:
         """Move through update rows; Left returns to the active settings category."""
