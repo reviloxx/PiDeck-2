@@ -12,11 +12,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         "choose_application": "Choose an application",
         "close_application_hint": "Close an application to return to PiDeck (Alt+F4 in most apps).",
-        "session_overlay_title": "PiDeck",
-        "session_overlay_message": (
-            "Return to PiDeck to close the current application. "
-            "Press Exit, the Windows key or the Xbox Guide button again to go back to the app."
-        ),
         "session_overlay_return": "Back to PiDeck",
         "settings": "Settings",
         "shutdown": "Shutdown",
@@ -297,12 +292,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "install_cancel_deferred": "Der Abbruch erfolgt nach Abschluss der Systempaket-Installation: {message}",
         "choose_application": "Anwendung auswählen",
         "close_application_hint": "Anwendung schließen, um zu PiDeck zurückzukehren (meist Alt+F4).",
-        "session_overlay_title": "PiDeck",
-        "session_overlay_message": (
-            "Zu PiDeck zurückkehren, um die aktuelle Anwendung zu schließen. "
-            "Exit, die Windows-Taste oder die Xbox-Guide-Taste erneut drücken, "
-            "um zur Anwendung zurückzukehren."
-        ),
         "session_overlay_return": "Zurück zu PiDeck",
         "settings": "Einstellungen",
         "shutdown": "Herunterfahren",

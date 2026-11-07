@@ -1,20 +1,74 @@
-"""Overlay shown above a running application for returning to PiDeck."""
+"""Console-style overlay shown above a running application for returning to PiDeck."""
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from __future__ import annotations
+
+from PySide6.QtCore import QEvent, QObject, QPropertyAnimation, Qt, Signal
+from PySide6.QtGui import QColor, QGuiApplication, QKeyEvent, QPaintEvent, QPainter, QPixmap
+from PySide6.QtWidgets import (
+    QDialog,
+    QFrame,
+    QGraphicsBlurEffect,
+    QGraphicsOpacityEffect,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QHBoxLayout,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
-from .system_panel import create_system_panel
 from .theme import apply_theme
-from .wallpaper import WallpaperDialog
+
+_BLUR_SCALE = 4
+_BLUR_RADIUS = 28
+_SCRIM = QColor(0, 0, 0, 168)
 
 
-class SessionOverlay(WallpaperDialog):
-    """Stay-on-top overlay with a single action that stops the running application."""
+def blur_pixmap(source: QPixmap, *, scale: int = _BLUR_SCALE, radius: int = _BLUR_RADIUS) -> QPixmap:
+    """Return a soft blur of ``source``, downscaling first for speed on appliances."""
+    if source.isNull() or source.width() <= 0 or source.height() <= 0:
+        return QPixmap()
+    factor = max(1, scale)
+    small = source.scaled(
+        max(1, source.width() // factor),
+        max(1, source.height() // factor),
+        Qt.AspectRatioMode.IgnoreAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    item = QGraphicsPixmapItem(small)
+    effect = QGraphicsBlurEffect()
+    effect.setBlurRadius(radius)
+    effect.setBlurHints(QGraphicsBlurEffect.BlurHint.PerformanceHint)
+    item.setGraphicsEffect(effect)
+    scene = QGraphicsScene()
+    scene.addItem(item)
+    blurred = QPixmap(small.size())
+    blurred.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(blurred)
+    scene.render(painter)
+    painter.end()
+    return blurred.scaled(
+        source.size(),
+        Qt.AspectRatioMode.IgnoreAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+
+
+def capture_blurred_screen() -> QPixmap:
+    """Grab the primary screen and return a blurred copy, or an empty pixmap on failure."""
+    screen = QGuiApplication.primaryScreen()
+    if screen is None:
+        return QPixmap()
+    grab = screen.grabWindow(0)
+    return blur_pixmap(grab)
+
+
+class SessionOverlay(QDialog):
+    """Stay-on-top quick menu with a blurred app backdrop and one return action."""
 
     return_requested = Signal()
     dismissed = Signal()
@@ -22,45 +76,69 @@ class SessionOverlay(WallpaperDialog):
     def __init__(self, theme: ThemeDefinition, language: str, parent: QWidget | None = None) -> None:
         """Build the overlay; call ``open_overlay`` to show it above an application."""
         super().__init__(parent)
+        self._theme = theme
         self._language = language
+        self._backdrop = QPixmap()
+        self.setObjectName("session_overlay")
         self.setModal(True)
-        self.setWindowTitle(tr(language, "session_overlay_title"))
+        self.setWindowTitle("PiDeck")
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Dialog
         )
-        layout = create_system_panel(self, max_width=760, max_height=320)
-        title = QLabel(tr(language, "session_overlay_title"), self)
-        title.setObjectName("settings_heading")
-        layout.addWidget(title)
-        message = QLabel(tr(language, "session_overlay_message"), self)
-        message.setObjectName("settings_label")
-        message.setWordWrap(True)
-        layout.addWidget(message)
-        layout.addStretch()
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        self.return_button = QPushButton(tr(language, "session_overlay_return"), self)
-        self.return_button.setObjectName("settings_footer")
+        self.setAutoFillBackground(False)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addStretch(1)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        self._card = QFrame(self)
+        self._card.setObjectName("session_overlay_card")
+        card_layout = QVBoxLayout(self._card)
+        card_layout.setContentsMargins(36, 28, 36, 28)
+        card_layout.setSpacing(0)
+        self.return_button = QPushButton(tr(language, "session_overlay_return"), self._card)
+        self.return_button.setObjectName("session_overlay_return")
         self.return_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.return_button.installEventFilter(self)
-        buttons.addWidget(self.return_button)
-        layout.addLayout(buttons)
+        card_layout.addWidget(self.return_button)
+        row.addWidget(self._card, 0, Qt.AlignmentFlag.AlignCenter)
+        row.addStretch(1)
+        root.addLayout(row)
+        root.addStretch(1)
         self.return_button.clicked.connect(self._request_return)
+        self._opacity = QGraphicsOpacityEffect(self._card)
+        self._opacity.setOpacity(1.0)
+        self._card.setGraphicsEffect(self._opacity)
+        self._fade = QPropertyAnimation(self._opacity, b"opacity", self)
+        self._fade.setDuration(theme.animation.duration_ms)
         apply_theme(self, theme)
 
     def open_overlay(self) -> None:
-        """Raise the overlay above the running application and focus its action."""
+        """Capture the screen, raise the overlay, and focus the return action."""
+        self._backdrop = capture_blurred_screen()
+        if self._backdrop.isNull():
+            fallback = QPixmap(1, 1)
+            fallback.fill(QColor(self._theme.colors["background"]))
+            self._backdrop = fallback
+        self._opacity.setOpacity(0.0)
         self.showFullScreen()
         self.raise_()
         self.activateWindow()
         self.return_button.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._fade.stop()
+        self._fade.setStartValue(0.0)
+        self._fade.setEndValue(1.0)
+        self._fade.start()
+        self.update()
 
     def dismiss(self) -> None:
         """Hide the overlay without stopping the application."""
         if self.isVisible():
+            self._fade.stop()
             self.hide()
+            self._backdrop = QPixmap()
             self.dismissed.emit()
 
     def handle_input(self, event: InputEvent) -> None:
@@ -72,14 +150,23 @@ class SessionOverlay(WallpaperDialog):
         elif event.action is InputAction.ACTIVATE:
             self.return_button.click()
 
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Draw the blurred app capture and a dark scrim behind the card."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        if not self._backdrop.isNull():
+            painter.drawPixmap(self.rect(), self._backdrop)
+        else:
+            painter.fillRect(self.rect(), QColor(self._theme.colors["background"]))
+        painter.fillRect(self.rect(), _SCRIM)
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Escape is not Back-to-PiDeck; Super/menu equivalents dismiss via input routing."""
+        """Return activates the action; Escape must not quit the application."""
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
             self.return_button.click()
             event.accept()
             return
         if event.key() == Qt.Key.Key_Escape:
-            # Back must not close the application from this surface.
             event.accept()
             return
         super().keyPressEvent(event)
@@ -98,5 +185,7 @@ class SessionOverlay(WallpaperDialog):
 
     def _request_return(self) -> None:
         """Hide first so the launcher can restore without the overlay on top."""
+        self._fade.stop()
         self.hide()
+        self._backdrop = QPixmap()
         self.return_requested.emit()

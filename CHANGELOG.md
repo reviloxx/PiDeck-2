@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.7
+
+- The **Back to PiDeck** overlay now shows the running app blurred behind a
+  simple centered button, without how-to text.
+
 ## v0.5.6
 
 - **Back to PiDeck from any app:** press the Windows key, Xbox Guide button or

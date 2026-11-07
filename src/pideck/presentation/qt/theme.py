@@ -211,6 +211,30 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border: 1px solid %(border)s;
             border-radius: 12px;
         }
+        QDialog#session_overlay {
+            background: transparent;
+        }
+        QFrame#session_overlay_card {
+            background-color: %(overlay_card)s;
+            border: 1px solid %(overlay_border)s;
+            border-radius: 20px;
+        }
+        QPushButton#session_overlay_return {
+            background-color: %(surface)s;
+            border: 1px solid %(muted_text)s;
+            border-radius: 12px;
+            color: %(text)s;
+            font-size: %(settings_heading_size)spx;
+            font-weight: 700;
+            min-height: 64px;
+            min-width: 280px;
+            padding: 1px 28px;
+        }
+        QPushButton#session_overlay_return:focus {
+            background-color: %(active_surface)s;
+            border: 2px solid %(focus)s;
+            padding: 0 27px;
+        }
         QScrollArea#settings_scroll, QScrollArea#settings_scroll > QWidget > QWidget {
             background: transparent;
             border: none;
@@ -445,6 +469,8 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             "surface": colors["surface"],
             "content_surface": _blend(colors["background"], colors["surface"], 0.45),
             "border": _blend(colors["surface"], colors["text"], 0.16),
+            "overlay_card": _rgba(colors["surface"], 0.82),
+            "overlay_border": _rgba(colors["text"], 0.18),
             "text": colors["text"],
             "muted_text": colors["muted_text"],
             "focus": colors["focus"],
@@ -527,3 +553,9 @@ def _blend(first: str, second: str, amount: float) -> str:
     green = round(first_color.green() + (second_color.green() - first_color.green()) * amount)
     blue = round(first_color.blue() + (second_color.blue() - first_color.blue()) * amount)
     return QColor(red, green, blue).name()
+
+
+def _rgba(color: str, alpha: float) -> str:
+    """Format a theme color as an ``rgba()`` stylesheet value."""
+    value = QColor(color)
+    return f"rgba({value.red()}, {value.green()}, {value.blue()}, {alpha:.2f})"
