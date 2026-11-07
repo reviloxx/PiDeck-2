@@ -141,6 +141,28 @@ def test_open_overlay_refreshes_backdrop_each_time(
     overlay.hide()
 
 
+def test_open_overlay_repaints_full_window(
+    application: QApplication, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reopening forces a full repaint so the previous blur cannot linger on X11."""
+    monkeypatch.setattr(
+        "pideck.presentation.qt.session_overlay.capture_blurred_screen",
+        lambda: _varied_pixmap(),
+    )
+    overlay = SessionOverlay(DEFAULT_THEME, "en")
+    calls: list[str] = []
+    original = overlay.repaint
+
+    def track_repaint(*args: object, **kwargs: object) -> None:
+        calls.append("repaint")
+        original(*args, **kwargs)
+
+    monkeypatch.setattr(overlay, "repaint", track_repaint)
+    overlay.open_overlay()
+    assert calls == ["repaint"]
+    overlay.hide()
+
+
 def _varied_pixmap(base: QColor | None = None) -> QPixmap:
     """Build a non-flat pixmap that passes the useful-grab check."""
     pixmap = QPixmap(64, 48)

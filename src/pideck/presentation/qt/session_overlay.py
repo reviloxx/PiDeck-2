@@ -133,6 +133,11 @@ class SessionOverlay(QDialog):
             | Qt.WindowType.Dialog
         )
         self.setAutoFillBackground(False)
+        # Paint the full frame ourselves. Without this, X11 often keeps the
+        # previous fullscreen pixels outside the dirty region (typically just
+        # the card while its opacity animates).
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.addStretch(1)
@@ -162,17 +167,23 @@ class SessionOverlay(QDialog):
 
     def open_overlay(self) -> None:
         """Capture the screen, raise the overlay, and focus the return action."""
+        self._fade.stop()
+        # Unmap first so a reopen does not restore the previous X backing store.
+        if self.isVisible():
+            self.hide()
+            QApplication.processEvents()
         self._backdrop = capture_blurred_screen()
         self._opacity.setOpacity(0.0)
         self.showFullScreen()
         self.raise_()
         self.activateWindow()
+        # Synchronous full-window paint before the card fade dirties only the
+        # button region (which would leave the last app's blur everywhere else).
+        self.repaint()
         self.return_button.setFocus(Qt.FocusReason.OtherFocusReason)
-        self._fade.stop()
         self._fade.setStartValue(0.0)
         self._fade.setEndValue(1.0)
         self._fade.start()
-        self.update()
 
     def dismiss(self) -> None:
         """Hide the overlay without stopping the application."""

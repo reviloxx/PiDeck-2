@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.9
+
+- Fixed: opening **Back to PiDeck** after switching apps no longer keeps the
+  previous app's blurred background; the overlay redraws the full screen.
+
 ## v0.5.8
 
 - Remote Pause works in Kodi and YouTube (sent as play/pause).
