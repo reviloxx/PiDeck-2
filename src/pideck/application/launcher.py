@@ -64,7 +64,11 @@ class LauncherController:
         row, column = divmod(index, columns)
         if direction is NavigationDirection.LEFT and column > 0:
             index -= 1
-        elif direction is NavigationDirection.RIGHT and index + 1 < len(self._state.applications):
+        elif (
+            direction is NavigationDirection.RIGHT
+            and column < columns - 1
+            and index + 1 < len(self._state.applications)
+        ):
             index += 1
         elif direction is NavigationDirection.UP and row > 0:
             index -= columns

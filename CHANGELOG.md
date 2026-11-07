@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.5
+
+- Fixed: on the home screen, Right no longer jumps from the end of a row to
+  the next row. Use Down to move between rows.
+- Fixed: in Settings, Up no longer leaves a section for the menu on the left.
+  Use Left to go back to the categories.
+
 ## v0.5.4
 
 - **Kodi keeps PiDeck's HDMI-CEC connection** by default. The TV remote

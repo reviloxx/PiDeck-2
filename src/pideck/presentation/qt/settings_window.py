@@ -748,9 +748,7 @@ class SettingsWindow(QDialog):
             return
         row_index = rows.index(focused_row)
         if direction == Qt.Key.Key_Up:
-            if row_index == 0:
-                self._focus_selected_nav()
-            else:
+            if row_index > 0:
                 rows[row_index - 1].setFocus(Qt.FocusReason.OtherFocusReason)
         elif direction == Qt.Key.Key_Down:
             if row_index < len(rows) - 1:
@@ -1059,7 +1057,7 @@ class SettingsWindow(QDialog):
             self.pideck_update_requested.emit()
 
     def _handle_update_navigation(self, key: int) -> None:
-        """Move through update rows or return to the active settings category."""
+        """Move through update rows; Left returns to the active settings category."""
         rows = [
             row for row in self._page_controls.get(self._current_page, [])
             if row.isEnabled() and not row.isHidden()
@@ -1069,9 +1067,7 @@ class SettingsWindow(QDialog):
             return
         index = rows.index(current)
         if key == Qt.Key.Key_Up:
-            if index == 0:
-                self._focus_selected_nav()
-            else:
+            if index > 0:
                 rows[index - 1].setFocus(Qt.FocusReason.OtherFocusReason)
         elif key == Qt.Key.Key_Down and index < len(rows) - 1:
             rows[index + 1].setFocus(Qt.FocusReason.OtherFocusReason)

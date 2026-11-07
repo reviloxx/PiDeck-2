@@ -319,7 +319,7 @@ def test_removal_requires_confirmation(application: QApplication, accept: bool) 
 
 
 def test_applications_page_navigation_returns_to_rail(application: QApplication) -> None:
-    """Up from the first row and Left return to the category rail."""
+    """Left returns to the category rail; Up stays on the first row."""
     window = applications_window(application)
     rows = window._apps.rows()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
@@ -329,7 +329,7 @@ def test_applications_page_navigation_returns_to_rail(application: QApplication)
     window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
     assert rows[0].hasFocus()
     QTest.keyClick(rows[0], Qt.Key.Key_Up)
-    assert window.focusWidget() is window._nav_buttons[1]
+    assert rows[0].hasFocus()
     window.close()
 
 
@@ -792,6 +792,8 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     QTest.keyClick(window._clock_row, Qt.Key.Key_Up)
     QTest.keyClick(window._motion_row, Qt.Key.Key_Up)
     QTest.keyClick(window._theme_row, Qt.Key.Key_Up)
+    assert window._theme_row.hasFocus()
+    QTest.keyClick(window._theme_row, Qt.Key.Key_Left)
     assert window._nav_buttons[0].hasFocus()
     QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Down)
     assert window._nav_buttons[1].hasFocus()

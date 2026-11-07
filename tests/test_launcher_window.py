@@ -252,6 +252,9 @@ def test_tab_focused_tile_is_activated_and_used_for_navigation(application: QApp
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert requested == ["two", "two"]
     QTest.keyClick(window._tiles[1], Qt.Key.Key_Right)
+    assert window._tiles[1].hasFocus()
+    QTest.keyClick(window._tiles[1], Qt.Key.Key_Left)
+    QTest.keyClick(window._tiles[0], Qt.Key.Key_Down)
     assert window._tiles[2].hasFocus()
     window.close()
 
@@ -262,6 +265,9 @@ def test_mouse_focused_tile_updates_controller_selection(application: QApplicati
     QTest.mouseClick(window._tiles[1], Qt.MouseButton.LeftButton)
     assert window._controller.state.focused_index == 1
     window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
+    assert window._tiles[1].hasFocus()
+    window.handle_input(InputEvent(InputAction.LEFT, "gamepad"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert window._tiles[2].hasFocus()
     window.close()
 

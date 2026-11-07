@@ -38,11 +38,32 @@ def test_grid_navigation_clamps_at_edges() -> None:
 
     controller.move(NavigationDirection.RIGHT)
     controller.move(NavigationDirection.DOWN)
-    controller.move(NavigationDirection.DOWN)
     controller.move(NavigationDirection.RIGHT)
+    assert controller.state.focused_index == 3
+    controller.move(NavigationDirection.DOWN)
+    assert controller.state.focused_index == 3
+    controller.move(NavigationDirection.LEFT)
+    controller.move(NavigationDirection.DOWN)
 
     assert controller.state.focused_index == 4
     assert controller.activate().identifier == "five"
+
+
+def test_right_at_end_of_row_does_not_wrap_to_next_row() -> None:
+    """Right stops at the last column; Down is required to change rows."""
+    document = configuration_document()
+    document["applications"] = [
+        {"id": identifier, "name": identifier.title(), "executable": identifier}
+        for identifier in ("one", "two", "three", "four")
+    ]
+    document["home"]["visible_applications"] = []
+    controller = LauncherController(YamlConfigurationParser().parse(document))
+    controller.set_columns(2)
+
+    controller.move(NavigationDirection.RIGHT)
+    assert controller.state.focused_index == 1
+    controller.move(NavigationDirection.RIGHT)
+    assert controller.state.focused_index == 1
 
 
 def test_vertical_navigation_preserves_column_when_target_exists() -> None:
