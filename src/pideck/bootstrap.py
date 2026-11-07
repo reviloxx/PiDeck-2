@@ -376,11 +376,17 @@ def main(arguments: Sequence[str] | None = None) -> int:
     release_timer.start()
     from pideck.presentation.qt.session_overlay import SessionOverlay
 
-    session_overlay = SessionOverlay(
-        dependencies.theme_repository.get(current_configuration.home.theme),
-        current_configuration.settings.language,
-    )
-    session_observer: SessionObserver = _QtSessionObserver(window, session_overlay.hide)
+    overlay_theme = dependencies.theme_repository.get(current_configuration.home.theme)
+    overlay_language = current_configuration.settings.language
+    # Recreate on each open so picom never keeps a stale redirected pixmap.
+    session_overlay: SessionOverlay | None = None
+
+    def hide_session_overlay() -> None:
+        """Hide the current overlay instance if one exists."""
+        if session_overlay is not None:
+            session_overlay.hide()
+
+    session_observer: SessionObserver = _QtSessionObserver(window, hide_session_overlay)
     visibility_detector = X11WindowVisibilityDetector()
     session_service = ApplicationSessionService(
         dependencies.process_supervisor,
@@ -396,43 +402,53 @@ def main(arguments: Sequence[str] | None = None) -> int:
         """True while an application session is starting or running."""
         return session_service.snapshot.state in (SessionState.STARTING, SessionState.RUNNING)
 
+    def session_overlay_visible() -> bool:
+        """True when the session overlay is currently shown."""
+        return session_overlay is not None and session_overlay.isVisible()
+
     def pideck_owns_focus() -> bool:
         """True when a PiDeck surface (launcher, settings, overlay) should receive input."""
         return (
-            session_overlay.isVisible()
+            session_overlay_visible()
             or window.isVisible()
             or QApplication.activeWindow() is not None
         )
 
     def dismiss_session_overlay() -> None:
         """Hide the overlay without stopping the application."""
-        session_overlay.dismiss()
+        if session_overlay is not None:
+            session_overlay.dismiss()
+
+    def return_to_pideck_from_overlay() -> None:
+        """Stop the running application after the overlay return action."""
+        hide_session_overlay()
+        session_service.stop()
 
     def open_session_overlay() -> None:
-        """Raise the overlay above the running application."""
+        """Raise a fresh overlay above the running application."""
+        nonlocal session_overlay
         if not session_active():
             return
+        previous = session_overlay
+        if previous is not None:
+            previous.hide()
+            previous.deleteLater()
+        session_overlay = SessionOverlay(overlay_theme, overlay_language)
+        session_overlay.return_requested.connect(return_to_pideck_from_overlay)
         session_overlay.open_overlay()
 
     def toggle_session_overlay() -> None:
         """Open or dismiss the overlay while an application session is active."""
         if not session_active():
             return
-        if session_overlay.isVisible():
+        if session_overlay_visible():
             dismiss_session_overlay()
         else:
             open_session_overlay()
 
-    def return_to_pideck_from_overlay() -> None:
-        """Stop the running application after the overlay return action."""
-        session_overlay.hide()
-        session_service.stop()
-
-    session_overlay.return_requested.connect(return_to_pideck_from_overlay)
-
     def forward_cec_to_application(event: InputEvent) -> bool:
         """Send CEC input to the running app; report whether it was consumed."""
-        if session_overlay.isVisible():
+        if session_overlay_visible():
             return False
         return input_forwarding.handle(
             event, session_service.snapshot, pideck_has_focus=pideck_owns_focus(),
@@ -454,10 +470,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if event.pressed:
             cursor_visibility.hide_cursor()
         if event.pressed and event.action in (InputAction.MENU, InputAction.HOME):
-            if session_overlay.isVisible() or session_active():
+            if session_overlay_visible() or session_active():
                 toggle_session_overlay()
                 return
-        if session_overlay.isVisible():
+        if session_overlay_visible() and session_overlay is not None:
             session_overlay.handle_input(event)
             return
         if bluetooth_window is not None and bluetooth_window.isVisible():
@@ -565,7 +581,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if services_closed:
             return
         services_closed = True
-        session_overlay.hide()
+        hide_session_overlay()
         session_service.close()
         update_service.close()
         gamepad_adapter.close()

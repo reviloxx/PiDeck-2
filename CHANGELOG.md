@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.11
+
+- Fixed: the **Back to PiDeck** blur now appears every time the overlay opens,
+  not only every other time.
+
 ## v0.5.10
 
 - Fixed: the **Back to PiDeck** blur no longer shows a leftover rectangle from

@@ -13,6 +13,7 @@ from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.presentation.qt.session_overlay import (
     SessionOverlay,
     blur_pixmap,
+    compose_backdrop,
     grab_is_useful,
 )
 
@@ -77,7 +78,7 @@ def test_overlay_has_no_instructional_copy(application: QApplication) -> None:
     """The overlay shows only the return action, not hotkey explanations."""
     overlay = SessionOverlay(DEFAULT_THEME, "en")
     overlay.open_overlay()
-    assert overlay.findChildren(QLabel) == []
+    assert [label for label in overlay.findChildren(QLabel) if label is not overlay._backdrop_label] == []
     assert "Windows" not in overlay.return_button.text()
     assert overlay.return_button.text() == "Back to PiDeck"
     overlay.hide()
@@ -94,7 +95,8 @@ def test_open_overlay_tolerates_empty_screen_grab(
     overlay = SessionOverlay(DEFAULT_THEME, "en")
     overlay.open_overlay()
     assert overlay.isVisible()
-    assert overlay._backdrop.isNull()
+    assert not overlay._backdrop.isNull()
+    assert not overlay._backdrop_label.pixmap().isNull()
     overlay.dismiss()
 
 
@@ -119,6 +121,14 @@ def test_grab_is_useful_rejects_flat_black(application: QApplication) -> None:
     assert grab_is_useful(_varied_pixmap()) is True
 
 
+def test_compose_backdrop_always_opaque(application: QApplication) -> None:
+    """The shown frame is always an opaque pixmap with the scrim applied."""
+    frame = compose_backdrop(_varied_pixmap(), QColor("#112233"))
+    assert not frame.isNull()
+    empty = compose_backdrop(QPixmap(), QColor("#112233"))
+    assert not empty.isNull()
+
+
 def test_open_overlay_refreshes_backdrop_each_time(
     application: QApplication, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -138,28 +148,6 @@ def test_open_overlay_refreshes_backdrop_each_time(
     overlay.open_overlay()
     second = overlay._backdrop.cacheKey()
     assert first != second
-    overlay.dismiss()
-
-
-def test_open_overlay_destroys_native_window_before_show(
-    application: QApplication, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Reopening destroys the X window so a compositor cannot keep a stale pixmap."""
-    monkeypatch.setattr(
-        "pideck.presentation.qt.session_overlay.capture_blurred_screen",
-        lambda: _varied_pixmap(),
-    )
-    overlay = SessionOverlay(DEFAULT_THEME, "en")
-    calls: list[str] = []
-    original = overlay.destroy
-
-    def track_destroy(*args: object, **kwargs: object) -> None:
-        calls.append("destroy")
-        original(*args, **kwargs)
-
-    monkeypatch.setattr(overlay, "destroy", track_destroy)
-    overlay.open_overlay()
-    assert calls == ["destroy"]
     overlay.dismiss()
 
 
