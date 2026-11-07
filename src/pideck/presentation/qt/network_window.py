@@ -16,6 +16,7 @@ from pideck.application.ports.network import NetworkError, NetworkGateway, Wirel
 from pideck.domain.keyboard_layout import DEFAULT_KEYBOARD_LAYOUT, KeyboardLayout
 from pideck.domain.theme import ThemeDefinition
 
+from .backspace_back import BACKSPACE_EDITS_TEXT
 from .localization import tr
 from .on_screen_keyboard import ON_SCREEN_COLUMNS, key_label, on_screen_characters, shifted
 from .system_panel import add_action_button, build_system_window, set_status
@@ -38,6 +39,7 @@ class WirelessKeyDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr(language, title_key))
         self.setModal(True)
+        self.setProperty(BACKSPACE_EDITS_TEXT, True)
         self._keys: list[QPushButton] = []
         self._shifted = False
         layout = QVBoxLayout(self)
@@ -108,6 +110,9 @@ class WirelessKeyDialog(QDialog):
         index = self._keys.index(watched)
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._keys[index].click()
+            return True
+        if event.key() == Qt.Key.Key_Backspace:
+            self.entry.backspace()
             return True
         character_count = len(self._characters)
         key = event.key()

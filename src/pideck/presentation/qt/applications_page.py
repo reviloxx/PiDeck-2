@@ -154,6 +154,7 @@ class ApplicationsPage(QScrollArea):
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         content = QWidget(self)
         self._layout = QVBoxLayout(content)
         self._layout.setContentsMargins(0, 12, 14, 0)

@@ -87,8 +87,9 @@ it. Close the application to return to PiDeck; Alt+F4 works for most X11
 applications. Some applications provide their own exit action. The configured
 Home shortcut is not a global shortcut while another application has focus.
 In settings dropdowns, use the arrow keys to browse, Enter to confirm, or
-Escape to cancel. Escape, controller B and the remote's Back button go back
-in Settings and dialogs; on the home screen they do nothing, so PiDeck cannot
+Escape to cancel. Escape, Backspace, controller B and the remote's Back button
+go back in Settings and dialogs; Backspace still deletes in text fields and the
+on-screen keyboard. On the home screen they do nothing, so PiDeck cannot
 be shut down by an accidental Back press. The mouse pointer is hidden while
 you navigate with the keyboard, a controller or the TV remote, and reappears
 when the mouse moves or is clicked. Pointing at a control selects it, so only

@@ -237,12 +237,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
     from PySide6.QtWidgets import QApplication
     from PySide6.QtCore import QObject, QTimer, Qt, Signal
 
+    from pideck.presentation.qt.backspace_back import BackspaceAsBack
     from pideck.presentation.qt.cursor_visibility import CursorVisibility
 
     application = QApplication(["pideck"])
     application.setApplicationName("PiDeck")
     cursor_visibility = CursorVisibility(application)
     application.installEventFilter(cursor_visibility)
+    application.installEventFilter(BackspaceAsBack(application))
     asset_root = parsed_arguments.asset_root or parsed_arguments.config.parent
     window = build_launcher_window(dependencies, asset_root)
     current_configuration = dependencies.configuration

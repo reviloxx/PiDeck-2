@@ -301,6 +301,7 @@ class SettingsWindow(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         page = QWidget(scroll)
         scroll.setWidget(page)
         return scroll, page
@@ -1147,6 +1148,9 @@ class SettingsWindow(QDialog):
             self._set_active_nav(None)
             if key == Qt.Key.Key_Up:
                 self._focus_nav(len(self._nav_buttons) - 1)
+                return True
+            if key in (Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right):
+                # Qt would otherwise move focus to an unstyled widget outside the D-pad navigation.
                 return True
             return super().eventFilter(watched, event)
         controls = self._page_controls.get(self._current_page, [])
