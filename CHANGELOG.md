@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.16
+
+- Fixed: Samsung Return Back works repeatedly in Kodi and YouTube. Remotes that
+  never send a CEC key-released for Return no longer stick after the first press.
+
 ## v0.5.15
 
 - Fixed: Samsung Return now goes Back in Kodi and YouTube while Exit still

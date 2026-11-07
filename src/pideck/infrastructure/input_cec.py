@@ -37,6 +37,11 @@ _ACTIONS = {
     0x91: InputAction.BACK,  # Samsung Anynet+ Return / libCEC AN_RETURN
 }
 _DIRECTIONS = {InputAction.UP, InputAction.DOWN, InputAction.LEFT, InputAction.RIGHT}
+# Samsung Return (0x91) often never emits key-released / idle; without a re-arm
+# the first Back works and every later press is dropped until PiDeck restarts.
+_REARM_WITHOUT_RELEASE = {InputAction.BACK}
+_DIRECTION_REPEAT = 0.18
+_BUTTON_REARM = 0.25
 
 
 class CecClientAdapter:
@@ -358,8 +363,17 @@ class CecClientAdapter:
                 continue
             now = time.monotonic()
             previous = held.get(code)
-            if previous is not None and (action not in _DIRECTIONS or now - previous < 0.18):
-                continue
+            if previous is not None:
+                gap = now - previous
+                if action in _DIRECTIONS:
+                    if gap < _DIRECTION_REPEAT:
+                        continue
+                elif action in _REARM_WITHOUT_RELEASE:
+                    if gap < _BUTTON_REARM:
+                        continue
+                else:
+                    # Media and other discrete keys stay one-shot until release/idle.
+                    continue
             held[code] = now
             with self._condition:
                 if (
