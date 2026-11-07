@@ -1,11 +1,15 @@
 """Theme background rendering for appliance-sized Qt windows."""
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QRectF
-from PySide6.QtGui import QColor, QPaintEvent, QPainter, QPixmap
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QPaintEvent, QPainter, QPixmap, QShowEvent
 from PySide6.QtWidgets import QDialog, QWidget
+
+from .blurred_backdrop import capture_blurred_screen, compose_backdrop
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,6 +28,11 @@ class _Wallpaper:
         self._wallpaper = QPixmap(str(path)) if path is not None else QPixmap()
         if path is not None and self._wallpaper.isNull():
             _LOGGER.warning("Unable to load wallpaper: %s", path)
+
+    @property
+    def background(self) -> QColor:
+        """Return the solid fallback color."""
+        return self._background
 
     def paint(self, widget: QWidget) -> None:
         """Fill a widget with a centered, cropped version of the wallpaper."""
@@ -65,19 +74,43 @@ class WallpaperWidget(QWidget):
 
 
 class WallpaperDialog(QDialog):
-    """Paint an aspect-preserving wallpaper behind a dialog's controls."""
+    """Fullscreen dialog with a blurred capture of whatever is behind it."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        """Create a dialog with a shared wallpaper renderer."""
+        """Create a dialog that captures a blurred backdrop before it appears."""
         super().__init__(parent)
         self._background_image = _Wallpaper()
+        self._blurred_backdrop = QPixmap()
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
 
     def set_wallpaper(self, path: Path | None, background: str) -> None:
-        """Set the dialog's wallpaper and its fallback color."""
+        """Store the theme fallback color used when a screen grab is unusable."""
         self._background_image.set(path, background)
         self.update()
 
+    def _prepare_blurred_backdrop(self) -> None:
+        """Capture the current screen once before this dialog becomes visible."""
+        fill = self._background_image.background
+        if not fill.isValid():
+            fill = QColor("#101214")
+        self._blurred_backdrop = compose_backdrop(capture_blurred_screen(), fill)
+
+    def exec(self) -> int:  # noqa: A003 - Qt API
+        """Capture a blurred backdrop, then run the modal dialog loop."""
+        self._prepare_blurred_backdrop()
+        return int(super().exec())
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Capture before the first paint when shown without ``exec``."""
+        if self._blurred_backdrop.isNull():
+            self._prepare_blurred_backdrop()
+        super().showEvent(event)
+
     def paintEvent(self, event: QPaintEvent) -> None:
-        """Paint the dialog background without covering its child controls."""
-        super().paintEvent(event)
+        """Paint the blurred screen (or theme wallpaper) behind child controls."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        if not self._blurred_backdrop.isNull():
+            painter.drawPixmap(self.rect(), self._blurred_backdrop)
+            return
         self._background_image.paint(self)

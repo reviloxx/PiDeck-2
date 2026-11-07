@@ -20,10 +20,9 @@ from pideck.presentation.qt.settings_window import SettingsWindow
 def test_appliance_shutdown_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool
 ) -> None:
-    """A shutdown signal reaches power control; failures remain visible."""
+    """A shutdown signal reaches power control; failures keep the launcher open."""
     app = QApplication.instance() or QApplication([])
     events: list[str] = []
-    messages: list[str] = []
 
     class FakePower:
         def power_off(self) -> None:
@@ -53,9 +52,9 @@ def test_appliance_shutdown_request(
 
         def trigger() -> None:
             window.shutdown_requested.emit()
-            messages.append(window._status_label.text())
             if fail:
                 assert events == ["power"]
+                assert window.isVisible()
             app.quit()
 
         QTimer.singleShot(0, trigger)
@@ -66,8 +65,6 @@ def test_appliance_shutdown_request(
         ["--config", str(tmp_path / "missing.yaml"), "--power-off-on-shutdown"]
     ) == 0
     assert events == ["power", "cleanup"]
-    if fail:
-        assert "denied" in messages[0]
 
 
 @pytest.mark.parametrize("fail", [False, True])

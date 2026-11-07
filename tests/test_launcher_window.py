@@ -86,15 +86,14 @@ def test_german_launcher_localizes_controls_and_clock(application: QApplication)
     window.close()
 
 
-def test_power_error_is_visible_and_localized(application: QApplication) -> None:
-    """A rejected power-off keeps the launcher open with a localized error."""
+def test_power_error_keeps_launcher_open(application: QApplication) -> None:
+    """A rejected power-off keeps the launcher open for another attempt."""
     window = launcher_window(application)
     window.set_language("de")
 
     window.show_power_error("Not authorized")
 
     assert window.isVisible()
-    assert window._status_label.text() == "Herunterfahren fehlgeschlagen: Not authorized"
     window.close()
 
 
@@ -418,7 +417,7 @@ def test_cancelled_shutdown_returns_focus_to_shutdown(application: QApplication)
 def test_reapplying_configuration_keeps_launcher_fonts(application: QApplication) -> None:
     """Saving any setting must not change the launcher's typography."""
     window = launcher_window(application)
-    labels = (window._subtitle_label, window._close_hint_label, window._settings_button)
+    labels = (window._settings_button, window._shutdown_button)
     before = [(label.font().family(), label.fontInfo().pixelSize()) for label in labels]
 
     window.apply_configuration(three_application_configuration(), DEFAULT_THEME)

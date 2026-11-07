@@ -133,6 +133,26 @@ def _apply_window_modes(configuration: Configuration, window_modes: dict[str, Wi
     )
 
 
+def _apply_catalog_preferred_inputs(
+    configuration: Configuration, catalog: tuple[CatalogEntry, ...],
+) -> Configuration:
+    """Prefer the catalog's input hint icons without rewriting saved settings."""
+    preferred = {
+        entry.identifier: entry.application.preferred_input for entry in catalog
+    }
+    if not preferred:
+        return configuration
+    return replace(
+        configuration,
+        applications=tuple(
+            replace(app, preferred_input=preferred[app.identifier])
+            if app.identifier in preferred
+            else app
+            for app in configuration.applications
+        ),
+    )
+
+
 def _load_catalog(asset_root: Path, logger: logging.Logger) -> tuple[tuple[CatalogEntry, ...], str | None]:
     """Load the release catalog with icon paths resolved against the asset root."""
     try:
@@ -174,6 +194,7 @@ def build_dependencies(
         except ConfigurationError:
             logger.exception("Unable to load application window policy path=%s", policy_path)
     configuration = _apply_window_modes(configuration, window_modes)
+    configuration = _apply_catalog_preferred_inputs(configuration, catalog)
     theme_repository = FileThemeRepository(
         themes=configuration.themes,
         asset_root=asset_root or configuration_path.parent,

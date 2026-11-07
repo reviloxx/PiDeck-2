@@ -301,30 +301,17 @@ class LauncherWindow(QMainWindow):
                     self.application_requested.emit(application)
 
     def _build_header(self) -> None:
-        """Create the launcher title and contextual subtitle."""
+        """Create the launcher title and optional clock."""
         header = QHBoxLayout()
-        heading = QVBoxLayout()
         title = QLabel("PiDeck", self._root)
         title.setObjectName("launcher_title")
-        subtitle = QLabel(tr(self._language, "choose_application"), self._root)
-        self._subtitle_label = subtitle
-        subtitle.setObjectName("launcher_subtitle")
-        heading.addWidget(title)
-        heading.addWidget(subtitle)
-        self._close_hint_label = QLabel(tr(self._language, "close_application_hint"), self._root)
-        self._close_hint_label.setObjectName("launcher_subtitle")
-        self._close_hint_label.setWordWrap(True)
-        heading.addWidget(self._close_hint_label)
-        header.addLayout(heading)
+        header.addWidget(title)
         header.addStretch()
         self._clock_label = QLabel(self._root)
         self._clock_label.setObjectName("launcher_clock")
-        self._clock_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        self._clock_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self._clock_label)
-        self._status_label = QLabel("", self._root)
-        self._status_label.setObjectName("launcher_subtitle")
         self._root_layout.addLayout(header)
-        self._root_layout.addWidget(self._status_label)
         self.set_clock_visible(self._show_clock)
 
     def set_clock_visible(self, visible: bool) -> None:
@@ -344,8 +331,6 @@ class LauncherWindow(QMainWindow):
     def set_language(self, language: str) -> None:
         """Translate launcher controls and switch the clock date format."""
         self._language = language if language in {"en", "de"} else "en"
-        self._subtitle_label.setText(tr(self._language, "choose_application"))
-        self._close_hint_label.setText(tr(self._language, "close_application_hint"))
         self._settings_button.setText(tr(self._language, "settings"))
         self._shutdown_button.setText(tr(self._language, "shutdown"))
         self._update_clock()
@@ -543,7 +528,6 @@ class LauncherWindow(QMainWindow):
 
     def show_power_error(self, message: str) -> None:
         """Keep the launcher usable when system power-off fails."""
-        self._status_label.setText(tr(self._language, "power_off_failed", message=message))
         self.show_launcher()
 
     def notify_session_visible(self, application: ApplicationDefinition) -> None:
@@ -611,38 +595,31 @@ class LauncherWindow(QMainWindow):
         del profile
         self.set_loading_application(application.identifier)
         self.set_running_application(None)
-        self._status_label.setText(tr(self._language, "launching", name=application.name))
         self.show_launcher()
 
     def _handle_session_visible(self, application: ApplicationDefinition) -> None:
         """Hide the launcher only after the external application window is visible."""
         self.set_loading_application(None)
         self.set_running_application(application.identifier)
-        self._status_label.setText(tr(self._language, "running", name=application.name))
         self.hide()
 
     def _handle_visibility_timeout(self, application: ApplicationDefinition) -> None:
         """Keep the launcher visible and spinner active when readiness is unverified."""
         self.set_loading_application(application.identifier)
-        self._status_label.setText(tr(self._language, "waiting", name=application.name))
         self.show_launcher()
 
     def _handle_session_finished(self, application: ApplicationDefinition, return_code: int) -> None:
         """Restore the launcher after an application exits."""
+        del return_code
         self.set_running_application(None)
         self.set_loading_application(None)
-        self._status_label.setText(
-            tr(self._language, "exited", name=application.name, code=return_code)
-        )
         self.show_launcher()
 
     def _handle_session_failed(self, application: ApplicationDefinition, message: str) -> None:
-        """Keep the launcher visible and show a safe launch error."""
+        """Keep the launcher visible after a launch failure."""
+        del message
         self.set_running_application(None)
         self.set_loading_application(None)
-        self._status_label.setText(
-            tr(self._language, "could_not_start", name=application.name, message=message)
-        )
         self.show_launcher()
 
 

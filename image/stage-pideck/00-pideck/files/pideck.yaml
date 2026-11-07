@@ -13,7 +13,7 @@ applications:
     arguments: [run, com.ktechpit.red, --tv]
     profiles: []
     icon: ../assets/icons/youtube.svg
-    preferred_input: gamepad
+    preferred_input: cec
 themes:
   - id: default
     name: Midnight
