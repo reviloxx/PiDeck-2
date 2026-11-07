@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.13
+
+- The in-app overlay now shows the PiDeck title and clock, and asks
+  **Return home?** with Cancel and Return home.
+
 ## v0.5.12
 
 - Confirmation dialogs (shutdown, restart, and others) use the same blurred

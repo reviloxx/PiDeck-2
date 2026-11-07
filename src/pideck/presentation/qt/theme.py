@@ -219,22 +219,6 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border: 1px solid %(overlay_border)s;
             border-radius: 20px;
         }
-        QPushButton#session_overlay_return {
-            background-color: %(surface)s;
-            border: 1px solid %(muted_text)s;
-            border-radius: 12px;
-            color: %(text)s;
-            font-size: %(settings_heading_size)spx;
-            font-weight: 700;
-            min-height: 64px;
-            min-width: 280px;
-            padding: 1px 28px;
-        }
-        QPushButton#session_overlay_return:focus {
-            background-color: %(active_surface)s;
-            border: 2px solid %(focus)s;
-            padding: 0 27px;
-        }
         QScrollArea#settings_scroll, QScrollArea#settings_scroll > QWidget > QWidget {
             background: transparent;
             border: none;

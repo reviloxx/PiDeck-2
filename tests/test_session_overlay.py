@@ -6,7 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtGui import QColor, QPixmap
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication
 
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
@@ -24,14 +24,29 @@ def application() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
-def test_activate_requests_return_to_pideck(application: QApplication) -> None:
-    """OK / Activate clicks Back to PiDeck and emits return_requested."""
+def test_confirm_requests_return_to_pideck(application: QApplication) -> None:
+    """Confirming the dialog stops the application via return_requested."""
     overlay = SessionOverlay(DEFAULT_THEME, "en")
     returns: list[str] = []
     overlay.return_requested.connect(lambda: returns.append("return"))
     overlay.open_overlay()
+    overlay.confirm_button.setFocus()
     overlay.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert returns == ["return"]
+    assert not overlay.isVisible()
+
+
+def test_cancel_button_dismisses(application: QApplication) -> None:
+    """Cancel closes the overlay without return_requested."""
+    overlay = SessionOverlay(DEFAULT_THEME, "en")
+    returns: list[str] = []
+    dismissals: list[str] = []
+    overlay.return_requested.connect(lambda: returns.append("return"))
+    overlay.dismissed.connect(lambda: dismissals.append("dismissed"))
+    overlay.open_overlay()
+    overlay.cancel_button.click()
+    assert returns == []
+    assert dismissals == ["dismissed"]
     assert not overlay.isVisible()
 
 
@@ -63,24 +78,26 @@ def test_back_dismisses_without_stopping_the_application(application: QApplicati
     assert not overlay.isVisible()
 
 
-def test_button_click_requests_return(application: QApplication) -> None:
-    """Clicking the primary button stops the application via return_requested."""
+def test_confirm_button_requests_return(application: QApplication) -> None:
+    """Clicking Return home stops the application via return_requested."""
     overlay = SessionOverlay(DEFAULT_THEME, "de")
     returns: list[str] = []
     overlay.return_requested.connect(lambda: returns.append("return"))
     overlay.open_overlay()
-    overlay.return_button.click()
+    overlay.confirm_button.click()
     assert returns == ["return"]
     assert not overlay.isVisible()
 
 
-def test_overlay_has_no_instructional_copy(application: QApplication) -> None:
-    """The overlay shows only the return action, not hotkey explanations."""
+def test_overlay_shows_home_chrome_and_confirmation(application: QApplication) -> None:
+    """The overlay mirrors the home header and asks to return home."""
     overlay = SessionOverlay(DEFAULT_THEME, "en")
     overlay.open_overlay()
-    assert [label for label in overlay.findChildren(QLabel) if label is not overlay._backdrop_label] == []
-    assert "Windows" not in overlay.return_button.text()
-    assert overlay.return_button.text() == "Back to PiDeck"
+    assert overlay._heading.text() == "Return home?"
+    assert "home screen" in overlay._message.text()
+    assert overlay.confirm_button.text() == "Return home"
+    assert overlay.cancel_button.text() == "Cancel"
+    assert overlay._clock_label.text()
     overlay.hide()
 
 
