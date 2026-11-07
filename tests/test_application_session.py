@@ -10,7 +10,7 @@ from pideck.application.session import (
     LaunchStatus,
     SessionState,
 )
-from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
+from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, CecMode
 from pideck.infrastructure.process import SubprocessLaunchError, SubprocessSupervisor
 
 
@@ -398,20 +398,30 @@ def test_input_resource_is_kept_for_applications_that_receive_forwarded_input() 
     supervisor = FakeSupervisor()
     service = ApplicationSessionService(
         supervisor, RecordingObserver(), input_resource=InputResource(),
-        releases_input=lambda application: application.identifier != "youtube",
+        releases_input=lambda application: application.cec_mode is not CecMode.KEYBOARD,
     )
-    youtube = ApplicationDefinition("youtube", "YouTube", sys.executable)
-    kodi = ApplicationDefinition("kodi", "Kodi", sys.executable)
+    youtube = ApplicationDefinition("youtube", "YouTube", sys.executable, cec_mode=CecMode.KEYBOARD)
+    kodi = ApplicationDefinition("kodi", "Kodi", sys.executable, cec_mode=CecMode.KEYBOARD)
+    releasing = ApplicationDefinition("steam-link", "Steam Link", sys.executable)
     service.request_launch(youtube)
     youtube_token = next(iter(supervisor.handles))
     supervisor.emit(youtube_token)
     assert events == []
     service.request_launch(kodi)
     kodi_token = next(token for token in supervisor.handles if token != youtube_token)
-    service.replace_running(youtube)
     supervisor.emit(kodi_token)
+    assert events == []
+    service.request_launch(releasing)
+    releasing_token = next(
+        token for token in supervisor.handles if token not in {youtube_token, kodi_token}
+    )
+    service.replace_running(youtube)
+    supervisor.emit(releasing_token)
     assert events == ["suspend", "resume"]
-    last_token = next(token for token in supervisor.handles if token not in {youtube_token, kodi_token})
+    last_token = next(
+        token for token in supervisor.handles
+        if token not in {youtube_token, kodi_token, releasing_token}
+    )
     supervisor.emit(last_token)
     assert events == ["suspend", "resume"]
     service.close()

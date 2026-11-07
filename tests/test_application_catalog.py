@@ -254,6 +254,22 @@ def test_catalog_youtube_keeps_cec_for_keyboard_forwarding() -> None:
     assert youtube().cec_mode is CecMode.KEYBOARD
 
 
+def test_catalog_kodi_keeps_cec_for_keyboard_forwarding() -> None:
+    """Kodi receives TV remote keys from PiDeck instead of owning the adapter."""
+    assert entry("kodi").application.cec_mode is CecMode.KEYBOARD
+
+
+def test_effective_cec_mode_inherits_from_matching_catalog_identifier() -> None:
+    """Existing apt installs gain the catalog mode by id without rewriting pideck.yaml."""
+    catalog = (entry("kodi"),)
+    legacy = ApplicationDefinition("kodi", "Kodi", "kodi")
+    assert effective_cec_mode(legacy, catalog) is CecMode.KEYBOARD
+    explicit = replace(legacy, cec_mode=CecMode.RELEASE)
+    assert effective_cec_mode(explicit, catalog) is CecMode.RELEASE
+    unrelated = ApplicationDefinition("kodi-custom", "Kodi", "kodi")
+    assert effective_cec_mode(unrelated, catalog) is CecMode.RELEASE
+
+
 def test_effective_cec_mode_inherits_from_matching_catalog_flatpak() -> None:
     """Existing installs gain the catalog mode; explicit and unrelated apps do not."""
     catalog = (entry(),)
@@ -261,7 +277,7 @@ def test_effective_cec_mode_inherits_from_matching_catalog_flatpak() -> None:
     assert effective_cec_mode(legacy, catalog) is CecMode.KEYBOARD
     explicit = replace(legacy, cec_mode=CecMode.RELEASE)
     assert effective_cec_mode(explicit, catalog) is CecMode.RELEASE
-    kodi = ApplicationDefinition("youtube", "Kodi", "kodi")
-    assert effective_cec_mode(kodi, catalog) is CecMode.RELEASE
+    other = ApplicationDefinition("other", "Other", "kodi")
+    assert effective_cec_mode(other, catalog) is CecMode.RELEASE
     other_flatpak = replace(legacy, arguments=("run", "org.example.App"))
     assert effective_cec_mode(other_flatpak, catalog) is CecMode.RELEASE

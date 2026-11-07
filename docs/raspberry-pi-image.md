@@ -28,12 +28,12 @@ an error instead of silently choosing a different port.
 Manual Connect and Disconnect are available when auto-connect is off. A manual
 connection resumes after an application exits, but starts disconnected after
 a PiDeck restart. PiDeck releases CEC before starting an application, except
-for applications with `cec: keyboard` such as YouTube: PiDeck then forwards the
-remote's keys to the application, and the remote's Home key returns to PiDeck.
-Configure
-Kodi independently under **Settings → System → Input → Peripherals**, including
-its HDMI address and source-activation setting. The kernel physical address is
-shared; verify both applications on the TV.
+for applications with `cec: keyboard` such as Kodi and YouTube: PiDeck then
+forwards the remote's keys to the application, and the remote's Home key
+returns to PiDeck. For Kodi, PiDeck also disables Kodi's CEC peripherals before
+launch so only PiDeck opens `/dev/cec0`. Re-enabling CEC inside Kodi while
+keyboard mode is active will conflict. Set `cec: release` under the Kodi
+application in `pideck.yaml` if native Kodi CEC handoff is required instead.
 
 The libCEC Linux backend uses `/dev/cec0`, so check which HDMI connector maps
 to that device and that the local user can access it. Check Input status, the
@@ -42,8 +42,8 @@ Existing releases need the system setup described in the
 [x86 guide](x86-image.md#existing-release-installations); an application
 update alone cannot install udev rules or packages. On first use, the separate
 input preferences enable CEC even when the previous main configuration omitted
-or disabled it; subsequent user choices are preserved. Hardware testing,
-including Kodi handoff, remains necessary.
+or disabled it; subsequent user choices are preserved. Hardware testing remains
+necessary.
 
 Wallpaper scales proportionally to fill the window, cropping edges when
 necessary. The default policies in `/usr/share/pideck/config/window-modes.yaml`

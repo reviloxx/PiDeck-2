@@ -56,7 +56,7 @@ x86 or built-in CEC on Raspberry Pi. **Settings → Input** offers direct-TV
 HDMI port selection, automatic or manual connection, and optional TV input
 switching. Auto-connect defaults to on; switching defaults to off. PiDeck
 releases CEC before launching an application and restores a requested
-connection afterward. Kodi's CEC settings are separate.
+connection afterward, except for applications with `cec: keyboard`.
 
 **Settings → Input → Keyboard layout** selects German (QWERTZ, the default)
 or English (US). In the appliance session PiDeck applies the choice with
@@ -71,16 +71,20 @@ Applications with `cec: keyboard` instead keep PiDeck's CEC connection: the
 remote's arrows, OK and Back are sent to the application as arrow keys, Enter
 and Escape, and Play, Pause, Stop, Rewind and Fast-forward as media keys. The
 remote's Home (root menu) key closes the application and returns to PiDeck.
-The catalog's YouTube entry uses this mode, including YouTube installations
-made with earlier releases. Other applications default to `cec: release`. The
-key forwarding uses X11 XTest and needs no extra system packages.
+The catalog's Kodi and YouTube entries use this mode, including installations
+made with earlier releases. Before launching Kodi, PiDeck disables Kodi's CEC
+peripherals so libCEC does not contend for `/dev/cec0`; re-enabling them in
+Kodi while keyboard mode is active will conflict. Set `cec: release` under the
+Kodi application in `pideck.yaml` to restore native Kodi CEC handoff. Other
+applications default to `cec: release`. The key forwarding uses X11 XTest and
+needs no extra system packages.
 
 The adapter, TV, cabling and active local session must support CEC. The Debian
 libCEC backend only opens `/dev/cec0`, and some hardware cannot override its
 automatically detected HDMI address. Existing images need a one-time system
 setup; the application updater cannot install system packages or udev rules.
-Images built before v0.3.10 without a release tag cannot self-update. See the image guides for setup,
-Kodi configuration and limitations. Hardware operation is not yet verified.
+Images built before v0.3.10 without a release tag cannot self-update. See the
+image guides for setup and limitations. Hardware operation is not yet verified.
 
 Use the arrow keys or Tab to select an application, then Enter or Space to open
 it. Close the application to return to PiDeck; Alt+F4 works for most X11

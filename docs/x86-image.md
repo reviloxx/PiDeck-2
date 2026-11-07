@@ -66,23 +66,23 @@ an application exits, but not after restarting PiDeck. A disconnect stops
 automatic reconnection until Connect or a launcher restart.
 
 PiDeck releases its client before starting applications, except for
-applications with `cec: keyboard` such as YouTube: PiDeck then forwards the
-remote's keys to the application, and the remote's Home key returns to PiDeck.
-Kodi configures its
-own CEC behavior under **Settings → System → Input → Peripherals**: select the
-Linux CEC adapter if available, set the correct physical address or HDMI input,
-and disable Kodi's source activation if it should not switch the TV. Disable a
-duplicate USB CEC entry if Kodi tries to open the serial adapter already owned
-by the kernel driver. PiDeck does not rewrite Kodi's configuration. The kernel
-physical address is shared by applications, so check the address in both.
+applications with `cec: keyboard` such as Kodi and YouTube: PiDeck then
+forwards the remote's keys to the application, and the remote's Home key
+returns to PiDeck. For Kodi, PiDeck disables Kodi's CEC peripherals before
+launch so libCEC does not open `/dev/cec0` while PiDeck holds it. Re-enabling
+CEC inside Kodi while keyboard mode is active will conflict. Set `cec: release`
+under the Kodi application in `pideck.yaml` to restore native Kodi CEC handoff;
+in that mode configure Kodi under **Settings → System → Input → Peripherals**,
+including physical address and source activation, and disable a duplicate USB
+CEC entry if Kodi tries to open the serial adapter already owned by the kernel
+driver.
 
 The Debian libCEC Linux backend opens only `/dev/cec0`; if that device is a GPU
 or another CEC adapter instead of Pulse-Eight, PiDeck reports an error rather
 than selecting it. Automatic detection requires a single unambiguous connected
 display EDID. Inspect the Input status and PiDeck journal, check HDMI cabling,
-TV CEC and `/dev/cec0` permissions, and use `cec-client -l` only when PiDeck
-and Kodi have released CEC. This integration and Kodi handoff still require
-physical-hardware validation.
+TV CEC and `/dev/cec0` permissions, and use `cec-client -l` only when no
+PiDeck or Kodi client holds the adapter. Hardware validation remains necessary.
 
 ### Existing release installations
 

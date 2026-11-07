@@ -44,6 +44,7 @@ from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.catalog import load_catalog
 from pideck.infrastructure.packages.installed import device_architecture
 from pideck.infrastructure.packages.manager import SystemPackageManager
+from pideck.infrastructure.kodi_cec import disable_kodi_cec
 from pideck.infrastructure.user_defaults import UserDefaultsInstaller
 from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
@@ -452,6 +453,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
         entry = catalog_by_id.get(application_definition.identifier)
         if entry is not None:
             user_defaults.apply(entry)
+        if (
+            application_definition.identifier == "kodi"
+            and effective_cec_mode(application_definition, catalog) is CecMode.KEYBOARD
+        ):
+            disable_kodi_cec()
         result = session_service.request_launch(application_definition)
         if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
             selected_profile = window.choose_profile(result.profiles)

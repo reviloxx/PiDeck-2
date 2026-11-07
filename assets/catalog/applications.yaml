@@ -18,6 +18,7 @@ applications:
     executable: kodi
     icon: ../assets/icons/kodi.svg
     preferred_input: cec
+    cec: keyboard
     install:
       amd64: {method: apt, packages: [kodi]}
       arm64: {method: apt, packages: [kodi]}

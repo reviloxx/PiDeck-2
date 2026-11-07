@@ -26,7 +26,8 @@ class RecordingInjector:
 
 
 YOUTUBE = ApplicationDefinition("youtube", "YouTube", "flatpak", cec_mode=CecMode.KEYBOARD)
-KODI = ApplicationDefinition("kodi", "Kodi", "kodi")
+KODI = ApplicationDefinition("kodi", "Kodi", "kodi", cec_mode=CecMode.KEYBOARD)
+RELEASING = ApplicationDefinition("steam-link", "Steam Link", "flatpak")
 RUNNING = SessionSnapshot(SessionState.RUNNING, YOUTUBE)
 
 
@@ -87,7 +88,8 @@ def test_keys_are_consumed_but_not_synthesized_when_unsafe(
 
 
 @pytest.mark.parametrize(
-    "session", [SessionSnapshot(SessionState.IDLE), SessionSnapshot(SessionState.RUNNING, KODI)],
+    "session",
+    [SessionSnapshot(SessionState.IDLE), SessionSnapshot(SessionState.RUNNING, RELEASING)],
 )
 def test_launcher_and_releasing_applications_are_not_forwarded(session: SessionSnapshot) -> None:
     """Idle launcher input and apps that own the adapter are left to PiDeck."""
@@ -95,6 +97,16 @@ def test_launcher_and_releasing_applications_are_not_forwarded(session: SessionS
     for action in (InputAction.ACTIVATE, InputAction.HOME):
         assert not service.handle(InputEvent(action, "cec"), session, pideck_has_focus=False)
     assert injector.keys == [] and returns == []
+
+
+def test_kodi_receives_forwarded_remote_keys() -> None:
+    """Kodi keeps PiDeck's CEC connection and gets ordinary key presses."""
+    service, injector, returns = _service()
+    running = SessionSnapshot(SessionState.RUNNING, KODI)
+    assert service.handle(InputEvent(InputAction.ACTIVATE, "cec"), running, pideck_has_focus=False)
+    assert service.handle(InputEvent(InputAction.HOME, "cec"), running, pideck_has_focus=False)
+    assert injector.keys == [VirtualKey.RETURN]
+    assert returns == ["home"]
 
 
 class FakeLibraries:

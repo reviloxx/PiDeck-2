@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.4
+
+- **Kodi keeps PiDeck's HDMI-CEC connection** by default. The TV remote
+  controls Kodi through PiDeck, and Kodi's own CEC adapter is turned off so
+  both no longer fight over the same device.
+- To use Kodi's built-in CEC again, set `cec: release` for Kodi in
+  `pideck.yaml`.
+
 ## v0.5.3
 
 - **Backspace goes back** everywhere, like Escape and the remote's Back button.

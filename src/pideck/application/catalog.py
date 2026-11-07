@@ -52,11 +52,15 @@ def effective_cec_mode(
     """Resolve CEC handling, inheriting it from a matching catalog entry when unset.
 
     Applications installed before the catalog declared a mode keep their saved
-    definition; matching the Flatpak target lets them benefit from catalog
-    improvements without rewriting the user's configuration.
+    definition with ``cec_mode`` null. Matching by identifier or Flatpak target
+    lets them benefit from catalog improvements without rewriting the user's
+    configuration.
     """
     if application.cec_mode is not None:
         return application.cec_mode
+    for entry in catalog:
+        if entry.identifier == application.identifier and entry.application.cec_mode is not None:
+            return entry.application.cec_mode
     target = _flatpak_target(application)
     if target is not None:
         for entry in catalog:
