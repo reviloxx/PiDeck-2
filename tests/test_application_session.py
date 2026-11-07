@@ -384,8 +384,8 @@ def test_shutdown_waits_for_in_progress_handoff() -> None:
     assert len(supervisor.handles) == 1
 
 
-def test_input_resource_is_kept_for_applications_that_receive_forwarded_input() -> None:
-    """Forwarding applications keep CEC; switching to a releasing app hands it over."""
+def test_input_resource_is_kept_for_every_application_when_releases_input_is_false() -> None:
+    """Always-on CEC never suspends the adapter across launches."""
     events: list[str] = []
 
     class InputResource:
@@ -398,30 +398,17 @@ def test_input_resource_is_kept_for_applications_that_receive_forwarded_input() 
     supervisor = FakeSupervisor()
     service = ApplicationSessionService(
         supervisor, RecordingObserver(), input_resource=InputResource(),
-        releases_input=lambda application: application.cec_mode is not CecMode.KEYBOARD,
+        releases_input=lambda _application: False,
     )
     youtube = ApplicationDefinition("youtube", "YouTube", sys.executable, cec_mode=CecMode.KEYBOARD)
-    kodi = ApplicationDefinition("kodi", "Kodi", sys.executable, cec_mode=CecMode.KEYBOARD)
     releasing = ApplicationDefinition("steam-link", "Steam Link", sys.executable)
     service.request_launch(youtube)
     youtube_token = next(iter(supervisor.handles))
     supervisor.emit(youtube_token)
     assert events == []
-    service.request_launch(kodi)
-    kodi_token = next(token for token in supervisor.handles if token != youtube_token)
-    supervisor.emit(kodi_token)
-    assert events == []
     service.request_launch(releasing)
-    releasing_token = next(
-        token for token in supervisor.handles if token not in {youtube_token, kodi_token}
-    )
-    service.replace_running(youtube)
+    releasing_token = next(token for token in supervisor.handles if token != youtube_token)
     supervisor.emit(releasing_token)
-    assert events == ["suspend", "resume"]
-    last_token = next(
-        token for token in supervisor.handles
-        if token not in {youtube_token, kodi_token, releasing_token}
-    )
-    supervisor.emit(last_token)
-    assert events == ["suspend", "resume"]
+    assert events == []
     service.close()
+

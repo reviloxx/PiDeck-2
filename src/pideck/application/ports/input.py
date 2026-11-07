@@ -15,6 +15,7 @@ class InputAction(StrEnum):
     ACTIVATE = "activate"
     BACK = "back"
     HOME = "home"
+    MENU = "menu"
     PLAY = "play"
     PAUSE = "pause"
     PLAY_PAUSE = "play_pause"

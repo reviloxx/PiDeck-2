@@ -39,7 +39,7 @@ def default_configuration() -> Configuration:
         home=HomeScreenConfiguration(visible_applications=(), theme="default"),
         input=InputConfiguration(
             enabled_sources=("cec", "gamepad", "keyboard", "mouse"),
-            bindings={"home": "Ctrl+Alt+H"},
+            bindings={"home": "Super"},
         ),
         settings=SettingsConfiguration(language="de"),
     )

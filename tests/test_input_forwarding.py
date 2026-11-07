@@ -1,4 +1,4 @@
-"""Verify TV remote forwarding into applications that keep PiDeck's CEC input."""
+"""Verify TV remote forwarding into applications while PiDeck keeps CEC."""
 
 import ctypes
 
@@ -31,18 +31,14 @@ RELEASING = ApplicationDefinition("steam-link", "Steam Link", "flatpak")
 RUNNING = SessionSnapshot(SessionState.RUNNING, YOUTUBE)
 
 
-def _service() -> tuple[InputForwardingService, RecordingInjector, list[str]]:
+def _service() -> tuple[InputForwardingService, RecordingInjector]:
     injector = RecordingInjector()
-    returns: list[str] = []
-    service = InputForwardingService(
-        injector, lambda: returns.append("home"), lambda app: app.cec_mode or CecMode.RELEASE,
-    )
-    return service, injector, returns
+    return InputForwardingService(injector), injector
 
 
 def test_remote_actions_become_keys_for_the_focused_application() -> None:
     """Navigation, OK, Back and transport keys map to ordinary key presses."""
-    service, injector, returns = _service()
+    service, injector = _service()
     for action in (
         InputAction.UP, InputAction.DOWN, InputAction.LEFT, InputAction.RIGHT,
         InputAction.ACTIVATE, InputAction.BACK, InputAction.PLAY, InputAction.PAUSE,
@@ -55,16 +51,15 @@ def test_remote_actions_become_keys_for_the_focused_application() -> None:
         VirtualKey.MEDIA_PLAY_PAUSE, VirtualKey.MEDIA_STOP, VirtualKey.MEDIA_REWIND,
         VirtualKey.MEDIA_FAST_FORWARD,
     ]
-    assert returns == []
 
 
-def test_home_returns_to_launcher_even_while_starting() -> None:
-    """Home is never forwarded and always leaves the application."""
-    service, injector, returns = _service()
+def test_menu_is_not_forwarded_so_the_overlay_can_handle_it() -> None:
+    """MENU and HOME stay with PiDeck for the session overlay."""
+    service, injector = _service()
     starting = SessionSnapshot(SessionState.STARTING, YOUTUBE)
-    assert service.handle(InputEvent(InputAction.HOME, "cec"), starting, pideck_has_focus=True)
-    assert service.handle(InputEvent(InputAction.HOME, "cec"), RUNNING, pideck_has_focus=False)
-    assert returns == ["home", "home"]
+    assert not service.handle(InputEvent(InputAction.MENU, "cec"), starting, pideck_has_focus=True)
+    assert not service.handle(InputEvent(InputAction.MENU, "cec"), RUNNING, pideck_has_focus=False)
+    assert not service.handle(InputEvent(InputAction.HOME, "cec"), RUNNING, pideck_has_focus=False)
     assert injector.keys == []
 
 
@@ -81,32 +76,37 @@ def test_keys_are_consumed_but_not_synthesized_when_unsafe(
     session: SessionSnapshot, pideck_has_focus: bool, pressed: bool,
 ) -> None:
     """PiDeck's own windows never receive synthesized keys or launcher input."""
-    service, injector, returns = _service()
+    service, injector = _service()
     event = InputEvent(InputAction.ACTIVATE, "cec", pressed=pressed)
     assert service.handle(event, session, pideck_has_focus=pideck_has_focus)
-    assert injector.keys == [] and returns == []
+    assert injector.keys == []
 
 
-@pytest.mark.parametrize(
-    "session",
-    [SessionSnapshot(SessionState.IDLE), SessionSnapshot(SessionState.RUNNING, RELEASING)],
-)
-def test_launcher_and_releasing_applications_are_not_forwarded(session: SessionSnapshot) -> None:
-    """Idle launcher input and apps that own the adapter are left to PiDeck."""
-    service, injector, returns = _service()
-    for action in (InputAction.ACTIVATE, InputAction.HOME):
-        assert not service.handle(InputEvent(action, "cec"), session, pideck_has_focus=False)
-    assert injector.keys == [] and returns == []
+def test_idle_launcher_is_not_forwarded() -> None:
+    """Idle launcher input is left to PiDeck."""
+    service, injector = _service()
+    idle = SessionSnapshot(SessionState.IDLE)
+    for action in (InputAction.ACTIVATE, InputAction.MENU):
+        assert not service.handle(InputEvent(action, "cec"), idle, pideck_has_focus=False)
+    assert injector.keys == []
+
+
+def test_releasing_catalog_apps_still_receive_forwarded_keys() -> None:
+    """PiDeck keeps CEC for every app, including former release-mode entries."""
+    service, injector = _service()
+    running = SessionSnapshot(SessionState.RUNNING, RELEASING)
+    assert service.handle(InputEvent(InputAction.ACTIVATE, "cec"), running, pideck_has_focus=False)
+    assert not service.handle(InputEvent(InputAction.MENU, "cec"), running, pideck_has_focus=False)
+    assert injector.keys == [VirtualKey.RETURN]
 
 
 def test_kodi_receives_forwarded_remote_keys() -> None:
     """Kodi keeps PiDeck's CEC connection and gets ordinary key presses."""
-    service, injector, returns = _service()
+    service, injector = _service()
     running = SessionSnapshot(SessionState.RUNNING, KODI)
     assert service.handle(InputEvent(InputAction.ACTIVATE, "cec"), running, pideck_has_focus=False)
-    assert service.handle(InputEvent(InputAction.HOME, "cec"), running, pideck_has_focus=False)
+    assert not service.handle(InputEvent(InputAction.MENU, "cec"), running, pideck_has_focus=False)
     assert injector.keys == [VirtualKey.RETURN]
-    assert returns == ["home"]
 
 
 class FakeLibraries:

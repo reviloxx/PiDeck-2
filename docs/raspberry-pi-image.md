@@ -27,13 +27,11 @@ an error instead of silently choosing a different port.
 
 Manual Connect and Disconnect are available when auto-connect is off. A manual
 connection resumes after an application exits, but starts disconnected after
-a PiDeck restart. PiDeck releases CEC before starting an application, except
-for applications with `cec: keyboard` such as Kodi and YouTube: PiDeck then
-forwards the remote's keys to the application, and the remote's Home key
-returns to PiDeck. For Kodi, PiDeck also disables Kodi's CEC peripherals before
-launch so only PiDeck opens `/dev/cec0`. Re-enabling CEC inside Kodi while
-keyboard mode is active will conflict. Set `cec: release` under the Kodi
-application in `pideck.yaml` if native Kodi CEC handoff is required instead.
+a PiDeck restart. PiDeck keeps CEC for every application and forwards the
+remote's navigation and media keys; Exit / Root Menu open the session overlay
+(Return is Back). For Kodi, PiDeck disables Kodi's CEC peripherals before
+launch so only PiDeck opens `/dev/cec0`. Re-enabling CEC inside Kodi will
+conflict while PiDeck holds the adapter.
 
 The libCEC Linux backend uses `/dev/cec0`, so check which HDMI connector maps
 to that device and that the local user can access it. Check Input status, the
@@ -313,5 +311,5 @@ No Pi 5 hardware acceptance has yet been performed. PiDeck's application
 readiness detector currently uses X11 and `wmctrl`; compatibility with each
 application's real window and process lifecycle remains a release gate.
 
-The configured Home key binding is not currently implemented as a global
-shortcut while another application has focus.
+While an application is running, Super (Windows), the Xbox Guide button and the
+TV Exit key open the session overlay so the user can return to PiDeck.

@@ -65,17 +65,11 @@ auto-connect off, use Connect and Disconnect: a manual connection resumes after
 an application exits, but not after restarting PiDeck. A disconnect stops
 automatic reconnection until Connect or a launcher restart.
 
-PiDeck releases its client before starting applications, except for
-applications with `cec: keyboard` such as Kodi and YouTube: PiDeck then
-forwards the remote's keys to the application, and the remote's Home key
-returns to PiDeck. For Kodi, PiDeck disables Kodi's CEC peripherals before
-launch so libCEC does not open `/dev/cec0` while PiDeck holds it. Re-enabling
-CEC inside Kodi while keyboard mode is active will conflict. Set `cec: release`
-under the Kodi application in `pideck.yaml` to restore native Kodi CEC handoff;
-in that mode configure Kodi under **Settings → System → Input → Peripherals**,
-including physical address and source activation, and disable a duplicate USB
-CEC entry if Kodi tries to open the serial adapter already owned by the kernel
-driver.
+PiDeck keeps its CEC client for every application and forwards the remote's
+navigation and media keys; Exit / Root Menu open the session overlay (Return is
+Back). For Kodi, PiDeck disables Kodi's CEC peripherals before launch so
+libCEC does not open `/dev/cec0` while PiDeck holds it. Re-enabling CEC inside
+Kodi will conflict while PiDeck holds the adapter.
 
 The Debian libCEC Linux backend opens only `/dev/cec0`; if that device is a GPU
 or another CEC adapter instead of Pulse-Eight, PiDeck reports an error rather

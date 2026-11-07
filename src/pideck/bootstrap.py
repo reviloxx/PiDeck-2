@@ -20,19 +20,18 @@ from pideck.application.session import (
 )
 from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.application.app_management import ApplicationManagementService
-from pideck.application.catalog import catalog_window_modes, effective_cec_mode
+from pideck.application.catalog import catalog_window_modes
 from pideck.application.home_layout import set_application_order, set_visibility
 from pideck.application.input_forwarding import InputForwardingService
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
-from pideck.application.ports.input import InputEvent
+from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.installation import InstallProgress
 from pideck.application.ports.packages import PackageOperationError
 from pideck.domain.catalog import CatalogEntry
 from pideck.domain.configuration import (
     ApplicationDefinition,
     ApplicationProfile,
-    CecMode,
     Configuration,
     WindowMode,
 )
@@ -64,6 +63,7 @@ from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDete
 from pideck.infrastructure.system_power import SystemPower
 from pideck.infrastructure.system_audio import PulseAudioGateway
 from pideck.infrastructure.x11_display import DisplayPreferences, X11DisplayGateway
+from pideck.infrastructure.x11_hotkey import X11HotkeyListener
 from pideck.infrastructure.x11_key_injector import X11KeyInjector
 from pideck.infrastructure.theme import FileThemeRepository
 
@@ -83,9 +83,14 @@ _LOGGER = logging.getLogger(__name__)
 class _QtSessionObserver:
     """Bridge worker-thread session callbacks into Qt signals."""
 
-    def __init__(self, window: "LauncherWindow") -> None:
+    def __init__(
+        self,
+        window: "LauncherWindow",
+        on_session_end: Callable[[], None] | None = None,
+    ) -> None:
         """Create an observer for one launcher window."""
         self._window = window
+        self._on_session_end = on_session_end
 
     def started(self, application: ApplicationDefinition, profile: ApplicationProfile | None) -> None:
         """Forward a successful process start to the window."""
@@ -101,10 +106,14 @@ class _QtSessionObserver:
 
     def finished(self, application: ApplicationDefinition, return_code: int) -> None:
         """Forward process exit and return-to-launcher behavior to the window."""
+        if self._on_session_end is not None:
+            self._on_session_end()
         self._window.notify_session_finished(application, return_code)
 
     def failed(self, application: ApplicationDefinition, message: str) -> None:
         """Forward launch failure feedback to the window."""
+        if self._on_session_end is not None:
+            self._on_session_end()
         self._window.notify_session_failed(application, message)
 
 
@@ -364,25 +373,68 @@ def main(arguments: Sequence[str] | None = None) -> int:
     release_timer.setInterval(current_configuration.settings.update_check_interval_hours * 60 * 60 * 1000)
     release_timer.timeout.connect(pideck_update_service.check_async)
     release_timer.start()
-    session_observer: SessionObserver = _QtSessionObserver(window)
+    from pideck.presentation.qt.session_overlay import SessionOverlay
+
+    session_overlay = SessionOverlay(
+        dependencies.theme_repository.get(current_configuration.home.theme),
+        current_configuration.settings.language,
+    )
+    session_observer: SessionObserver = _QtSessionObserver(window, session_overlay.hide)
     visibility_detector = X11WindowVisibilityDetector()
     session_service = ApplicationSessionService(
         dependencies.process_supervisor,
         session_observer,
         visibility_detector,
         cec_adapter,
-        releases_input=lambda app: effective_cec_mode(app, catalog) is CecMode.RELEASE,
+        releases_input=lambda _app: False,
     )
     key_injector = X11KeyInjector()
-    input_forwarding = InputForwardingService(
-        key_injector, session_service.stop, lambda app: effective_cec_mode(app, catalog),
-    )
+    input_forwarding = InputForwardingService(key_injector)
+
+    def session_active() -> bool:
+        """True while an application session is starting or running."""
+        return session_service.snapshot.state in (SessionState.STARTING, SessionState.RUNNING)
+
+    def pideck_owns_focus() -> bool:
+        """True when a PiDeck surface (launcher, settings, overlay) should receive input."""
+        return (
+            session_overlay.isVisible()
+            or window.isVisible()
+            or QApplication.activeWindow() is not None
+        )
+
+    def dismiss_session_overlay() -> None:
+        """Hide the overlay without stopping the application."""
+        session_overlay.dismiss()
+
+    def open_session_overlay() -> None:
+        """Raise the overlay above the running application."""
+        if not session_active():
+            return
+        session_overlay.open_overlay()
+
+    def toggle_session_overlay() -> None:
+        """Open or dismiss the overlay while an application session is active."""
+        if not session_active():
+            return
+        if session_overlay.isVisible():
+            dismiss_session_overlay()
+        else:
+            open_session_overlay()
+
+    def return_to_pideck_from_overlay() -> None:
+        """Stop the running application after the overlay return action."""
+        session_overlay.hide()
+        session_service.stop()
+
+    session_overlay.return_requested.connect(return_to_pideck_from_overlay)
 
     def forward_cec_to_application(event: InputEvent) -> bool:
-        """Send CEC input to a running app that keeps PiDeck's adapter; report if consumed."""
+        """Send CEC input to the running app; report whether it was consumed."""
+        if session_overlay.isVisible():
+            return False
         return input_forwarding.handle(
-            event, session_service.snapshot,
-            pideck_has_focus=window.isVisible() or QApplication.activeWindow() is not None,
+            event, session_service.snapshot, pideck_has_focus=pideck_owns_focus(),
         )
 
     class GamepadBridge(QObject):
@@ -397,9 +449,16 @@ def main(arguments: Sequence[str] | None = None) -> int:
     gamepad_bridge = GamepadBridge()
 
     def handle_gamepad_event(event: InputEvent) -> None:
-        """Route normalized input to the active launcher/settings surface."""
+        """Route normalized input to the overlay, settings, or launcher surface."""
         if event.pressed:
             cursor_visibility.hide_cursor()
+        if event.pressed and event.action in (InputAction.MENU, InputAction.HOME):
+            if session_overlay.isVisible() or session_active():
+                toggle_session_overlay()
+                return
+        if session_overlay.isVisible():
+            session_overlay.handle_input(event)
+            return
         if bluetooth_window is not None and bluetooth_window.isVisible():
             bluetooth_window.handle_input(event)
         elif display_window is not None and display_window.isVisible():
@@ -448,15 +507,22 @@ def main(arguments: Sequence[str] | None = None) -> int:
         cec_bridge.event_received.connect(handle_cec_event, Qt.ConnectionType.QueuedConnection)
         cec_adapter.start(cec_bridge)
 
+    class HotkeyBridge(QObject):
+        """Marshal the global Super grab onto the Qt event loop."""
+
+        pressed = Signal()
+
+    hotkey_bridge = HotkeyBridge()
+    hotkey_bridge.pressed.connect(toggle_session_overlay, Qt.ConnectionType.QueuedConnection)
+    hotkey_listener = X11HotkeyListener(hotkey_bridge.pressed.emit)
+    hotkey_listener.start()
+
     def handle_application_request(application_definition: ApplicationDefinition) -> None:
         """Resolve profile and replacement decisions for a tile activation."""
         entry = catalog_by_id.get(application_definition.identifier)
         if entry is not None:
             user_defaults.apply(entry)
-        if (
-            application_definition.identifier == "kodi"
-            and effective_cec_mode(application_definition, catalog) is CecMode.KEYBOARD
-        ):
+        if application_definition.identifier == "kodi":
             disable_kodi_cec()
         result = session_service.request_launch(application_definition)
         if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
@@ -496,9 +562,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if services_closed:
             return
         services_closed = True
+        session_overlay.hide()
         session_service.close()
         update_service.close()
         gamepad_adapter.close()
+        hotkey_listener.close()
         key_injector.close()
         try:
             cec_adapter.close()

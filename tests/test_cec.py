@@ -47,20 +47,21 @@ def test_cec_parses_delivered_keys_without_duplicate_raw_logs() -> None:
         "DEBUG: [8] key pressed: select (0, 0)\n"
         "DEBUG: [9] key pressed: exit (d, 0)\n"
         "DEBUG: [10] key pressed: root menu (9, 0)\n"
-        "DEBUG: [11] key pressed: power (40, 0)\n"
-        "DEBUG: [12] key pressed: down (2, 0)\n"
-        "DEBUG: [13] key pressed: left (3, 0)\n"
-        "DEBUG: [14] key pressed: right (4, 0)\n"
-        "DEBUG: [15] Key unknown: idle (duration:0) (ff) timeout:50ms (rel:0,rep:0,prs:0,rel:0)\n"
-        "DEBUG: [16] key pressed: select (0, 0)\n"
+        "DEBUG: [11] key pressed: return (91, 0)\n"
+        "DEBUG: [12] key pressed: power (40, 0)\n"
+        "DEBUG: [13] key pressed: down (2, 0)\n"
+        "DEBUG: [14] key pressed: left (3, 0)\n"
+        "DEBUG: [15] key pressed: right (4, 0)\n"
+        "DEBUG: [16] Key unknown: idle (duration:0) (ff) timeout:50ms (rel:0,rep:0,prs:0,rel:0)\n"
+        "DEBUG: [17] key pressed: select (0, 0)\n"
     )
 
     adapter._read_output(output, process, adapter.generation)
 
     assert [event.action for event in sink.events] == [
         InputAction.UP, InputAction.UP, InputAction.ACTIVATE, InputAction.ACTIVATE,
-        InputAction.BACK, InputAction.HOME, InputAction.DOWN, InputAction.LEFT,
-        InputAction.RIGHT, InputAction.ACTIVATE,
+        InputAction.MENU, InputAction.MENU, InputAction.BACK, InputAction.DOWN,
+        InputAction.LEFT, InputAction.RIGHT, InputAction.ACTIVATE,
     ]
     assert all(event.source == "cec" for event in sink.events)
 

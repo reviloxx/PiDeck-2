@@ -188,7 +188,7 @@ class EvdevGamepadAdapter:
                 304: InputAction.ACTIVATE,
                 305: InputAction.BACK,
                 307: InputAction.BACK,
-                315: InputAction.HOME,
+                315: InputAction.MENU,
             }.get(event.code)
         return None
 

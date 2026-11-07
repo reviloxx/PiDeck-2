@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.6
+
+- **Back to PiDeck from any app:** press the Windows key, Xbox Guide button or
+  TV Exit key for an overlay with **Back to PiDeck**, which closes the app.
+  Press the same key again to stay in the app.
+- PiDeck keeps HDMI-CEC while apps run and forwards the remote. Exit opens the
+  overlay; Return goes Back. Apps no longer get native CEC.
+
 ## v0.5.5
 
 - Fixed: on the home screen, Right no longer jumps from the end of a row to

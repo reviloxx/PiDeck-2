@@ -25,8 +25,8 @@ _ACTIONS = {
     0x02: InputAction.DOWN,
     0x03: InputAction.LEFT,
     0x04: InputAction.RIGHT,
-    0x09: InputAction.HOME,
-    0x0D: InputAction.BACK,
+    0x09: InputAction.MENU,
+    0x0D: InputAction.MENU,
     0x44: InputAction.PLAY,
     0x45: InputAction.STOP,
     0x46: InputAction.PAUSE,
@@ -34,6 +34,7 @@ _ACTIONS = {
     0x49: InputAction.FAST_FORWARD,
     0x60: InputAction.PLAY,
     0x61: InputAction.PLAY_PAUSE,
+    0x91: InputAction.BACK,  # Samsung Anynet+ Return / libCEC AN_RETURN
 }
 _DIRECTIONS = {InputAction.UP, InputAction.DOWN, InputAction.LEFT, InputAction.RIGHT}
 

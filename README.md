@@ -49,14 +49,20 @@ Validate a configuration without starting Qt:
 pideck --validate-only --config config/pideck.yaml
 ```
 
-On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and Start maps to Home. Controllers can be connected or removed while PiDeck is running.
+On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and the Guide (Xbox) button opens the session overlay while an application is running. Controllers can be connected or removed while PiDeck is running.
 
 HDMI-CEC navigation uses the Linux CEC interface: a Pulse-Eight USB adapter on
 x86 or built-in CEC on Raspberry Pi. **Settings → Input** offers direct-TV
 HDMI port selection, automatic or manual connection, and optional TV input
 switching. Auto-connect defaults to on; switching defaults to off. PiDeck
-releases CEC before launching an application and restores a requested
-connection afterward, except for applications with `cec: keyboard`.
+keeps the CEC adapter for every launched application and forwards the remote's
+arrows, OK and Return as arrow keys, Enter and Escape, plus Play, Pause, Stop,
+Rewind and Fast-forward as media keys (X11 XTest; no extra packages). Exit and
+Root Menu open the session overlay instead of navigating Back. Return (Samsung
+Anynet+ / libCEC `0x91`) is Back. Applications therefore do not receive native
+CEC; catalog `cec: release` no longer hands off the adapter. Before launching
+Kodi, PiDeck disables Kodi's CEC peripherals so libCEC does not contend for
+`/dev/cec0`.
 
 **Settings → Input → Keyboard layout** selects German (QWERTZ, the default)
 or English (US). In the appliance session PiDeck applies the choice with
@@ -67,18 +73,6 @@ next to `pideck.yaml`. When run from a desktop session, PiDeck stores the
 choice but leaves the desktop's keyboard layout alone. Images built from this
 release also default the X server and, on Raspberry Pi, the console to German.
 
-Applications with `cec: keyboard` instead keep PiDeck's CEC connection: the
-remote's arrows, OK and Back are sent to the application as arrow keys, Enter
-and Escape, and Play, Pause, Stop, Rewind and Fast-forward as media keys. The
-remote's Home (root menu) key closes the application and returns to PiDeck.
-The catalog's Kodi and YouTube entries use this mode, including installations
-made with earlier releases. Before launching Kodi, PiDeck disables Kodi's CEC
-peripherals so libCEC does not contend for `/dev/cec0`; re-enabling them in
-Kodi while keyboard mode is active will conflict. Set `cec: release` under the
-Kodi application in `pideck.yaml` to restore native Kodi CEC handoff. Other
-applications default to `cec: release`. The key forwarding uses X11 XTest and
-needs no extra system packages.
-
 The adapter, TV, cabling and active local session must support CEC. The Debian
 libCEC backend only opens `/dev/cec0`, and some hardware cannot override its
 automatically detected HDMI address. Existing images need a one-time system
@@ -87,18 +81,19 @@ Images built before v0.3.10 without a release tag cannot self-update. See the
 image guides for setup and limitations. Hardware operation is not yet verified.
 
 Use the arrow keys or Tab to select an application, then Enter or Space to open
-it. Close the application to return to PiDeck; Alt+F4 works for most X11
-applications. Some applications provide their own exit action. The configured
-Home shortcut is not a global shortcut while another application has focus.
-In settings dropdowns, use the arrow keys to browse, Enter to confirm, or
-Escape to cancel. Escape, Backspace, controller B and the remote's Back button
-go back in Settings and dialogs; Backspace still deletes in text fields and the
-on-screen keyboard. On the home screen they do nothing, so PiDeck cannot
-be shut down by an accidental Back press. The mouse pointer is hidden while
-you navigate with the keyboard, a controller or the TV remote, and reappears
-when the mouse moves or is clicked. Pointing at a control selects it, so only
-one item is highlighted regardless of the input device. If Bluetooth is
-unavailable, **Settings > System > Bluetooth** still opens and shows the reason.
+it. While an application is running, the Windows (Super) key, Xbox Guide button
+or TV Exit key opens an overlay with **Back to PiDeck**, which closes the
+application. Press the same hotkey again to dismiss the overlay and stay in the
+app. Alt+F4 and in-app exits still return to PiDeck as well. In settings
+dropdowns, use the arrow keys to browse, Enter to confirm, or Escape to cancel.
+Escape, Backspace, controller B and the remote's Return button go back in
+Settings and dialogs; Backspace still deletes in text fields and the on-screen
+keyboard. On the home screen they do nothing, so PiDeck cannot be shut down by
+an accidental Back press. The mouse pointer is hidden while you navigate with
+the keyboard, a controller or the TV remote, and reappears when the mouse moves
+or is clicked. Pointing at a control selects it, so only one item is highlighted
+regardless of the input device. If Bluetooth is unavailable,
+**Settings > System > Bluetooth** still opens and shows the reason.
 
 Typography can be adjusted per theme in the YAML configuration under
 `themes[].fonts`. All sizes are pixels: `heading_size` and `body_size` apply

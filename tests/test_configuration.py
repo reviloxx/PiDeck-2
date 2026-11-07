@@ -57,7 +57,7 @@ def configuration_document() -> dict:
         "home": {"visible_applications": ["browser"], "theme": "default"},
         "input": {
             "enabled_sources": ["keyboard", "mouse"],
-            "bindings": {"home": "Ctrl+Alt+H"},
+            "bindings": {"home": "Super"},
         },
         "settings": {"reduced_motion": False},
     }

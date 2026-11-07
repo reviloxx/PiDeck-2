@@ -91,7 +91,7 @@ input:
   - keyboard
   - mouse
   bindings:
-    home: Ctrl+Alt+H
+    home: Super
 settings:
   reduced_motion: true
   show_clock: true
