@@ -1,7 +1,6 @@
 """Controller-friendly action menu for one application in Settings > Applications.
 
-The menu stays open after moving an application so repeated moves are quick;
-every other action closes it.
+Choosing an action closes the menu; moving continues in the list itself.
 """
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
@@ -16,8 +15,6 @@ from .localization import tr
 from .system_panel import create_system_panel
 from .theme import apply_theme
 from .wallpaper import WallpaperDialog
-
-_STAYS_OPEN = frozenset({ApplicationAction.MOVE_UP, ApplicationAction.MOVE_DOWN})
 
 
 class ApplicationActionsDialog(WallpaperDialog):
@@ -63,6 +60,8 @@ class ApplicationActionsDialog(WallpaperDialog):
             button.setProperty("action", action.value)
             button.clicked.connect(lambda _=False, chosen=action: self._choose(chosen))
             self._buttons_layout.addWidget(button)
+            # Show now; layouts otherwise show new children later, which blocks moving focus to them.
+            button.show()
             self.buttons.append(button)
             if action is focus:
                 target = button
@@ -112,5 +111,4 @@ class ApplicationActionsDialog(WallpaperDialog):
 
     def _choose(self, action: ApplicationAction) -> None:
         self.action_chosen.emit(action.value)
-        if action not in _STAYS_OPEN:
-            self.accept()
+        self.accept()

@@ -118,7 +118,7 @@ class SettingsWindow(QDialog):
     application_install_requested = Signal(str)
     application_remove_requested = Signal(str)
     application_visibility_requested = Signal(str, bool)
-    application_move_requested = Signal(str, int)
+    application_order_requested = Signal(tuple)
     input_settings_changed = Signal(object)
     keyboard_layout_changed = Signal(object)
     cec_connection_requested = Signal(bool)
@@ -384,7 +384,7 @@ class SettingsWindow(QDialog):
         page.install_requested.connect(self.application_install_requested.emit)
         page.remove_requested.connect(self.application_remove_requested.emit)
         page.visibility_requested.connect(self.application_visibility_requested.emit)
-        page.move_requested.connect(self.application_move_requested.emit)
+        page.order_requested.connect(self.application_order_requested.emit)
         page.navigation_requested.connect(self._handle_update_navigation)
         page.rows_changed.connect(self._refresh_application_controls)
         for row in page.rows():
@@ -779,6 +779,15 @@ class SettingsWindow(QDialog):
         if self._apps.dialog is not None:
             self._apps.dialog.handle_input(event)
             return
+        if self._apps.is_sorting:
+            sorting_keys = {
+                InputAction.UP: Qt.Key.Key_Up, InputAction.DOWN: Qt.Key.Key_Down,
+                InputAction.ACTIVATE: Qt.Key.Key_Return, InputAction.BACK: Qt.Key.Key_Escape,
+            }
+            sorting_key = sorting_keys.get(event.action)
+            if sorting_key is not None:
+                self._apps.handle_sorting_key(sorting_key)
+            return
         dropdown = self._open_dropdown()
         if dropdown is not None:
             keys = {
@@ -1103,6 +1112,9 @@ class SettingsWindow(QDialog):
         if not isinstance(key_event, QKeyEvent):
             return super().eventFilter(watched, event)
         key = key_event.key()
+        apps = getattr(self, "_apps", None)
+        if apps is not None and apps.is_sorting and watched in self._page_controls.get(1, []):
+            return apps.handle_sorting_key(key)
         if key == Qt.Key.Key_Escape:
             self.reject()
             return True

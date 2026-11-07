@@ -126,10 +126,10 @@ without a version show their commit, and other unavailable versions are shown
 as unknown.
 
 Select a row to open its options: **Show on home screen** or **Hide from home
-screen**, **Move up** and **Move down** to change the tile order (the menu stays
-open for repeated moves), **Update**, **Install**, **Remove**, or cancel a
-running installation or update. At least one application stays on the home
-screen. Images only preinstall Kodi and YouTube. While an application installs,
+screen**, **Move** to change the tile order, **Update**, **Install**, **Remove**,
+or cancel a running installation or update. **Move** highlights the row in the
+list: Up and Down move it, OK saves the new order and Back restores the previous
+one. At least one application stays on the home screen. Images only preinstall Kodi and YouTube. While an application installs,
 its row shows the current step, a progress bar and a busy indicator;
 installations can be cancelled while downloading, removals cannot. Installing
 adds the application to the home screen and removing takes it off. Removing

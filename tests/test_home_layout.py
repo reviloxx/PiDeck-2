@@ -4,7 +4,12 @@ from dataclasses import replace
 
 import pytest
 
-from pideck.application.home_layout import application_order, is_visible, move_application, set_visibility
+from pideck.application.home_layout import (
+    application_order,
+    is_visible,
+    set_application_order,
+    set_visibility,
+)
 from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.domain.configuration import ApplicationDefinition
 from pideck.domain.errors import ConfigurationValidationError
@@ -40,14 +45,17 @@ def test_visibility_round_trip_restores_position() -> None:
         set_visibility(config, "x", True)
 
 
-def test_move_reorders_tiles_and_saved_applications() -> None:
-    """Moves change both lists consistently and stop at the ends."""
-    moved = move_application(configuration(("a", "c", "d")), "d", -2)
+def test_order_reorders_tiles_and_saved_applications() -> None:
+    """A new order changes both lists consistently and keeps visibility."""
+    moved = set_application_order(configuration(("a", "c", "d")), ("a", "d", "b", "c"))
     assert moved.home.visible_applications == ("a", "d", "c")
     assert [item.identifier for item in moved.applications] == ["a", "d", "b", "c"]
     assert application_order(moved) == ("a", "d", "b", "c")
-    edge = configuration(())
-    assert move_application(edge, "a", -1) is edge
+    unchanged = configuration(())
+    assert set_application_order(unchanged, ("a", "b", "c", "d")) is unchanged
+    for invalid in (("a", "b", "c"), ("a", "b", "c", "c"), ("a", "b", "c", "x")):
+        with pytest.raises(ConfigurationValidationError, match="every configured application"):
+            set_application_order(unchanged, invalid)
 
 
 def test_settings_without_applications_can_still_be_saved() -> None:
@@ -79,9 +87,10 @@ def test_application_items_merge_configuration_and_catalog() -> None:
     red = items[3]
     assert red.catalog_id == "youtube" and red.visible and red.position == 3
     assert available_actions(red, count=4) == (
-        ApplicationAction.HIDE, ApplicationAction.MOVE_UP, ApplicationAction.REMOVE,
+        ApplicationAction.HIDE, ApplicationAction.MOVE, ApplicationAction.REMOVE,
     )
-    assert available_actions(items[1], count=4)[1:] == (ApplicationAction.MOVE_UP, ApplicationAction.MOVE_DOWN)
+    assert available_actions(items[1], count=4)[1:] == (ApplicationAction.MOVE,)
+    assert ApplicationAction.MOVE not in available_actions(items[1], count=1)
     assert available_actions(red, count=4, busy=True, update_available=True)[0] is ApplicationAction.UPDATE
     assert ApplicationAction.REMOVE not in available_actions(red, count=4, busy=True)
     assert available_actions(items[4], count=4) == (ApplicationAction.INSTALL,)

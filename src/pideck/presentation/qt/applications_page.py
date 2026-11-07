@@ -2,12 +2,14 @@
 
 One focusable row per configured or supported application shows its home
 screen state, installed version, update status and install/removal progress.
-Selecting a row opens an action menu. The page only emits intents; the
+Selecting a row opens an action menu. Its Move entry puts the row into move
+mode, where Up and Down reorder the existing row widgets in place until the
+order is saved or cancelled. The page only emits intents; the
 composition root persists configuration and runs package operations.
 """
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QFocusEvent, QMouseEvent
 from PySide6.QtWidgets import QDialog, QFrame, QScrollArea, QVBoxLayout, QWidget
 
 from pideck.application.app_management import CatalogItemStatus
@@ -48,6 +50,7 @@ class ApplicationRow(UpdateRow):
         self.item = item
         self.operation: InstallProgress | None = None
         self.removing = False
+        self.sorting = False
         self.action.hide()
         if item.configured:
             self.set_info(self.info)
@@ -81,6 +84,14 @@ class ApplicationRow(UpdateRow):
         else:
             self._render()
 
+    def set_sorting(self, sorting: bool) -> None:
+        """Highlight the row and show the move hint while it is being sorted."""
+        self.sorting = sorting
+        self.setProperty("sorting", sorting)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self._render()
+
     def set_language(self, language: str) -> None:
         """Re-render all texts in the selected language."""
         self._language = language if language in {"en", "de"} else "en"
@@ -108,6 +119,8 @@ class ApplicationRow(UpdateRow):
         self.detail_label.setVisible(item.configured)
         if item.configured:
             key = "application_shown" if item.visible else "application_hidden"
+            if self.sorting:
+                key = "application_sorting_hint"
             self.detail_label.setText(tr(self._language, key))
             return
         state = item.catalog.state if item.catalog is not None else InstallState.UNAVAILABLE
@@ -125,7 +138,8 @@ class ApplicationsPage(QScrollArea):
     """Catalog ID to install, or of the running installation to cancel."""
     remove_requested = Signal(str)
     visibility_requested = Signal(str, bool)
-    move_requested = Signal(str, int)
+    order_requested = Signal(tuple)
+    """Complete home-screen order of configured applications after sorting."""
     navigation_requested = Signal(object)
     rows_changed = Signal()
     update_status = Signal(object)
@@ -160,6 +174,9 @@ class ApplicationsPage(QScrollArea):
         self.dialog: ApplicationActionsDialog | ConfirmationDialog | None = None
         self._dialog_key: str | None = None
         self._removal_target: tuple[str, str] | None = None
+        self._sort_target: str | None = None
+        self._sorting_key: str | None = None
+        self._sort_origin: tuple[str, ...] = ()
         self.update_status.connect(self._handle_update_status)
         self.set_model(configuration, statuses)
 
@@ -175,7 +192,10 @@ class ApplicationsPage(QScrollArea):
 
     def set_model(self, configuration: Configuration, statuses: tuple[CatalogItemStatus, ...]) -> None:
         """Rebuild rows after a configuration or install-state change, keeping focus."""
-        focused = next((row for row in self._rows.values() if row.hasFocus()), None)
+        self._clear_sorting()
+        # hasFocus() is false while a menu is open or the window is inactive; the window's focus child is not.
+        window_focus = self.window().focusWidget()
+        focused = next((row for row in self._rows.values() if row is window_focus), None)
         focus_keys = (focused.item.key, focused.item.catalog_id) if focused is not None else ()
         for row in self._rows.values():
             self._layout.removeWidget(row)
@@ -230,7 +250,10 @@ class ApplicationsPage(QScrollArea):
             row.set_compact(compact)
 
     def activate(self, key: str) -> None:
-        """Open the action menu for a row."""
+        """Open the action menu for a row; while sorting, save the new order instead."""
+        if self._sorting_key is not None:
+            self.finish_sorting(save=True)
+            return
         row = self._rows.get(key)
         if row is None or self.dialog is not None:
             return
@@ -262,8 +285,8 @@ class ApplicationsPage(QScrollArea):
         if row is None:
             return
         action, item = ApplicationAction(value), row.item
-        if action in (ApplicationAction.MOVE_UP, ApplicationAction.MOVE_DOWN):
-            self.move_requested.emit(item.key, -1 if action is ApplicationAction.MOVE_UP else 1)
+        if action is ApplicationAction.MOVE:
+            self._sort_target = item.key
         elif action in (ApplicationAction.SHOW, ApplicationAction.HIDE):
             self.visibility_requested.emit(item.key, action is ApplicationAction.SHOW)
         elif action in (ApplicationAction.INSTALL, ApplicationAction.CANCEL_INSTALL) and item.catalog_id:
@@ -280,13 +303,98 @@ class ApplicationsPage(QScrollArea):
         key, self.dialog = self._dialog_key, None
         dialog.deleteLater()
         removal, self._removal_target = self._removal_target, None
+        sort_target, self._sort_target = self._sort_target, None
         if removal is not None:
             self._confirm_removal(*removal)
             return
         self._dialog_key = None
+        # Without a window manager nothing is active after the modal menu closes, so keys would go nowhere.
+        self.window().activateWindow()
         row = self._rows.get(key or "")
         if row is not None:
             row.setFocus(Qt.FocusReason.OtherFocusReason)
+        if sort_target is not None:
+            self.start_sorting(sort_target)
+
+    @property
+    def is_sorting(self) -> bool:
+        """Return whether a row is being moved in the list."""
+        return self._sorting_key is not None
+
+    def start_sorting(self, key: str) -> None:
+        """Let Up and Down move a configured row in place until it is saved or cancelled."""
+        row = self._rows.get(key)
+        if row is None or not row.item.configured or self.dialog is not None:
+            return
+        self._clear_sorting()
+        self._sorting_key = key
+        self._sort_origin = self._configured_keys()
+        row.set_sorting(True)
+        row.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def move_sorting(self, step: int) -> None:
+        """Move the sorted row by ``step`` places among the configured applications."""
+        key = self._sorting_key
+        if key is None:
+            return
+        configured = self._configured_keys()
+        index = configured.index(key)
+        target = max(0, min(len(configured) - 1, index + step))
+        if target == index:
+            return
+        self._place_row(key, target)
+        row = self._rows[key]
+        self.widget().layout().activate()
+        self.ensureWidgetVisible(row)
+        row.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.rows_changed.emit()
+
+    def finish_sorting(self, *, save: bool) -> None:
+        """Leave move mode, requesting the new order or restoring the previous one."""
+        key = self._sorting_key
+        if key is None:
+            return
+        order, origin = self._configured_keys(), self._sort_origin
+        self._clear_sorting()
+        # Restore first: a successful save rebuilds the rows in the new order, a failed one keeps the saved order.
+        for index, original in enumerate(origin):
+            self._place_row(original, index)
+        self.rows_changed.emit()
+        if key in self._rows:
+            self.widget().layout().activate()
+            self.ensureWidgetVisible(self._rows[key])
+        if save and order != origin:
+            self.order_requested.emit(order)
+
+    def handle_sorting_key(self, key: int) -> bool:
+        """Handle a key while sorting; return whether it was consumed."""
+        if self._sorting_key is None:
+            return False
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            self.move_sorting(-1 if key == Qt.Key.Key_Up else 1)
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.finish_sorting(save=True)
+        elif key in (Qt.Key.Key_Escape, Qt.Key.Key_Back):
+            self.finish_sorting(save=False)
+        return True
+
+    def _clear_sorting(self) -> None:
+        key, self._sorting_key, self._sort_origin = self._sorting_key, None, ()
+        row = self._rows.get(key or "")
+        if row is not None:
+            row.set_sorting(False)
+
+    def _configured_keys(self) -> tuple[str, ...]:
+        return tuple(key for key, row in self._rows.items() if row.item.configured)
+
+    def _place_row(self, key: str, index: int) -> None:
+        """Move an existing row widget to ``index`` without rebuilding it, so focus stays."""
+        row = self._rows[key]
+        self._layout.removeWidget(row)
+        self._layout.insertWidget(index, row)
+        keys = [other for other in self._rows if other != key]
+        keys.insert(index, key)
+        self._rows = {other: self._rows[other] for other in keys}
 
     def _refresh_dialog(self) -> None:
         """Keep an open action menu consistent after a move or state change."""
@@ -383,7 +491,13 @@ class ApplicationsPage(QScrollArea):
             self._update_service.start_async(application, password, self.update_status.emit)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """Keep the focused row visible."""
+        """Keep the focused row visible and cancel sorting when the user focuses elsewhere."""
         if event.type() == QEvent.Type.FocusIn and isinstance(watched, QWidget):
             self.ensureWidgetVisible(watched)
+        elif (
+            event.type() == QEvent.Type.FocusOut and isinstance(event, QFocusEvent)
+            and event.reason() in (Qt.FocusReason.MouseFocusReason, Qt.FocusReason.TabFocusReason)
+            and watched is self._rows.get(self._sorting_key or "")
+        ):
+            self.finish_sorting(save=False)
         return super().eventFilter(watched, event)

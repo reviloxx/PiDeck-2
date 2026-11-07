@@ -141,31 +141,56 @@ def test_action_menu_offers_state_dependent_actions(application: QApplication) -
     window.close()
 
 
-def test_menu_requests_install_cancel_visibility_and_moves(application: QApplication) -> None:
-    """Menu actions emit intents; moves keep the menu open for repeated moves."""
+def sorting_window(application: QApplication, identifiers: tuple[str, ...]):
+    """Open Applications with the given configured apps, saving requested orders like the composition root."""
+    from pideck.application.home_layout import set_application_order
+
     document = configuration_document()
     document["applications"] = [
-        {"id": identifier, "name": identifier.title(), "executable": identifier} for identifier in ("one", "two")
+        {"id": identifier, "name": identifier.title(), "executable": identifier} for identifier in identifiers
     ]
-    document["home"]["visible_applications"] = ["one", "two"]
+    document["home"]["visible_applications"] = list(identifiers)
     configuration = YamlConfigurationParser().parse(document)
     window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), catalog_statuses=catalog_statuses())
+    orders: list[tuple[str, ...]] = []
+
+    def save(order: tuple[str, ...]) -> None:
+        orders.append(order)
+        window.set_configuration(set_application_order(window._configuration, order))
+
+    window.application_order_requested.connect(save)
     window.show()
     window.select_applications_page()
-    moves, visibility, installs = [], [], []
-    window.application_move_requested.connect(lambda *args: moves.append(args))
+    application.processEvents()
+    return window, orders
+
+
+def configured_order(window: SettingsWindow) -> list[str]:
+    """Return the configured row keys in display order."""
+    return [row.item.key for row in window._apps.rows() if row.item.configured]
+
+
+def press(window: SettingsWindow, key: Qt.Key) -> None:
+    """Send a key press to the focused widget like a keyboard does."""
+    QTest.keyClick(window.focusWidget(), key)
+
+
+def test_menu_requests_install_cancel_visibility_and_moves(application: QApplication) -> None:
+    """Menu actions emit intents and close the menu; Move starts sorting in the list."""
+    window, orders = sorting_window(application, ("one", "two"))
+    visibility, installs = [], []
     window.application_visibility_requested.connect(lambda *args: visibility.append(args))
     window.application_install_requested.connect(installs.append)
     menu = open_menu(window, application, "one")
-    assert menu.actions() == ("hide", "move_down")
-    menu.choose(ApplicationAction.MOVE_DOWN)
-    assert moves == [("one", 1)] and window._apps.dialog is menu
-    from pideck.application.home_layout import move_application
-
-    window.set_configuration(move_application(configuration, "one", 1))
+    assert menu.actions() == ("hide", "move")
+    menu.choose(ApplicationAction.MOVE)
     application.processEvents()
-    assert [row.item.key for row in window._apps.rows()][:2] == ["two", "one"]
-    assert menu.actions() == ("hide", "move_up")
+    assert window._apps.dialog is None and window._apps.is_sorting
+    assert window.focusWidget() is window._apps.row("one")
+    assert window._apps.row("one").detail_label.text().startswith("Up/Down to move")
+    window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
+    assert not window._apps.is_sorting and orders == []
+    menu = open_menu(window, application, "one")
     menu.choose(ApplicationAction.HIDE)
     application.processEvents()
     assert visibility == [("one", False)] and window._apps.dialog is None
@@ -186,6 +211,80 @@ def test_menu_requests_install_cancel_visibility_and_moves(application: QApplica
     menu.choose(ApplicationAction.CANCEL_INSTALL)
     assert installs == ["kodi", "kodi"]
     assert open_menu(window, application, "youtube") is None or "install" not in window._apps.dialog.actions()
+    window.close()
+
+
+def start_sorting(window: SettingsWindow, application: QApplication, key: str) -> None:
+    """Choose Move in a row's menu."""
+    open_menu(window, application, key).choose(ApplicationAction.MOVE)
+    application.processEvents()
+    assert window._apps.is_sorting
+
+
+def test_sorting_moves_rows_in_place_and_saves_once(application: QApplication) -> None:
+    """Up/Down reorder the same row widgets; Activate saves once and navigation keeps working."""
+    window, orders = sorting_window(application, ("one", "two", "three"))
+    moved = window._apps.row("one")
+    start_sorting(window, application, "one")
+    window.handle_input(InputEvent(InputAction.UP, "gamepad"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert configured_order(window) == ["two", "three", "one"] and orders == []
+    assert window._apps.row("one") is moved and window.focusWidget() is moved
+    assert [row.item.key for row in window._apps.rows()][3] == "kodi"
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    application.processEvents()
+    assert orders == [("two", "three", "one")] and not window._apps.is_sorting
+    assert configured_order(window) == ["two", "three", "one"]
+    assert window._configuration.home.visible_applications == ("two", "three", "one")
+    assert window.focusWidget() is window._apps.row("one")
+    assert window._apps.row("one").detail_label.text() == "Shown on the home screen"
+    window.handle_input(InputEvent(InputAction.UP, "gamepad"))
+    assert window.focusWidget() is window._apps.row("three")
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    application.processEvents()
+    assert window._apps.dialog is not None and window._apps.dialog.focusWidget() is not None
+    window.close()
+
+
+def test_sorting_cancel_restores_order_and_keyboard_works(application: QApplication) -> None:
+    """Back and Escape restore the order without saving or closing settings; Enter saves."""
+    window, orders = sorting_window(application, ("one", "two", "three"))
+    start_sorting(window, application, "three")
+    window.handle_input(InputEvent(InputAction.UP, "gamepad"))
+    assert configured_order(window) == ["one", "three", "two"]
+    window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
+    assert configured_order(window) == ["one", "two", "three"] and orders == []
+    assert window.isVisible() and window.focusWidget() is window._apps.row("three")
+    start_sorting(window, application, "three")
+    press(window, Qt.Key.Key_Up)
+    press(window, Qt.Key.Key_Up)
+    assert configured_order(window) == ["three", "one", "two"]
+    press(window, Qt.Key.Key_Escape)
+    assert window.isVisible() and configured_order(window) == ["one", "two", "three"] and orders == []
+    start_sorting(window, application, "one")
+    press(window, Qt.Key.Key_Down)
+    press(window, Qt.Key.Key_Return)
+    application.processEvents()
+    assert orders == [("two", "one", "three")] and window.focusWidget() is window._apps.row("one")
+    press(window, Qt.Key.Key_Down)
+    assert window.focusWidget() is window._apps.row("three")
+    window.close()
+
+
+def test_rebuild_while_menu_is_open_keeps_focus_on_live_row(application: QApplication) -> None:
+    """A model refresh behind an open menu hands the window's focus to the rebuilt row."""
+    window, _orders = sorting_window(application, ("one", "two"))
+    menu = open_menu(window, application, "two")
+    window.set_configuration(window._configuration)
+    application.processEvents()
+    assert window.focusWidget() is window._apps.row("two")
+    menu.reject()
+    application.processEvents()
+    assert window.focusWidget() is window._apps.row("two")
+    window.handle_input(InputEvent(InputAction.UP, "gamepad"))
+    assert window.focusWidget() is window._apps.row("one")
     window.close()
 
 

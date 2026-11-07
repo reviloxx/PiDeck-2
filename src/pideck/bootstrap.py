@@ -21,7 +21,7 @@ from pideck.application.session import (
 from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.application.app_management import ApplicationManagementService
 from pideck.application.catalog import catalog_window_modes, effective_cec_mode
-from pideck.application.home_layout import move_application, set_visibility
+from pideck.application.home_layout import set_application_order, set_visibility
 from pideck.application.input_forwarding import InputForwardingService
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
@@ -647,7 +647,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.application_install_requested.connect(handle_install_request)
         settings_window.application_remove_requested.connect(handle_remove_request)
         settings_window.application_visibility_requested.connect(handle_visibility_request)
-        settings_window.application_move_requested.connect(handle_move_request)
+        settings_window.application_order_requested.connect(handle_order_request)
         settings_window.finished.connect(lambda _: window.show_launcher())
         settings_window.finished.connect(cancel_install_on_close)
         window.hide()
@@ -780,9 +780,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         save_application_layout(change)
 
-    def handle_move_request(application_id: str, delta: int) -> None:
-        """Move a tile in the home-screen order."""
-        save_application_layout(lambda configuration: move_application(configuration, application_id, delta))
+    def handle_order_request(order: tuple[str, ...]) -> None:
+        """Save the home-screen tile order chosen in settings."""
+        save_application_layout(lambda configuration: set_application_order(configuration, tuple(order)))
 
     application_operations.progress.connect(show_install_progress)
     application_operations.cancelled.connect(cancel_install_finished)

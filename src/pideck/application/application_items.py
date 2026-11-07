@@ -22,8 +22,7 @@ class ApplicationAction(StrEnum):
     CANCEL_UPDATE = "cancel_update"
     SHOW = "show"
     HIDE = "hide"
-    MOVE_UP = "move_up"
-    MOVE_DOWN = "move_down"
+    MOVE = "move"
     INSTALL = "install"
     REMOVE = "remove"
 
@@ -98,10 +97,8 @@ def available_actions(
     state = item.catalog.state if item.catalog is not None else None
     if item.configured:
         actions.append(ApplicationAction.HIDE if item.visible else ApplicationAction.SHOW)
-        if item.position is not None and item.position > 0:
-            actions.append(ApplicationAction.MOVE_UP)
-        if item.position is not None and item.position < count - 1:
-            actions.append(ApplicationAction.MOVE_DOWN)
+        if count > 1:
+            actions.append(ApplicationAction.MOVE)
     elif state is InstallState.INSTALLED:
         actions.append(ApplicationAction.SHOW)
     if not busy and state is InstallState.NOT_INSTALLED:

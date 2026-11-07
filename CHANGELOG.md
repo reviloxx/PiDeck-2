@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.2
+
+- **Sort applications in the list:** select an application and choose
+  **Move**, then move it with Up and Down. OK saves the new order, Back keeps
+  the old one.
+- Fixed: after moving an application, the keyboard and remote no longer
+  selected anything in Settings.
+
 ## v0.5.1
 
 - **One place for applications:** Settings > Applications now replaces the

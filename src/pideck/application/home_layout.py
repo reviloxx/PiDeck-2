@@ -58,18 +58,15 @@ def set_visibility(configuration: Configuration, identifier: str, visible: bool)
     return _apply(configuration, order, shown)
 
 
-def move_application(configuration: Configuration, identifier: str, delta: int) -> Configuration:
-    """Move an application up (negative) or down (positive) in the home-screen order."""
-    order = list(application_order(configuration))
-    if identifier not in order:
-        raise ConfigurationValidationError(f"Unknown application: {identifier}")
-    index = order.index(identifier)
-    target = max(0, min(len(order) - 1, index + delta))
-    if target == index:
+def set_application_order(configuration: Configuration, order: tuple[str, ...]) -> Configuration:
+    """Apply a complete home-screen order, keeping each application's visibility."""
+    current = application_order(configuration)
+    if order == current:
         return configuration
-    order.insert(target, order.pop(index))
+    if len(order) != len(current) or set(order) != set(current):
+        raise ConfigurationValidationError("Application order must list every configured application once")
     shown = {item for item in order if is_visible(configuration, item)}
-    return _apply(configuration, tuple(order), shown)
+    return _apply(configuration, order, shown)
 
 
 def _apply(configuration: Configuration, order: tuple[str, ...] | list[str], shown: set[str]) -> Configuration:

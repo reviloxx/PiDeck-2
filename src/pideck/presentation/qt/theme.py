@@ -409,6 +409,11 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border: 2px solid %(focus)s;
             padding: 0;
         }
+        QFrame#update_row[sorting="true"] {
+            background-color: %(active_surface)s;
+            border: 2px dashed %(primary)s;
+            padding: 0;
+        }
         QLabel#update_status {
             color: %(muted_text)s;
             min-width: 150px;
