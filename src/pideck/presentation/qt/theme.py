@@ -212,7 +212,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             border-radius: 12px;
         }
         QDialog#session_overlay {
-            background: transparent;
+            background-color: %(background)s;
         }
         QFrame#session_overlay_card {
             background-color: %(overlay_card)s;

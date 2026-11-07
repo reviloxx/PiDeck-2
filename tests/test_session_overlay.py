@@ -95,7 +95,7 @@ def test_open_overlay_tolerates_empty_screen_grab(
     overlay.open_overlay()
     assert overlay.isVisible()
     assert overlay._backdrop.isNull()
-    overlay.hide()
+    overlay.dismiss()
 
 
 def test_blur_pixmap_returns_same_size(application: QApplication) -> None:
@@ -138,29 +138,29 @@ def test_open_overlay_refreshes_backdrop_each_time(
     overlay.open_overlay()
     second = overlay._backdrop.cacheKey()
     assert first != second
-    overlay.hide()
+    overlay.dismiss()
 
 
-def test_open_overlay_repaints_full_window(
+def test_open_overlay_destroys_native_window_before_show(
     application: QApplication, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reopening forces a full repaint so the previous blur cannot linger on X11."""
+    """Reopening destroys the X window so a compositor cannot keep a stale pixmap."""
     monkeypatch.setattr(
         "pideck.presentation.qt.session_overlay.capture_blurred_screen",
         lambda: _varied_pixmap(),
     )
     overlay = SessionOverlay(DEFAULT_THEME, "en")
     calls: list[str] = []
-    original = overlay.repaint
+    original = overlay.destroy
 
-    def track_repaint(*args: object, **kwargs: object) -> None:
-        calls.append("repaint")
+    def track_destroy(*args: object, **kwargs: object) -> None:
+        calls.append("destroy")
         original(*args, **kwargs)
 
-    monkeypatch.setattr(overlay, "repaint", track_repaint)
+    monkeypatch.setattr(overlay, "destroy", track_destroy)
     overlay.open_overlay()
-    assert calls == ["repaint"]
-    overlay.hide()
+    assert calls == ["destroy"]
+    overlay.dismiss()
 
 
 def _varied_pixmap(base: QColor | None = None) -> QPixmap:

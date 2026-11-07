@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.10
+
+- Fixed: the **Back to PiDeck** blur no longer shows a leftover rectangle from
+  the previous app; the overlay rebuilds its window and fades the full screen.
+
 ## v0.5.9
 
 - Fixed: opening **Back to PiDeck** after switching apps no longer keeps the

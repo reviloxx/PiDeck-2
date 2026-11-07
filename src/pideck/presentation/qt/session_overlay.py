@@ -5,13 +5,12 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QEvent, QObject, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QImage, QKeyEvent, QPaintEvent, QPainter, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QKeyEvent, QPaintEvent, QPainter, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
     QGraphicsBlurEffect,
-    QGraphicsOpacityEffect,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QHBoxLayout,
@@ -112,6 +111,42 @@ def capture_blurred_screen() -> QPixmap:
     return blur_pixmap(grab)
 
 
+class _BackdropCanvas(QWidget):
+    """Full-bleed opaque surface that owns the blurred capture pixels."""
+
+    def __init__(self, theme: ThemeDefinition, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._theme = theme
+        self._pixmap = QPixmap()
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
+
+    def set_pixmap(self, pixmap: QPixmap) -> None:
+        """Replace the capture and schedule a full redraw of this widget."""
+        self._pixmap = pixmap
+        self.update()
+
+    def clear(self) -> None:
+        """Drop the capture so the next paint uses the solid theme fill."""
+        self._pixmap = QPixmap()
+
+    @property
+    def pixmap(self) -> QPixmap:
+        """Return the current capture (may be null)."""
+        return self._pixmap
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        """Fill with the blurred capture (or theme color) and a dark scrim."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        if not self._pixmap.isNull():
+            painter.drawPixmap(self.rect(), self._pixmap)
+        else:
+            painter.fillRect(self.rect(), QColor(self._theme.colors["background"]))
+        painter.fillRect(self.rect(), _SCRIM)
+
+
 class SessionOverlay(QDialog):
     """Stay-on-top quick menu with a blurred app backdrop and one return action."""
 
@@ -123,7 +158,6 @@ class SessionOverlay(QDialog):
         super().__init__(parent)
         self._theme = theme
         self._language = language
-        self._backdrop = QPixmap()
         self.setObjectName("session_overlay")
         self.setModal(True)
         self.setWindowTitle("PiDeck")
@@ -132,12 +166,13 @@ class SessionOverlay(QDialog):
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Dialog
         )
-        self.setAutoFillBackground(False)
-        # Paint the full frame ourselves. Without this, X11 often keeps the
-        # previous fullscreen pixels outside the dirty region (typically just
-        # the card while its opacity animates).
+        # Opaque window: a transparent dialog under picom keeps stale pixels
+        # outside the dirty region when the overlay is reopened.
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
+        self._canvas = _BackdropCanvas(theme, self)
+        self._canvas.lower()
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.addStretch(1)
@@ -158,28 +193,42 @@ class SessionOverlay(QDialog):
         root.addLayout(row)
         root.addStretch(1)
         self.return_button.clicked.connect(self._request_return)
-        self._opacity = QGraphicsOpacityEffect(self._card)
-        self._opacity.setOpacity(1.0)
-        self._card.setGraphicsEffect(self._opacity)
-        self._fade = QPropertyAnimation(self._opacity, b"opacity", self)
+        # Fade the whole window so damage covers every pixel, not only the card.
+        self.setWindowOpacity(1.0)
+        self._fade = QPropertyAnimation(self, b"windowOpacity", self)
         self._fade.setDuration(theme.animation.duration_ms)
         apply_theme(self, theme)
+
+    @property
+    def _backdrop(self) -> QPixmap:
+        """Test helper: the capture currently shown on the canvas."""
+        return self._canvas.pixmap
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Keep the backdrop canvas matched to the dialog size."""
+        super().resizeEvent(event)
+        self._canvas.setGeometry(self.rect())
+        self._canvas.lower()
 
     def open_overlay(self) -> None:
         """Capture the screen, raise the overlay, and focus the return action."""
         self._fade.stop()
-        # Unmap first so a reopen does not restore the previous X backing store.
         if self.isVisible():
             self.hide()
             QApplication.processEvents()
-        self._backdrop = capture_blurred_screen()
-        self._opacity.setOpacity(0.0)
+        # Drop the native X window so picom cannot reuse a cached redirected
+        # pixmap from the previous open (which only updates damaged regions).
+        self.destroy()
+        self._canvas.set_pixmap(capture_blurred_screen())
+        self.setWindowOpacity(0.0)
         self.showFullScreen()
+        self._canvas.setGeometry(self.rect())
+        self._canvas.lower()
         self.raise_()
         self.activateWindow()
-        # Synchronous full-window paint before the card fade dirties only the
-        # button region (which would leave the last app's blur everywhere else).
+        self._canvas.repaint()
         self.repaint()
+        QApplication.processEvents()
         self.return_button.setFocus(Qt.FocusReason.OtherFocusReason)
         self._fade.setStartValue(0.0)
         self._fade.setEndValue(1.0)
@@ -190,7 +239,8 @@ class SessionOverlay(QDialog):
         if self.isVisible():
             self._fade.stop()
             self.hide()
-            self._backdrop = QPixmap()
+            self.setWindowOpacity(1.0)
+            self._canvas.clear()
             self.dismissed.emit()
 
     def handle_input(self, event: InputEvent) -> None:
@@ -201,16 +251,6 @@ class SessionOverlay(QDialog):
             self.dismiss()
         elif event.action is InputAction.ACTIVATE:
             self.return_button.click()
-
-    def paintEvent(self, event: QPaintEvent) -> None:
-        """Draw the blurred capture (or a dark theme fill) and a scrim behind the card."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        if not self._backdrop.isNull():
-            painter.drawPixmap(self.rect(), self._backdrop)
-        else:
-            painter.fillRect(self.rect(), QColor(self._theme.colors["background"]))
-        painter.fillRect(self.rect(), _SCRIM)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Return activates the action; Escape must not quit the application."""
@@ -239,5 +279,6 @@ class SessionOverlay(QDialog):
         """Hide first so the launcher can restore without the overlay on top."""
         self._fade.stop()
         self.hide()
-        self._backdrop = QPixmap()
+        self.setWindowOpacity(1.0)
+        self._canvas.clear()
         self.return_requested.emit()
