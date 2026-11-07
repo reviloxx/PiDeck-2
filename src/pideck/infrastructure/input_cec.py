@@ -61,6 +61,7 @@ class CecClientAdapter:
         self._status_changed = status_changed
         self._status = "Disconnected"
         self._stop_lock = threading.Lock()
+        self._logged_unmapped: set[int] = set()
 
     @property
     def status(self) -> str:
@@ -351,6 +352,9 @@ class CecClientAdapter:
             code = int(match.group(1), 16)
             action = _ACTIONS.get(code)
             if action is None:
+                if code not in self._logged_unmapped:
+                    self._logged_unmapped.add(code)
+                    _LOGGER.warning("Unmapped CEC key code 0x%02x from: %s", code, line)
                 continue
             now = time.monotonic()
             previous = held.get(code)

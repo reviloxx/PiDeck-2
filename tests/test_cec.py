@@ -93,6 +93,26 @@ def test_cec_translates_media_keys_without_repeating_held_presses() -> None:
         InputAction.FAST_FORWARD, InputAction.PLAY_PAUSE, InputAction.PLAY,
     ]
 
+def test_cec_logs_unmapped_key_codes_once(caplog: pytest.LogCaptureFixture) -> None:
+    """Unknown remote codes are logged once so Samsung Return can be diagnosed."""
+    adapter = CecClientAdapter()
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    output = io.StringIO(
+        "DEBUG: [1] key pressed: unknown (a5, 0)\n"
+        "DEBUG: [2] key pressed: unknown (a5, 0)\n"
+        "DEBUG: [3] key pressed: return (91, 0)\n"
+    )
+    with caplog.at_level("WARNING", logger="pideck.infrastructure.input_cec"):
+        adapter._read_output(output, process, adapter.generation)
+    assert [event.action for event in sink.events] == [InputAction.BACK]
+    messages = [record.getMessage() for record in caplog.records]
+    assert sum("Unmapped CEC key code 0xa5" in message for message in messages) == 1
+
+
 def test_cec_rejects_old_client_output_after_handoff() -> None:
     """Buffered output from a previous client cannot activate the launcher."""
     adapter = CecClientAdapter()

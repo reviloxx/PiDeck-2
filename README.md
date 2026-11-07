@@ -56,10 +56,11 @@ x86 or built-in CEC on Raspberry Pi. **Settings → Input** offers direct-TV
 HDMI port selection, automatic or manual connection, and optional TV input
 switching. Auto-connect defaults to on; switching defaults to off. PiDeck
 keeps the CEC adapter for every launched application and forwards the remote's
-arrows, OK and Return (Samsung Back) as arrow keys, Enter and Escape, plus Play,
-Pause, Stop, Rewind and Fast-forward as media keys (X11 XTest; no extra
-packages). Pause is sent as the play/pause media key so Chromium-based apps and
-Kodi respond. Exit and Root Menu open the session overlay. Applications
+arrows, OK and Return (Samsung Back) as arrow keys, Enter and Escape (Backspace
+for YouTube), plus Play, Pause, Stop, Rewind and Fast-forward as media keys
+(X11 XTest; no extra packages). Pause is sent as the play/pause media key so
+Chromium-based apps and Kodi respond. Exit and Root Menu open the session
+overlay. Applications
 therefore do not receive native CEC; catalog `cec: release` no longer hands off
 the adapter. Before launching Kodi, PiDeck disables Kodi's CEC peripherals so
 libCEC does not contend for `/dev/cec0`.

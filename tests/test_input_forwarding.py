@@ -47,10 +47,25 @@ def test_remote_actions_become_keys_for_the_focused_application() -> None:
         assert service.handle(InputEvent(action, "cec"), RUNNING, pideck_has_focus=False)
     assert injector.keys == [
         VirtualKey.UP, VirtualKey.DOWN, VirtualKey.LEFT, VirtualKey.RIGHT,
-        VirtualKey.RETURN, VirtualKey.ESCAPE, VirtualKey.MEDIA_PLAY, VirtualKey.MEDIA_PAUSE,
+        VirtualKey.RETURN, VirtualKey.BACKSPACE, VirtualKey.MEDIA_PLAY, VirtualKey.MEDIA_PAUSE,
         VirtualKey.MEDIA_PLAY_PAUSE, VirtualKey.MEDIA_STOP, VirtualKey.MEDIA_REWIND,
         VirtualKey.MEDIA_FAST_FORWARD,
     ]
+
+
+def test_youtube_back_uses_backspace() -> None:
+    """YouTube/Red treats Backspace as in-app Back."""
+    service, injector = _service()
+    assert service.handle(InputEvent(InputAction.BACK, "cec"), RUNNING, pideck_has_focus=False)
+    assert injector.keys == [VirtualKey.BACKSPACE]
+
+
+def test_kodi_back_uses_escape() -> None:
+    """Kodi treats Escape as in-app Back."""
+    service, injector = _service()
+    running = SessionSnapshot(SessionState.RUNNING, KODI)
+    assert service.handle(InputEvent(InputAction.BACK, "cec"), running, pideck_has_focus=False)
+    assert injector.keys == [VirtualKey.ESCAPE]
 
 
 def test_menu_is_not_forwarded_so_the_overlay_can_handle_it() -> None:
@@ -133,12 +148,20 @@ class FakeLibraries:
     def string_to_keysym(self, name: bytes) -> int:
         return {
             b"Return": 0xFF0D,
+            b"Escape": 0xFF1B,
+            b"BackSpace": 0xFF08,
             b"XF86AudioPlay": 0x1008FF14,
             b"XF86AudioPause": 0x1008FF31,
         }.get(name, 0)
 
     def keysym_to_keycode(self, display: int, keysym: int) -> int:
-        return {0xFF0D: 36, 0x1008FF14: 172, 0x1008FF31: 173}.get(keysym, 0)
+        return {
+            0xFF0D: 36,
+            0xFF1B: 9,
+            0xFF08: 22,
+            0x1008FF14: 172,
+            0x1008FF31: 173,
+        }.get(keysym, 0)
 
     def fake_key_event(self, display: int, keycode: int, press: int, delay: int) -> int:
         self.events.append((keycode, press))

@@ -414,10 +414,22 @@ def main(arguments: Sequence[str] | None = None) -> int:
     # Recreate on each open so picom never keeps a stale redirected pixmap.
     session_overlay: SessionOverlay | None = None
 
+    def clear_session_overlay() -> None:
+        """Destroy any overlay instance so it cannot keep Qt focus after dismiss."""
+        nonlocal session_overlay
+        overlay = session_overlay
+        session_overlay = None
+        if overlay is None:
+            return
+        if overlay.isVisible():
+            overlay.hide()
+        overlay.deleteLater()
+        QApplication.setActiveWindow(None)
+        QApplication.processEvents()
+
     def hide_session_overlay() -> None:
-        """Hide the current overlay instance if one exists."""
-        if session_overlay is not None:
-            session_overlay.hide()
+        """Destroy the current overlay when the application session ends."""
+        clear_session_overlay()
 
     session_observer: SessionObserver = _QtSessionObserver(window, hide_session_overlay)
     visibility_detector = X11WindowVisibilityDetector()
@@ -439,22 +451,40 @@ def main(arguments: Sequence[str] | None = None) -> int:
         """True when the session overlay is currently shown."""
         return session_overlay is not None and session_overlay.isVisible()
 
-    def pideck_owns_focus() -> bool:
-        """True when a PiDeck surface (launcher, settings, overlay) should receive input."""
+    def pideck_dialog_visible() -> bool:
+        """True when a settings or system dialog should receive remote input."""
         return (
-            session_overlay_visible()
-            or window.isVisible()
-            or QApplication.activeWindow() is not None
+            (bluetooth_window is not None and bluetooth_window.isVisible())
+            or (display_window is not None and display_window.isVisible())
+            or (audio_window is not None and audio_window.isVisible())
+            or (drives_window is not None and drives_window.isVisible())
+            or (system_info_window is not None and system_info_window.isVisible())
+            or (network_window is not None and network_window.isVisible())
+            or (settings_window is not None and settings_window.isVisible())
+            or window.has_open_dialog()
         )
 
+    def pideck_owns_focus() -> bool:
+        """True when a PiDeck surface should receive input instead of the app.
+
+        Do not use ``QApplication.activeWindow()``: a hidden overlay can remain
+        the active Qt window and would then swallow every forwarded remote key.
+        """
+        if session_overlay_visible() or pideck_dialog_visible():
+            return True
+        return session_service.snapshot.state is SessionState.IDLE and window.isVisible()
+
     def dismiss_session_overlay() -> None:
-        """Hide the overlay without stopping the application."""
-        if session_overlay is not None:
-            session_overlay.dismiss()
+        """Hide and destroy the overlay without stopping the application."""
+        overlay = session_overlay
+        if overlay is None:
+            return
+        overlay.dismiss()
+        clear_session_overlay()
 
     def return_to_pideck_from_overlay() -> None:
         """Stop the running application after the overlay return action."""
-        hide_session_overlay()
+        clear_session_overlay()
         session_service.stop()
 
     def open_session_overlay() -> None:
@@ -462,12 +492,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
         nonlocal session_overlay
         if not session_active():
             return
-        previous = session_overlay
-        if previous is not None:
-            previous.hide()
-            previous.deleteLater()
+        clear_session_overlay()
         session_overlay = SessionOverlay(overlay_theme, overlay_language)
         session_overlay.return_requested.connect(return_to_pideck_from_overlay)
+        session_overlay.dismissed.connect(clear_session_overlay)
         session_overlay.open_overlay()
 
     def toggle_session_overlay() -> None:

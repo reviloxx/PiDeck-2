@@ -13,6 +13,7 @@ class VirtualKey(StrEnum):
     RIGHT = "right"
     RETURN = "return"
     ESCAPE = "escape"
+    BACKSPACE = "backspace"
     MEDIA_PLAY = "media_play"
     MEDIA_PAUSE = "media_pause"
     MEDIA_PLAY_PAUSE = "media_play_pause"

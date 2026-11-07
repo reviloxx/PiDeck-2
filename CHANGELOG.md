@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.15
+
+- Fixed: Samsung Return now goes Back in Kodi and YouTube while Exit still
+  opens the home overlay. A hidden overlay can no longer block remote keys.
+- YouTube Back uses Backspace; Kodi Back uses Escape.
+
 ## v0.5.14
 
 - Home-return overlay explanation uses the settings description style.
