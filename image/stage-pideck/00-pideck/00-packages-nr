@@ -3,6 +3,6 @@ python3-pyside6.qtwidgets python3-pyside6.qtdbus python3-yaml python3-evdev cec-
 plymouth plymouth-label
 qt6-qpa-plugins qt6-svg-plugins fonts-dejavu-core
 xserver-xorg-core xserver-xorg-input-libinput xinit xauth
-openbox wmctrl libxres1 x11-xserver-utils x11-utils x11-xkb-utils dbus-x11
+openbox picom wmctrl libxres1 x11-xserver-utils x11-utils x11-xkb-utils dbus-x11
 pulseaudio pulseaudio-utils network-manager bluez ca-certificates openssl
 udisks2 polkitd

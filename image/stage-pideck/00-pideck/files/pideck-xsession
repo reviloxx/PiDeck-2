@@ -21,6 +21,11 @@ while ! wmctrl -m >/dev/null 2>&1; do
     sleep 0.1
 done
 
+# Composite fullscreen apps so the session overlay can blur what is on screen.
+if command -v picom >/dev/null 2>&1; then
+    picom --config /usr/lib/pideck/picom.conf &
+fi
+
 exec /usr/bin/python3 -m pideck.bootstrap \
     --config "$PIDECK_CONFIG" \
     --asset-root "$PIDECK_ASSET_ROOT" \

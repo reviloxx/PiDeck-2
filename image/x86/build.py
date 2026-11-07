@@ -198,6 +198,7 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "window-modes.yaml", root / "usr/share/pideck/config/window-modes.yaml")
     for name in ("pideck-session", "pideck-xsession"):
         _install(PI_FILES / name, lib / name, 0o755)
+    _install(PI_FILES / "picom.conf", lib / "picom.conf")
     for name in ("pideck-getty", "pideck-grow-root"):
         _install(INPUTS / name, lib / name, 0o755)
     _install(PI_FILES / "pideck-profile.sh", root / "etc/profile.d/pideck.sh")

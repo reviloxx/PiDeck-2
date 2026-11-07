@@ -8,3 +8,5 @@ dist/
 *.log
 /image-output/x86/
 /image-output/x86.new/
+/image-output/VirtualBox/
+/image-output/Raspberry Pi/

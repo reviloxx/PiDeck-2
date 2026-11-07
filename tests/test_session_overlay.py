@@ -12,8 +12,8 @@ from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.presentation.qt.session_overlay import (
     SessionOverlay,
-    active_window_id,
     blur_pixmap,
+    grab_is_useful,
 )
 
 
@@ -83,19 +83,24 @@ def test_overlay_has_no_instructional_copy(application: QApplication) -> None:
     overlay.hide()
 
 
-def test_open_overlay_tolerates_empty_screen_grab(application: QApplication) -> None:
-    """Offscreen grabs may be empty; opening must still show a usable overlay."""
+def test_open_overlay_tolerates_empty_screen_grab(
+    application: QApplication, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unusable grabs fall back to a solid themed backdrop instead of crashing."""
+    monkeypatch.setattr(
+        "pideck.presentation.qt.session_overlay.capture_blurred_screen",
+        lambda: QPixmap(),
+    )
     overlay = SessionOverlay(DEFAULT_THEME, "en")
     overlay.open_overlay()
     assert overlay.isVisible()
-    assert not overlay._backdrop.isNull()
+    assert overlay._backdrop.isNull()
     overlay.hide()
 
 
 def test_blur_pixmap_returns_same_size(application: QApplication) -> None:
     """Blur preserves the source size for full-bleed painting."""
-    source = QPixmap(64, 48)
-    source.fill(QColor("#336699"))
+    source = _varied_pixmap()
     blurred = blur_pixmap(source, scale=2, radius=8)
     assert not blurred.isNull()
     assert blurred.size() == source.size()
@@ -106,28 +111,19 @@ def test_blur_pixmap_rejects_empty_source(application: QApplication) -> None:
     assert blur_pixmap(QPixmap()).isNull()
 
 
-def test_active_window_id_parses_xprop_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The focused window id is read from the root _NET_ACTIVE_WINDOW property."""
-    class Result:
-        returncode = 0
-        stdout = "_NET_ACTIVE_WINDOW: window id # 0x1a2b3c\n"
-        stderr = ""
-
-    monkeypatch.setattr(
-        "pideck.presentation.qt.session_overlay.subprocess.run",
-        lambda *args, **kwargs: Result(),
-    )
-    assert active_window_id() == 0x1A2B3C
+def test_grab_is_useful_rejects_flat_black(application: QApplication) -> None:
+    """Solid black captures from uncomposited GL windows are rejected."""
+    black = QPixmap(64, 48)
+    black.fill(QColor("#000000"))
+    assert grab_is_useful(black) is False
+    assert grab_is_useful(_varied_pixmap()) is True
 
 
 def test_open_overlay_refreshes_backdrop_each_time(
     application: QApplication, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Each open captures a new backdrop instead of reusing the previous blur."""
-    frames = [
-        _solid_pixmap(QColor("#112233")),
-        _solid_pixmap(QColor("#445566")),
-    ]
+    frames = [_varied_pixmap(QColor("#112233")), _varied_pixmap(QColor("#aabbcc"))]
 
     def capture() -> QPixmap:
         return frames.pop(0)
@@ -145,7 +141,12 @@ def test_open_overlay_refreshes_backdrop_each_time(
     overlay.hide()
 
 
-def _solid_pixmap(color: QColor) -> QPixmap:
-    pixmap = QPixmap(32, 24)
+def _varied_pixmap(base: QColor | None = None) -> QPixmap:
+    """Build a non-flat pixmap that passes the useful-grab check."""
+    pixmap = QPixmap(64, 48)
+    color = base or QColor("#336699")
     pixmap.fill(color)
+    painter = __import__("PySide6.QtGui", fromlist=["QPainter"]).QPainter(pixmap)
+    painter.fillRect(0, 0, 32, 48, QColor("#99ccff"))
+    painter.end()
     return pixmap

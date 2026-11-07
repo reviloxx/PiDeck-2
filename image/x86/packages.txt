@@ -40,6 +40,7 @@ pciutils
 xinit
 xauth
 openbox
+picom
 wmctrl
 libxres1
 x11-xserver-utils

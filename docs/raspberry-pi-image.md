@@ -313,3 +313,5 @@ application's real window and process lifecycle remains a release gate.
 
 While an application is running, Super (Windows), the Xbox Guide button and the
 TV Exit / Root Menu key open the session overlay so the user can return to PiDeck.
+The session starts picom so the overlay can blur fullscreen apps; keep
+`unredir-if-possible` disabled in `/usr/lib/pideck/picom.conf`.

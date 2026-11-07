@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import logging
-import re
-import subprocess
 
 from PySide6.QtCore import QEvent, QObject, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QKeyEvent, QPaintEvent, QPainter, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QKeyEvent, QPaintEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFrame,
     QGraphicsBlurEffect,
@@ -29,9 +28,10 @@ from .theme import apply_theme
 
 _LOGGER = logging.getLogger(__name__)
 _BLUR_SCALE = 4
-_BLUR_RADIUS = 28
+_BLUR_RADIUS = 24
 _SCRIM = QColor(0, 0, 0, 168)
-_ACTIVE_WINDOW = re.compile(r"window id # (0x[0-9a-fA-F]+|\d+)")
+# Grabs of uncomposited OpenGL windows are often nearly solid black.
+_MIN_USEFUL_VARIANCE = 12.0
 
 
 def blur_pixmap(source: QPixmap, *, scale: int = _BLUR_SCALE, radius: int = _BLUR_RADIUS) -> QPixmap:
@@ -45,63 +45,70 @@ def blur_pixmap(source: QPixmap, *, scale: int = _BLUR_SCALE, radius: int = _BLU
         Qt.AspectRatioMode.IgnoreAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
-    item = QGraphicsPixmapItem(small)
+    # Render onto an opaque image; a transparent QPixmap often yields a black blur.
+    image = small.toImage().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+    item = QGraphicsPixmapItem(QPixmap.fromImage(image))
     effect = QGraphicsBlurEffect()
     effect.setBlurRadius(radius)
-    effect.setBlurHints(QGraphicsBlurEffect.BlurHint.PerformanceHint)
+    effect.setBlurHints(
+        QGraphicsBlurEffect.BlurHint.QualityHint | QGraphicsBlurEffect.BlurHint.AnimationHint
+    )
     item.setGraphicsEffect(effect)
     scene = QGraphicsScene()
+    scene.setSceneRect(0, 0, image.width(), image.height())
     scene.addItem(item)
-    blurred = QPixmap(small.size())
-    blurred.fill(Qt.GlobalColor.transparent)
+    blurred = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    blurred.fill(QColor(0, 0, 0, 255))
     painter = QPainter(blurred)
     scene.render(painter)
     painter.end()
-    return blurred.scaled(
+    return QPixmap.fromImage(blurred).scaled(
         source.size(),
         Qt.AspectRatioMode.IgnoreAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
 
 
-def active_window_id() -> int:
-    """Return the focused X11 window id, or ``0`` when it cannot be determined.
+def grab_is_useful(pixmap: QPixmap) -> bool:
+    """Return whether ``pixmap`` looks like real screen content, not a black GL stub."""
+    if pixmap.isNull() or pixmap.width() < 2 or pixmap.height() < 2:
+        return False
+    sample = pixmap.scaled(
+        64, 64, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation,
+    ).toImage().convertToFormat(QImage.Format.Format_RGB32)
+    values: list[int] = []
+    for y in range(0, sample.height(), 4):
+        for x in range(0, sample.width(), 4):
+            pixel = sample.pixelColor(x, y)
+            values.append((pixel.red() + pixel.green() + pixel.blue()) // 3)
+    if not values:
+        return False
+    mean = sum(values) / len(values)
+    variance = sum((value - mean) ** 2 for value in values) / len(values)
+    # Reject near-black and near-flat captures that look broken when blurred.
+    return mean >= 8.0 and variance >= _MIN_USEFUL_VARIANCE
 
-    Openbox has no compositor, so grabbing the root window often returns a
-    stale root pixmap. Grabbing ``_NET_ACTIVE_WINDOW`` captures the running app.
+
+def capture_screen() -> QPixmap:
+    """Grab the visible screen contents.
+
+    Openbox without a compositor cannot expose fullscreen OpenGL clients to
+    ``grabWindow``. With picom running, a root grab captures what the user sees.
     """
-    try:
-        result = subprocess.run(
-            ["xprop", "-root", "-notype", "_NET_ACTIVE_WINDOW"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=0.5,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        _LOGGER.debug("Unable to read the active X11 window: %s", error)
-        return 0
-    if result.returncode != 0:
-        return 0
-    match = _ACTIVE_WINDOW.search(result.stdout)
-    if match is None:
-        return 0
-    try:
-        return int(match.group(1), 0)
-    except ValueError:
-        return 0
-
-
-def capture_blurred_screen() -> QPixmap:
-    """Grab the active application window and return a blurred copy."""
     screen = QGuiApplication.primaryScreen()
     if screen is None:
         return QPixmap()
-    window_id = active_window_id()
-    # Copy detaches from any shared/server-side buffer so later opens stay fresh.
-    grab = screen.grabWindow(window_id).copy()
-    if grab.isNull() and window_id != 0:
-        grab = screen.grabWindow(0).copy()
+    # Flush pending X paints so the grab is not a frame behind.
+    QApplication.processEvents()
+    return screen.grabWindow(0).copy()
+
+
+def capture_blurred_screen() -> QPixmap:
+    """Return a blurred screen grab, or an empty pixmap when capture is unusable."""
+    grab = capture_screen()
+    if not grab_is_useful(grab):
+        _LOGGER.info("Session overlay screen grab was empty or flat; using solid backdrop")
+        return QPixmap()
     return blur_pixmap(grab)
 
 
@@ -156,10 +163,6 @@ class SessionOverlay(QDialog):
     def open_overlay(self) -> None:
         """Capture the screen, raise the overlay, and focus the return action."""
         self._backdrop = capture_blurred_screen()
-        if self._backdrop.isNull():
-            fallback = QPixmap(1, 1)
-            fallback.fill(QColor(self._theme.colors["background"]))
-            self._backdrop = fallback
         self._opacity.setOpacity(0.0)
         self.showFullScreen()
         self.raise_()
@@ -189,7 +192,7 @@ class SessionOverlay(QDialog):
             self.return_button.click()
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        """Draw the blurred app capture and a dark scrim behind the card."""
+        """Draw the blurred capture (or a dark theme fill) and a scrim behind the card."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         if not self._backdrop.isNull():
