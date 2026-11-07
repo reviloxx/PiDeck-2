@@ -10,7 +10,11 @@ from PySide6.QtWidgets import QApplication, QLabel
 
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
-from pideck.presentation.qt.session_overlay import SessionOverlay, blur_pixmap
+from pideck.presentation.qt.session_overlay import (
+    SessionOverlay,
+    active_window_id,
+    blur_pixmap,
+)
 
 
 @pytest.fixture(scope="module")
@@ -44,16 +48,18 @@ def test_menu_dismisses_without_stopping_the_application(application: QApplicati
     assert not overlay.isVisible()
 
 
-def test_back_does_not_dismiss_or_return(application: QApplication) -> None:
-    """Return/Back on the overlay must not quit the application or dismiss it."""
+def test_back_dismisses_without_stopping_the_application(application: QApplication) -> None:
+    """Return/Back dismisses the overlay without quitting the application."""
     overlay = SessionOverlay(DEFAULT_THEME, "en")
     returns: list[str] = []
+    dismissals: list[str] = []
     overlay.return_requested.connect(lambda: returns.append("return"))
+    overlay.dismissed.connect(lambda: dismissals.append("dismissed"))
     overlay.open_overlay()
     overlay.handle_input(InputEvent(InputAction.BACK, "cec"))
     assert returns == []
-    assert overlay.isVisible()
-    overlay.hide()
+    assert dismissals == ["dismissed"]
+    assert not overlay.isVisible()
 
 
 def test_button_click_requests_return(application: QApplication) -> None:
@@ -98,3 +104,48 @@ def test_blur_pixmap_returns_same_size(application: QApplication) -> None:
 def test_blur_pixmap_rejects_empty_source(application: QApplication) -> None:
     """An empty grab produces an empty blur result."""
     assert blur_pixmap(QPixmap()).isNull()
+
+
+def test_active_window_id_parses_xprop_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The focused window id is read from the root _NET_ACTIVE_WINDOW property."""
+    class Result:
+        returncode = 0
+        stdout = "_NET_ACTIVE_WINDOW: window id # 0x1a2b3c\n"
+        stderr = ""
+
+    monkeypatch.setattr(
+        "pideck.presentation.qt.session_overlay.subprocess.run",
+        lambda *args, **kwargs: Result(),
+    )
+    assert active_window_id() == 0x1A2B3C
+
+
+def test_open_overlay_refreshes_backdrop_each_time(
+    application: QApplication, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each open captures a new backdrop instead of reusing the previous blur."""
+    frames = [
+        _solid_pixmap(QColor("#112233")),
+        _solid_pixmap(QColor("#445566")),
+    ]
+
+    def capture() -> QPixmap:
+        return frames.pop(0)
+
+    monkeypatch.setattr(
+        "pideck.presentation.qt.session_overlay.capture_blurred_screen", capture,
+    )
+    overlay = SessionOverlay(DEFAULT_THEME, "en")
+    overlay.open_overlay()
+    first = overlay._backdrop.cacheKey()
+    overlay.dismiss()
+    overlay.open_overlay()
+    second = overlay._backdrop.cacheKey()
+    assert first != second
+    overlay.hide()
+
+
+def _solid_pixmap(color: QColor) -> QPixmap:
+    pixmap = QPixmap(32, 24)
+    pixmap.fill(color)
+    return pixmap

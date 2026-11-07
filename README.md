@@ -56,13 +56,13 @@ x86 or built-in CEC on Raspberry Pi. **Settings → Input** offers direct-TV
 HDMI port selection, automatic or manual connection, and optional TV input
 switching. Auto-connect defaults to on; switching defaults to off. PiDeck
 keeps the CEC adapter for every launched application and forwards the remote's
-arrows, OK and Return as arrow keys, Enter and Escape, plus Play, Pause, Stop,
-Rewind and Fast-forward as media keys (X11 XTest; no extra packages). Exit and
-Root Menu open the session overlay instead of navigating Back. Return (Samsung
-Anynet+ / libCEC `0x91`) is Back. Applications therefore do not receive native
-CEC; catalog `cec: release` no longer hands off the adapter. Before launching
-Kodi, PiDeck disables Kodi's CEC peripherals so libCEC does not contend for
-`/dev/cec0`.
+arrows, OK and Return (Samsung Back) as arrow keys, Enter and Escape, plus Play,
+Pause, Stop, Rewind and Fast-forward as media keys (X11 XTest; no extra
+packages). Pause is sent as the play/pause media key so Chromium-based apps and
+Kodi respond. Exit and Root Menu open the session overlay. Applications
+therefore do not receive native CEC; catalog `cec: release` no longer hands off
+the adapter. Before launching Kodi, PiDeck disables Kodi's CEC peripherals so
+libCEC does not contend for `/dev/cec0`.
 
 **Settings → Input → Keyboard layout** selects German (QWERTZ, the default)
 or English (US). In the appliance session PiDeck applies the choice with
@@ -82,17 +82,19 @@ image guides for setup and limitations. Hardware operation is not yet verified.
 
 Use the arrow keys or Tab to select an application, then Enter or Space to open
 it. While an application is running, the Windows (Super) key, Xbox Guide button
-or TV Exit key opens an overlay with **Back to PiDeck**, which closes the
-application. Press the same hotkey again to dismiss the overlay and stay in the
-app. Alt+F4 and in-app exits still return to PiDeck as well. In settings
-dropdowns, use the arrow keys to browse, Enter to confirm, or Escape to cancel.
-Escape, Backspace, controller B and the remote's Return button go back in
-Settings and dialogs; Backspace still deletes in text fields and the on-screen
-keyboard. On the home screen they do nothing, so PiDeck cannot be shut down by
-an accidental Back press. The mouse pointer is hidden while you navigate with
-the keyboard, a controller or the TV remote, and reappears when the mouse moves
-or is clicked. Pointing at a control selects it, so only one item is highlighted
-regardless of the input device. If Bluetooth is unavailable,
+or TV Exit / Root Menu key opens an overlay with **Back to PiDeck**, which
+closes the application. Press the same hotkey again to dismiss the overlay and
+stay in the app. The Samsung Return button navigates Back inside the app.
+Alt+F4 and in-app exits still return to PiDeck as well. In settings dropdowns,
+use the arrow keys to browse, Enter to confirm, or Escape to cancel. Escape,
+Backspace, controller B and the remote's Return button go back in Settings and
+dialogs; Backspace still deletes in text fields and the on-screen keyboard. On
+the home screen they do nothing, so PiDeck cannot be shut down by an accidental
+Back press. The mouse pointer is hidden while you navigate with the keyboard, a
+controller or the TV remote (including inside running apps such as YouTube),
+and reappears when the mouse moves or is clicked.
+Pointing at a control selects it, so only one item is highlighted regardless of
+the input device. If Bluetooth is unavailable,
 **Settings > System > Bluetooth** still opens and shows the reason.
 
 Typography can be adjusted per theme in the YAML configuration under

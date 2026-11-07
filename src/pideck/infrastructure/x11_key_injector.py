@@ -21,9 +21,10 @@ _KEYSYMS = {
     VirtualKey.RIGHT: b"Right",
     VirtualKey.RETURN: b"Return",
     VirtualKey.ESCAPE: b"Escape",
-    # Chromium-based clients treat XF86AudioPlay as the play/pause toggle.
+    # Chromium / Red / many players treat XF86AudioPlay as the play/pause toggle;
+    # XF86AudioPause is often ignored, so Pause uses the same key.
     VirtualKey.MEDIA_PLAY: b"XF86AudioPlay",
-    VirtualKey.MEDIA_PAUSE: b"XF86AudioPause",
+    VirtualKey.MEDIA_PAUSE: b"XF86AudioPlay",
     VirtualKey.MEDIA_PLAY_PAUSE: b"XF86AudioPlay",
     VirtualKey.MEDIA_STOP: b"XF86AudioStop",
     VirtualKey.MEDIA_REWIND: b"XF86AudioRewind",

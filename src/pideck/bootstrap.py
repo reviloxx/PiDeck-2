@@ -255,6 +255,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     cursor_visibility = CursorVisibility(application)
     application.installEventFilter(cursor_visibility)
     application.installEventFilter(BackspaceAsBack(application))
+    application.aboutToQuit.connect(cursor_visibility.close)
     asset_root = parsed_arguments.asset_root or parsed_arguments.config.parent
     window = build_launcher_window(dependencies, asset_root)
     current_configuration = dependencies.configuration
@@ -501,6 +502,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         def handle_cec_event(event: InputEvent, generation: int) -> None:
             if cec_adapter is not None and cec_adapter.accepts(generation):
+                if event.pressed:
+                    cursor_visibility.hide_cursor()
                 if not forward_cec_to_application(event):
                     handle_gamepad_event(event)
 
@@ -1019,7 +1022,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return application.exec()
     finally:
         application.removeEventFilter(cursor_visibility)
-        cursor_visibility.show_cursor()
+        cursor_visibility.close()
         cleanup_services()
 
 

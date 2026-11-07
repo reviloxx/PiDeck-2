@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.8
+
+- Remote Pause works in Kodi and YouTube (sent as play/pause).
+- The mouse pointer hides inside apps when you use the remote or a controller.
+- The overlay blur now shows the app you are in, not an earlier screenshot.
+
 ## v0.5.7
 
 - The **Back to PiDeck** overlay now shows the running app blurred behind a

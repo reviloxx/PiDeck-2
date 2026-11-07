@@ -28,9 +28,9 @@ an error instead of silently choosing a different port.
 Manual Connect and Disconnect are available when auto-connect is off. A manual
 connection resumes after an application exits, but starts disconnected after
 a PiDeck restart. PiDeck keeps CEC for every application and forwards the
-remote's navigation and media keys; Exit / Root Menu open the session overlay
-(Return is Back). For Kodi, PiDeck disables Kodi's CEC peripherals before
-launch so only PiDeck opens `/dev/cec0`. Re-enabling CEC inside Kodi will
+remote's navigation and media keys; Return navigates Back and Exit / Root Menu
+open the session overlay. For Kodi, PiDeck disables Kodi's CEC peripherals
+before launch so only PiDeck opens `/dev/cec0`. Re-enabling CEC inside Kodi will
 conflict while PiDeck holds the adapter.
 
 The libCEC Linux backend uses `/dev/cec0`, so check which HDMI connector maps
@@ -312,4 +312,4 @@ readiness detector currently uses X11 and `wmctrl`; compatibility with each
 application's real window and process lifecycle remains a release gate.
 
 While an application is running, Super (Windows), the Xbox Guide button and the
-TV Exit key open the session overlay so the user can return to PiDeck.
+TV Exit / Root Menu key open the session overlay so the user can return to PiDeck.

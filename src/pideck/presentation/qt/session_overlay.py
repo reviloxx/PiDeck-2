@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+import re
+import subprocess
+
 from PySide6.QtCore import QEvent, QObject, QPropertyAnimation, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QKeyEvent, QPaintEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -23,9 +27,11 @@ from pideck.domain.theme import ThemeDefinition
 from .localization import tr
 from .theme import apply_theme
 
+_LOGGER = logging.getLogger(__name__)
 _BLUR_SCALE = 4
 _BLUR_RADIUS = 28
 _SCRIM = QColor(0, 0, 0, 168)
+_ACTIVE_WINDOW = re.compile(r"window id # (0x[0-9a-fA-F]+|\d+)")
 
 
 def blur_pixmap(source: QPixmap, *, scale: int = _BLUR_SCALE, radius: int = _BLUR_RADIUS) -> QPixmap:
@@ -58,12 +64,44 @@ def blur_pixmap(source: QPixmap, *, scale: int = _BLUR_SCALE, radius: int = _BLU
     )
 
 
+def active_window_id() -> int:
+    """Return the focused X11 window id, or ``0`` when it cannot be determined.
+
+    Openbox has no compositor, so grabbing the root window often returns a
+    stale root pixmap. Grabbing ``_NET_ACTIVE_WINDOW`` captures the running app.
+    """
+    try:
+        result = subprocess.run(
+            ["xprop", "-root", "-notype", "_NET_ACTIVE_WINDOW"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _LOGGER.debug("Unable to read the active X11 window: %s", error)
+        return 0
+    if result.returncode != 0:
+        return 0
+    match = _ACTIVE_WINDOW.search(result.stdout)
+    if match is None:
+        return 0
+    try:
+        return int(match.group(1), 0)
+    except ValueError:
+        return 0
+
+
 def capture_blurred_screen() -> QPixmap:
-    """Grab the primary screen and return a blurred copy, or an empty pixmap on failure."""
+    """Grab the active application window and return a blurred copy."""
     screen = QGuiApplication.primaryScreen()
     if screen is None:
         return QPixmap()
-    grab = screen.grabWindow(0)
+    window_id = active_window_id()
+    # Copy detaches from any shared/server-side buffer so later opens stay fresh.
+    grab = screen.grabWindow(window_id).copy()
+    if grab.isNull() and window_id != 0:
+        grab = screen.grabWindow(0).copy()
     return blur_pixmap(grab)
 
 
@@ -142,10 +180,10 @@ class SessionOverlay(QDialog):
             self.dismissed.emit()
 
     def handle_input(self, event: InputEvent) -> None:
-        """Activate the return control; MENU dismisses; BACK does not quit the app."""
+        """Activate the return control; MENU/BACK dismiss without quitting the app."""
         if not event.pressed:
             return
-        if event.action in (InputAction.MENU, InputAction.HOME):
+        if event.action in (InputAction.MENU, InputAction.HOME, InputAction.BACK):
             self.dismiss()
         elif event.action is InputAction.ACTIVATE:
             self.return_button.click()

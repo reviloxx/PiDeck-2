@@ -66,10 +66,10 @@ an application exits, but not after restarting PiDeck. A disconnect stops
 automatic reconnection until Connect or a launcher restart.
 
 PiDeck keeps its CEC client for every application and forwards the remote's
-navigation and media keys; Exit / Root Menu open the session overlay (Return is
-Back). For Kodi, PiDeck disables Kodi's CEC peripherals before launch so
-libCEC does not open `/dev/cec0` while PiDeck holds it. Re-enabling CEC inside
-Kodi will conflict while PiDeck holds the adapter.
+navigation and media keys; Return navigates Back and Exit / Root Menu open the
+session overlay. For Kodi, PiDeck disables Kodi's CEC peripherals before launch
+so libCEC does not open `/dev/cec0` while PiDeck holds it. Re-enabling CEC
+inside Kodi will conflict while PiDeck holds the adapter.
 
 The Debian libCEC Linux backend opens only `/dev/cec0`; if that device is a GPU
 or another CEC adapter instead of Pulse-Eight, PiDeck reports an error rather

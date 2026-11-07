@@ -26,7 +26,7 @@ _ACTIONS = {
     0x03: InputAction.LEFT,
     0x04: InputAction.RIGHT,
     0x09: InputAction.MENU,
-    0x0D: InputAction.MENU,
+    0x0D: InputAction.MENU,  # Exit opens the session overlay
     0x44: InputAction.PLAY,
     0x45: InputAction.STOP,
     0x46: InputAction.PAUSE,

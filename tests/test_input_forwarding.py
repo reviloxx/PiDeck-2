@@ -131,10 +131,14 @@ class FakeLibraries:
         return int(self.xtest)
 
     def string_to_keysym(self, name: bytes) -> int:
-        return {b"Return": 0xFF0D, b"XF86AudioPlay": 0x1008FF14}.get(name, 0)
+        return {
+            b"Return": 0xFF0D,
+            b"XF86AudioPlay": 0x1008FF14,
+            b"XF86AudioPause": 0x1008FF31,
+        }.get(name, 0)
 
     def keysym_to_keycode(self, display: int, keysym: int) -> int:
-        return {0xFF0D: 36, 0x1008FF14: 172}.get(keysym, 0)
+        return {0xFF0D: 36, 0x1008FF14: 172, 0x1008FF31: 173}.get(keysym, 0)
 
     def fake_key_event(self, display: int, keycode: int, press: int, delay: int) -> int:
         self.events.append((keycode, press))
@@ -156,6 +160,15 @@ def test_x11_injector_presses_and_releases_mapped_keys(monkeypatch: pytest.Monke
     assert libraries.opened == 1 and libraries.flushes == 2
     injector.close()
     assert libraries.closed == [7]
+
+
+def test_x11_injector_sends_play_toggle_for_pause(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pause uses XF86AudioPlay so Chromium and Kodi receive a working toggle."""
+    monkeypatch.setenv("DISPLAY", ":0")
+    libraries = FakeLibraries()
+    injector = X11KeyInjector(libraries)  # type: ignore[arg-type]
+    injector.tap(VirtualKey.MEDIA_PAUSE)
+    assert libraries.events == [(172, 1), (172, 0)]
 
 
 @pytest.mark.parametrize("libraries", [FakeLibraries(display=0), FakeLibraries(xtest=False)])
