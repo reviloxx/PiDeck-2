@@ -49,10 +49,7 @@ class YamlConfigurationParser:
             self.parse_application(item, index)
             for index, item in enumerate(_sequence(document["applications"], "applications"))
         )
-        themes = tuple(
-            self._parse_theme(item, index)
-            for index, item in enumerate(_sequence(document["themes"], "themes"))
-        )
+        themes = self.parse_themes(document["themes"])
         home = self._parse_home(document["home"])
         input_configuration = self._parse_input(document["input"])
         settings = self._parse_settings(document["settings"])
@@ -124,6 +121,26 @@ class YamlConfigurationParser:
             arguments=tuple(_string_list(data.get("arguments", []), f"{context}.arguments")),
             environment=environment,
             working_directory=Path(working_directory) if working_directory else None,
+        )
+
+    def load_themes(self, path: Path) -> tuple[ThemeDefinition, ...]:
+        """Load a themes-only YAML document shipped with the release assets."""
+        try:
+            with path.open("r", encoding="utf-8") as themes_file:
+                raw_data = yaml.safe_load(themes_file)
+        except OSError as error:
+            raise ConfigurationError(f"Unable to read themes {path}: {error}") from error
+        except yaml.YAMLError as error:
+            raise ConfigurationError(f"Unable to parse themes {path}: {error}") from error
+        document = _mapping(raw_data, "root")
+        _require_keys(document, {"themes"}, "root")
+        return self.parse_themes(document["themes"])
+
+    def parse_themes(self, raw_data: Any) -> tuple[ThemeDefinition, ...]:
+        """Parse a YAML themes sequence into theme definitions."""
+        return tuple(
+            self._parse_theme(item, index)
+            for index, item in enumerate(_sequence(raw_data, "themes"))
         )
 
     def _parse_theme(self, raw_data: Any, index: int) -> ThemeDefinition:

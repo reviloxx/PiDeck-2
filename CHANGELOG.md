@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.18
+
+- Fixed: new themes appear in Design after an update, even when an older
+  settings file still listed only Midnight.
+
 ## v0.5.17
 
 - Appearance keeps theme and language only; reduced motion is always on and the

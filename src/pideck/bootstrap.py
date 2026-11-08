@@ -65,6 +65,7 @@ from pideck.infrastructure.system_audio import PulseAudioGateway
 from pideck.infrastructure.x11_display import DisplayPreferences, X11DisplayGateway
 from pideck.infrastructure.x11_hotkey import X11HotkeyListener
 from pideck.infrastructure.x11_key_injector import X11KeyInjector
+from pideck.infrastructure.config.themes import apply_shipped_themes
 from pideck.infrastructure.theme import FileThemeRepository
 
 if TYPE_CHECKING:
@@ -180,7 +181,8 @@ def build_dependencies(
     logger = configure_logging(level=log_level, log_file=log_file)
     configuration_repository = FileConfigurationRepository(configuration_path)
     configuration = configuration_repository.load()
-    catalog, catalog_error = _load_catalog(asset_root or configuration_path.parent, logger)
+    resolved_asset_root = asset_root or configuration_path.parent
+    catalog, catalog_error = _load_catalog(resolved_asset_root, logger)
     window_modes: dict[str, WindowMode] = catalog_window_modes(catalog)
     policy_paths = []
     image_mode = os.environ.get("PIDECK_IMAGE") == "1"
@@ -196,9 +198,10 @@ def build_dependencies(
             logger.exception("Unable to load application window policy path=%s", policy_path)
     configuration = _apply_window_modes(configuration, window_modes)
     configuration = _apply_catalog_preferred_inputs(configuration, catalog)
+    configuration = apply_shipped_themes(configuration, resolved_asset_root, logger=logger)
     theme_repository = FileThemeRepository(
         themes=configuration.themes,
-        asset_root=asset_root or configuration_path.parent,
+        asset_root=resolved_asset_root,
         fallback=DEFAULT_THEME,
     )
     process_supervisor = SubprocessSupervisor()
