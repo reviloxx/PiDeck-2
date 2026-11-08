@@ -254,20 +254,23 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert (tmp_path / "usr/lib/pideck/pideck-getty").stat().st_mode & 0o111
     assert (tmp_path / "usr/lib/pideck/pideck-wait-drm").stat().st_mode & 0o111
     picom = (tmp_path / "usr/lib/pideck/picom.conf").read_text()
-    assert "vsync = true" in picom
     assert picom == (
-        x86_build.ROOT / "src/pideck/infrastructure/session/picom.conf"
+        x86_build.ROOT / "src/pideck/infrastructure/session/picom-vm.conf"
     ).read_text()
     xsession = (tmp_path / "usr/lib/pideck/pideck-xsession").read_text()
-    assert "infrastructure/session/picom.conf" in xsession
+    assert "picom-nvidia.conf" in xsession
+    assert "picom-vm.conf" in xsession
     from image.update_bundle import project_version
 
     version = project_version(x86_build.ROOT)
     assert os.readlink(tmp_path / "usr/lib/pideck/current") == f"releases/{version}"
     assert (tmp_path / f"usr/lib/pideck/releases/{version}/python/pideck/bootstrap.py").is_file()
-    assert (
-        tmp_path / f"usr/lib/pideck/releases/{version}/python/pideck/infrastructure/session/picom.conf"
-    ).is_file()
+    release_session = (
+        tmp_path / f"usr/lib/pideck/releases/{version}/python/pideck/infrastructure/session"
+    )
+    assert (release_session / "picom.conf").is_file()
+    assert (release_session / "picom-nvidia.conf").is_file()
+    assert (release_session / "picom-vm.conf").is_file()
     override = (tmp_path / "etc/systemd/system/getty@tty1.service.d/pideck.conf").read_text()
     assert "userconfig.service" not in override
     assert "pideck-wait-drm" in override

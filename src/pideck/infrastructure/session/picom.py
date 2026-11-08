@@ -9,18 +9,45 @@ import shutil
 import signal
 import subprocess
 import time
+from collections.abc import Callable
 
 _LOGGER = logging.getLogger(__name__)
-_CONFIG = Path(__file__).with_name("picom.conf")
+_SESSION_DIR = Path(__file__).resolve().parent
+_NVIDIA_VERSION = Path("/proc/driver/nvidia/version")
 
 
-def apply_release_picom(*, config: Path | None = None) -> None:
-    """Restart picom with the release config when a display session is available.
+def select_picom_config(
+    *,
+    directory: Path | None = None,
+    nvidia_present: Callable[[], bool] | None = None,
+    virtual_machine: Callable[[], bool] | None = None,
+) -> Path:
+    """Return the release picom config for this GPU / virtualization environment."""
+    base = directory or _SESSION_DIR
+    if (nvidia_present or _nvidia_driver_loaded)():
+        return base / "picom-nvidia.conf"
+    if (virtual_machine or _running_in_vm)():
+        return base / "picom-vm.conf"
+    return base / "picom.conf"
+
+
+def apply_release_picom(
+    *,
+    config: Path | None = None,
+    nvidia_present: Callable[[], bool] | None = None,
+    virtual_machine: Callable[[], bool] | None = None,
+) -> None:
+    """Restart picom with the selected release config when a display is available.
 
     Failures are logged and never raised so an old image or missing compositor
-    cannot block the launcher. No-op when picom is absent or DISPLAY is unset.
+    cannot block the launcher. No-op when picom is absent, DISPLAY is unset, or
+    picom is already running with the chosen config. Never SIGKILL picom: killing
+    a stuck GLX client can wedge the X server.
     """
-    conf = config or _CONFIG
+    conf = config or select_picom_config(
+        nvidia_present=nvidia_present,
+        virtual_machine=virtual_machine,
+    )
     if not conf.is_file():
         _LOGGER.warning("PiDeck picom config missing at %s", conf)
         return
@@ -29,8 +56,13 @@ def apply_release_picom(*, config: Path | None = None) -> None:
     binary = shutil.which("picom")
     if binary is None:
         return
+    if _picom_already_uses(conf):
+        _LOGGER.info("picom already using %s", conf)
+        return
     try:
-        _stop_picom()
+        if not _stop_picom():
+            _LOGGER.warning("Leaving existing picom running; new config not applied")
+            return
         subprocess.Popen(  # noqa: S603 — fixed binary from PATH, fixed config path
             [binary, "--config", str(conf)],
             stdin=subprocess.DEVNULL,
@@ -44,8 +76,54 @@ def apply_release_picom(*, config: Path | None = None) -> None:
     _LOGGER.info("Started picom with %s", conf)
 
 
-def _stop_picom() -> None:
-    """Terminate any existing picom processes for this user."""
+def _nvidia_driver_loaded() -> bool:
+    """Return whether the proprietary NVIDIA kernel driver is present."""
+    return _NVIDIA_VERSION.is_file()
+
+
+def _running_in_vm() -> bool:
+    """Return whether this host reports a virtual machine to systemd."""
+    binary = shutil.which("systemd-detect-virt")
+    if binary is None:
+        return False
+    try:
+        result = subprocess.run(  # noqa: S603
+            [binary],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    virt = (result.stdout or "").strip()
+    return result.returncode == 0 and virt not in ("", "none")
+
+
+def _picom_already_uses(config: Path) -> bool:
+    """Return whether a user picom process was started with ``config``."""
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["pgrep", "-u", str(os.getuid()), "-ax", "picom"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    needle = str(config)
+    return any(needle in line for line in result.stdout.splitlines())
+
+
+def _stop_picom() -> bool:
+    """Terminate existing picom processes with SIGTERM only.
+
+    Returns True when no picom remains (or none was running), False when a
+    process is still alive after the wait so a second compositor is not started.
+    """
     try:
         result = subprocess.run(  # noqa: S603
             ["pgrep", "-u", str(os.getuid()), "-x", "picom"],
@@ -55,9 +133,9 @@ def _stop_picom() -> None:
             timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return
+        return True
     if result.returncode != 0:
-        return
+        return True
     pids = [int(line) for line in result.stdout.splitlines() if line.strip().isdigit()]
     for pid in pids:
         try:
@@ -76,11 +154,10 @@ def _stop_picom() -> None:
                 continue
             surviving.append(pid)
         if not surviving:
-            return
+            return True
         pids = surviving
         time.sleep(0.05)
-    for pid in pids:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            continue
+    if pids:
+        _LOGGER.warning("picom still running after SIGTERM: %s", pids)
+        return False
+    return True

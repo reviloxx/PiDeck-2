@@ -76,8 +76,13 @@ def test_bundle_is_reproducible_and_contains_only_application_files(tmp_path: Pa
         assert "python/pideck/infrastructure/cec_support/71-pideck-cec-attach.rules" in names
         assert "python/pideck/infrastructure/cec_support/pideck-cec-attach@.service" in names
         picom = "python/pideck/infrastructure/session/picom.conf"
-        assert picom in names
+        nvidia = "python/pideck/infrastructure/session/picom-nvidia.conf"
+        vm = "python/pideck/infrastructure/session/picom-vm.conf"
+        assert {picom, nvidia, vm} <= set(names)
+        assert b'backend = "xrender"' in archive.extractfile(picom).read()
         assert b"vsync = true" in archive.extractfile(picom).read()
+        assert b'backend = "glx"' in archive.extractfile(nvidia).read()
+        assert b"vsync = false" in archive.extractfile(vm).read()
         metadata = json.load(archive.extractfile("python/pideck/_build_info.json"))
         assert metadata["built_at"] == "2026-01-01T00:00:00+00:00"
         assert "assets/icons/settings.svg" in names

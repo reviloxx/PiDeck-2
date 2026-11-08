@@ -4,11 +4,18 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.25
+
+- Fixed: keyboard input in virtual machines after v0.5.24. Picom now uses a
+  VM-safe xrender profile there; NVIDIA keeps GLX with vsync, and other
+  physical GPUs keep xrender with vsync. Restart the PiDeck session after
+  updating.
+
 ## v0.5.24
 
 - Fixed: video tearing under the session overlay (for example 1080p24 in Kodi)
-  by enabling picom vsync. An application update applies it; restart the PiDeck
-  session after updating. A new image is not required for this vsync fix.
+  by enabling picom vsync on physical GPUs. An application update applies it;
+  restart the PiDeck session after updating.
 - Fixed: mounted drives keep a stable `/media/<user>/by-uuid/<UUID>` path across
   remounts so Kodi library sources do not break after restart. Re-point existing
   Kodi sources once to that path (shown in Settings > Drives).
@@ -18,8 +25,8 @@ available. Write for people using PiDeck on a TV; keep it short.
 - Fixed: Kodi no longer inherits browser VA-API settings, so NVIDIA decode can
   use VDPAU cleanly.
 - Fixed: Kodi cannot open the HDMI-CEC adapter while PiDeck owns it.
-- Note: smooth composited video on NVIDIA also needs a new image with picom's
-  `glx` backend (Settings update alone does not replace picom.conf).
+- Note: NVIDIA smooth composited video uses picom's `glx` profile from the
+  application update; virtual machines use a separate safe profile.
 
 ## v0.5.22
 

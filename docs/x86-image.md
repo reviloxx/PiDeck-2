@@ -150,15 +150,15 @@ Hardware video decoding per application:
 driver is loaded. Those variables are for browsers; Kodi would otherwise open
 the NVIDIA VA-API driver first and fall back to software decode. PiDeck
 therefore clears them for the Kodi process and rewrites Kodi's player settings
-on NVIDIA only. Raspberry Pi, Intel and AMD keep Kodi's defaults. Picom uses the
-`glx` backend with `unredir-if-possible` disabled (so the overlay can capture
-fullscreen apps) and `vsync` enabled so composited playback does not tear. The
-canonical config ships in the updatable release at
-`…/python/pideck/infrastructure/session/picom.conf`; bootstrap restarts picom
-with that file at session start, and images also install a fallback at
-`/usr/lib/pideck/picom.conf`. Older images that still use picom's `xrender`
-backend need a new image for the glx change; the vsync fix does not. Pascal GPUs
-decode H.264, HEVC (including 10-bit), VP9, VC-1 and MPEG-2, but not AV1.
+on NVIDIA only. Raspberry Pi, Intel and AMD keep Kodi's defaults. Picom keeps
+`unredir-if-possible` disabled so the overlay can capture fullscreen apps, and
+selects a profile at session start: NVIDIA uses `glx` with vsync, virtual
+machines use `xrender` without vsync (GLX vsync can stall the X server so the
+keyboard stops working), and other physical GPUs use `xrender` with vsync. The
+profiles ship in the updatable release under
+`…/python/pideck/infrastructure/session/`; bootstrap applies the matching file,
+and images install a VM-safe fallback at `/usr/lib/pideck/picom.conf`. Pascal
+GPUs decode H.264, HEVC (including 10-bit), VP9, VC-1 and MPEG-2, but not AV1.
 
 **Settings → System → System information** lists the GPU, its driver and
 version, and the codecs VDPAU and VA-API report (`vdpauinfo`, `vainfo`).

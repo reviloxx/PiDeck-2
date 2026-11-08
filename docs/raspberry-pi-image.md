@@ -315,8 +315,8 @@ application's real window and process lifecycle remains a release gate.
 
 While an application is running, Super (Windows), the Xbox Guide button and the
 TV Exit / Root Menu key open the session overlay so the user can return to PiDeck.
-The session starts picom with the `glx` backend and vsync so the overlay can
-blur fullscreen apps without tearing. Keep `unredir-if-possible` disabled. The
-updatable release owns
-`…/python/pideck/infrastructure/session/picom.conf`; images also install a
-fallback at `/usr/lib/pideck/picom.conf`.
+The session starts picom with `unredir-if-possible` disabled so the overlay can
+blur fullscreen apps. The updatable release selects a profile under
+`…/python/pideck/infrastructure/session/` (xrender with vsync on the Pi;
+NVIDIA and VMs use sibling configs). Images also install a VM-safe fallback at
+`/usr/lib/pideck/picom.conf`.

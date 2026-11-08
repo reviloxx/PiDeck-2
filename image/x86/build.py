@@ -199,7 +199,8 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "openbox/rc.xml", root / "usr/share/pideck/openbox/rc.xml")
     for name in ("pideck-session", "pideck-xsession"):
         _install(PI_FILES / name, lib / name, 0o755)
-    _install(ROOT / "src/pideck/infrastructure/session/picom.conf", lib / "picom.conf")
+    # VM-safe fallback for recovery shells and images without a current release tree.
+    _install(ROOT / "src/pideck/infrastructure/session/picom-vm.conf", lib / "picom.conf")
     for name in ("pideck-getty", "pideck-grow-root", "pideck-wait-drm"):
         _install(INPUTS / name, lib / name, 0o755)
     _install(PI_FILES / "pideck-profile.sh", root / "etc/profile.d/pideck.sh")
