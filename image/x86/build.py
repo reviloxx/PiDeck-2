@@ -200,7 +200,7 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     for name in ("pideck-session", "pideck-xsession"):
         _install(PI_FILES / name, lib / name, 0o755)
     _install(PI_FILES / "picom.conf", lib / "picom.conf")
-    for name in ("pideck-getty", "pideck-grow-root"):
+    for name in ("pideck-getty", "pideck-grow-root", "pideck-wait-drm"):
         _install(INPUTS / name, lib / name, 0o755)
     _install(PI_FILES / "pideck-profile.sh", root / "etc/profile.d/pideck.sh")
     _install(INPUTS / "pideck-network-profile.sh", root / "etc/profile.d/00-pideck-network.sh")
@@ -216,6 +216,10 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(INPUTS / "initramfs-pideck.conf", root / "etc/initramfs-tools/conf.d/pideck.conf")
     _install(INPUTS / "initramfs-pideck-slim", root / "etc/initramfs-tools/hooks/pideck-slim", 0o755)
     _install(INPUTS / "nvidia-pideck.conf", root / "etc/modprobe.d/pideck-nvidia.conf")
+    # Replace Debian's modules-load symlink so nvidia-drm does not block sysinit.
+    modules_load = root / "etc/modules-load.d/nvidia.conf"
+    modules_load.unlink(missing_ok=True)
+    _install(INPUTS / "modules-load-nvidia.conf", modules_load)
     _install(INPUTS / "pideck-video-profile.sh", root / "etc/profile.d/10-pideck-video.sh")
     _install(INPUTS / "firefox-pideck.js", root / "etc/firefox-esr/pideck-video.js")
     _install(INPUTS / "chromium-pideck", root / "etc/chromium.d/pideck-video")
@@ -225,6 +229,11 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     for name in ("pideck-updater.service", "pideck-activate.service"):
         _install(PI_FILES / name, root / "etc/systemd/system" / name)
     _install(INPUTS / "pideck-grow-root.service", root / "etc/systemd/system/pideck-grow-root.service")
+    _install(INPUTS / "pideck-nvidia-load.service", root / "etc/systemd/system/pideck-nvidia-load.service")
+    _install(
+        INPUTS / "plymouth-start-override.conf",
+        root / "etc/systemd/system/plymouth-start.service.d/pideck.conf",
+    )
     version = image_version(ROOT, tag)
     release = lib / "releases" / version
     shutil.copytree(ROOT / "src/pideck", release / "python/pideck", ignore=ignore)
@@ -363,7 +372,7 @@ def _configure(root: Path, loop: str, tag: str | None) -> None:
         f"UUID={efi_uuid} /boot/efi vfat umask=0077 0 2\n", encoding="utf-8",
     )
     _run("systemctl", "--root", str(root), "enable", "NetworkManager", "bluetooth.service", "pideck-updater.service",
-         "pideck-grow-root.service", "getty@tty1.service")
+         "pideck-grow-root.service", "pideck-nvidia-load.service", "getty@tty1.service")
     chroot("grub-install", "--target=i386-pc", "--no-nvram", loop)
     chroot("grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",
            "--bootloader-id=PiDeck", "--removable", "--no-nvram")

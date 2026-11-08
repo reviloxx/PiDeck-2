@@ -1,0 +1,14 @@
+#!/bin/sh
+# Wait until a DRM card appears so X does not start before the GPU driver binds.
+# Always succeeds so a missing GPU still reaches a recoverable console.
+set -eu
+
+i=0
+while [ "$i" -lt 200 ]; do
+	if [ -e /dev/dri/card0 ]; then
+		exit 0
+	fi
+	i=$((i + 1))
+	sleep 0.1
+done
+exit 0

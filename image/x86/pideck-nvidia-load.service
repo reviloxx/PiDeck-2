@@ -1,0 +1,16 @@
+[Unit]
+Description=Load NVIDIA DRM for PiDeck
+DefaultDependencies=no
+After=local-fs.target systemd-udevd.service
+Before=plymouth-start.service getty@tty1.service
+Wants=systemd-udevd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Soft-fail on machines without an NVIDIA GPU so Intel/AMD images still boot.
+ExecStart=-/sbin/modprobe nvidia-drm
+TimeoutStartSec=30
+
+[Install]
+WantedBy=sysinit.target

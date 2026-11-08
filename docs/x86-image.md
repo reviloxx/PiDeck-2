@@ -136,7 +136,7 @@ Hardware video decoding per application:
 
 | Application | API | Status |
 |---|---|---|
-| Kodi | VDPAU | Used automatically. |
+| Kodi | VDPAU | On NVIDIA, PiDeck forces VDPAU and disables VA-API in `~/.kodi/userdata/guisettings.xml` at each launch. |
 | Firefox ESR | VA-API via `nvidia-vaapi-driver` | Enabled by `/etc/firefox-esr/pideck-video.js`; AV1 is disabled so sites choose VP9 or H.264. |
 | Chromium | VA-API | Best effort, through `/etc/chromium.d/pideck-video`. Chromium falls back to software decoding when the driver is unusable. |
 | Chrome, Brave | VA-API | Best effort, through decoder flags in the catalog's launch arguments. |
@@ -145,12 +145,16 @@ Hardware video decoding per application:
 
 `/etc/profile.d/10-pideck-video.sh` sets `LIBVA_DRIVER_NAME=nvidia`,
 `NVD_BACKEND=direct` and `MOZ_DISABLE_RDD_SANDBOX=1` only when the NVIDIA
-driver is loaded. Pascal GPUs decode H.264, HEVC (including 10-bit), VP9,
-VC-1 and MPEG-2, but not AV1.
+driver is loaded. Those variables are for browsers; Kodi would otherwise open
+the NVIDIA VA-API driver first and fall back to software decode. PiDeck
+therefore rewrites Kodi's player settings on NVIDIA only. Raspberry Pi,
+Intel and AMD keep Kodi's defaults. Pascal GPUs decode H.264, HEVC
+(including 10-bit), VP9, VC-1 and MPEG-2, but not AV1.
 
 **Settings → System → System information** lists the GPU, its driver and
 version, and the codecs VDPAU and VA-API report (`vdpauinfo`, `vainfo`).
-On the device, `nvidia-smi` shows the driver and GPU load.
+On the device, `nvidia-smi` shows the driver and GPU decode load; Kodi's
+own log is `~/.kodi/temp/kodi.log`.
 
 Existing images cannot gain the driver through a PiDeck application update.
 Build and flash a new image instead.
@@ -280,25 +284,30 @@ extra display mode change, which can be slow on TVs.
 
 To shorten boots from USB media, new builds keep GPU drivers and GPU firmware
 (NVIDIA, AMD and Intel) out of the initramfs; the Plymouth hook would
-otherwise add over 100 MiB. The drivers load from the root filesystem, and
-the first console waits for udev (up to 20 seconds) before starting X, so the
-session does not start before the graphics driver is ready. The initramfs
-is compressed with zstd, which decompresses faster than the gzip fallback
-used when `zstd` is missing, and it skips the resume lookup because the image
-has no swap. Steam Link's Flatpak runtime is installed with the default GL
-drivers and the GL extension for the image's NVIDIA driver, never one for the
-build host's driver.
+otherwise add over 100 MiB. The drivers load from the root filesystem via
+`pideck-nvidia-load.service` in parallel with the rest of early userspace,
+instead of blocking `systemd-modules-load`. Plymouth and the first console
+wait for that load, and the console then waits for `/dev/dri/card0` (up to
+20 seconds) before starting X, so the session does not start before the
+graphics driver is ready. The initramfs is compressed with zstd, which
+decompresses faster than the gzip fallback used when `zstd` is missing, and
+it skips the resume lookup because the image has no swap. New builds install
+`intel-microcode` so Intel CPUs apply microcode updates from the initramfs.
+Steam Link's Flatpak runtime is installed with the default GL drivers and the
+GL extension for the image's NVIDIA driver, never one for the build host's
+driver.
 
 New builds use a PiDeck Plymouth splash while Linux starts. Firmware and
 VirtualBox screens before Linux starts are outside its control. Because GPU
-drivers load after the initramfs, the splash may appear later; when booting
-in BIOS mode it may not appear until the graphics driver loads. Press Escape
-to switch to boot details, and use the system journal when diagnosing failures;
-the splash does not remove journal entries. Graphics-driver availability may
-affect the splash on physical hardware. The splash uses the default theme's
-colors because it starts before user theme settings are available. Boot
-components are not updated by PiDeck's application updater: an existing
-installation needs a separately applied system update or a newly built image.
+drivers load after the initramfs, the splash waits for NVIDIA DRM and may
+appear later; when booting in BIOS mode it may not appear until the graphics
+driver loads. Press Escape to switch to boot details, and use the system
+journal when diagnosing failures; the splash does not remove journal entries.
+Graphics-driver availability may affect the splash on physical hardware. The
+splash uses the default theme's colors because it starts before user theme
+settings are available. Boot components are not updated by PiDeck's
+application updater: an existing installation needs a separately applied
+system update or a newly built image.
 
 The launcher wallpaper fills the window while preserving its aspect ratio;
 edges are cropped on screens with a different shape. The image's default

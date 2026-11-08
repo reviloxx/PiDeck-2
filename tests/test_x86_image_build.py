@@ -252,6 +252,7 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     ).read_text()
     assert (tmp_path / "usr/lib/pideck-updater/python/pideck/infrastructure/image_update_daemon.py").is_file()
     assert (tmp_path / "usr/lib/pideck/pideck-getty").stat().st_mode & 0o111
+    assert (tmp_path / "usr/lib/pideck/pideck-wait-drm").stat().st_mode & 0o111
     from image.update_bundle import project_version
 
     version = project_version(x86_build.ROOT)
@@ -259,6 +260,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert (tmp_path / f"usr/lib/pideck/releases/{version}/python/pideck/bootstrap.py").is_file()
     override = (tmp_path / "etc/systemd/system/getty@tty1.service.d/pideck.conf").read_text()
     assert "userconfig.service" not in override
+    assert "pideck-wait-drm" in override
+    assert "udevadm settle" not in override
+    assert "pideck-nvidia-load.service" in override
     assert "PIDECK_NETWORK=1" in (tmp_path / "etc/profile.d/00-pideck-network.sh").read_text()
     policy = (tmp_path / "etc/polkit-1/rules.d/49-pideck-network.rules").read_text()
     assert 'subject.user === "pideck"' in policy
@@ -272,14 +276,26 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert 'subject.user === "pideck"' in timezone and "subject.local && subject.active" in timezone
     assert "org.freedesktop.timedate1.set-timezone" in timezone
     assert 'Option "XkbLayout" "de"' in (tmp_path / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf").read_text()
-    assert {"udisks2", "x11-xkb-utils"} <= packages
+    assert {"udisks2", "x11-xkb-utils", "intel-microcode"} <= packages
     grub = (tmp_path / "etc/default/grub.d/90-pideck.cfg").read_text()
     assert "GRUB_TIMEOUT_STYLE=hidden\n" in grub
     assert "GRUB_TIMEOUT=0\n" in grub
     assert "GRUB_RECORDFAIL_TIMEOUT=0\n" in grub
-    assert "quiet splash" in grub
+    assert "quiet splash loglevel=3" in grub
     assert "GRUB_TERMINAL=console\n" in grub
-    assert "udevadm settle" in override
+    nvidia_load = (tmp_path / "etc/systemd/system/pideck-nvidia-load.service").read_text()
+    assert "modprobe nvidia-drm" in nvidia_load
+    assert "WantedBy=sysinit.target" in nvidia_load
+    assert "Before=sysinit.target" not in nvidia_load
+    assert "pideck-nvidia-load.service" in (
+        tmp_path / "etc/systemd/system/plymouth-start.service.d/pideck.conf"
+    ).read_text()
+    modules_load = (tmp_path / "etc/modules-load.d/nvidia.conf").read_text()
+    assert not any(
+        line.strip() and not line.lstrip().startswith("#")
+        for line in modules_load.splitlines()
+    )
+    assert "pideck-nvidia-load.service" in modules_load
     assert "RESUME=none" in (tmp_path / "etc/initramfs-tools/conf.d/pideck.conf").read_text()
     assert (tmp_path / "etc/initramfs-tools/hooks/pideck-slim").stat().st_mode & 0o111
     assert (tmp_path / "usr/share/plymouth/themes/pideck/pideck.script").is_file()
@@ -523,7 +539,10 @@ def test_source_changes_abort_before_compression(tmp_path: Path, monkeypatch: py
     assert not (tmp_path / "image/SHA256SUMS").exists()
 
 
-@pytest.mark.parametrize("name", ["pideck-getty", "pideck-grow-root", "initramfs-pideck-slim"])
+@pytest.mark.parametrize(
+    "name",
+    ["pideck-getty", "pideck-grow-root", "pideck-wait-drm", "initramfs-pideck-slim"],
+)
 def test_x86_session_shell_is_valid(name: str) -> None:
     """Keep installed shell scripts syntactically valid."""
     subprocess.run(["sh", "-n", str(x86_build.INPUTS / name)], check=True)

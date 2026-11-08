@@ -1,4 +1,5 @@
 linux-image-amd64
+intel-microcode
 systemd-sysv
 plymouth
 plymouth-label
