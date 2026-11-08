@@ -15,11 +15,14 @@ from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.storage import Drive, StorageError
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
-from pideck.infrastructure.udisks_storage import UDisksStorageGateway, parse_drives
+from pideck.infrastructure.udisks_storage import DrivePreferences, UDisksStorageGateway, parse_drives
 from pideck.presentation.qt.drives_window import DrivesWindow, format_size
 from pideck.presentation.qt.settings_window import SettingsWindow
 from tests.test_configuration import configuration_document
 
+
+MEDIA_UUID = "A1B2-C3D4"
+DATA_UUID = "12345678-1234-1234-1234-123456789abc"
 
 LSBLK = {
     "blockdevices": [
@@ -28,23 +31,23 @@ LSBLK = {
         {"name": "sda", "path": "/dev/sda", "fstype": None, "type": "disk", "rm": False,
          "hotplug": False, "size": 500, "model": "System SSD", "mountpoints": [None], "children": [
              {"name": "sda1", "path": "/dev/sda1", "fstype": "vfat", "type": "part",
-              "mountpoints": ["/boot/efi"], "label": None, "size": 100},
+              "mountpoints": ["/boot/efi"], "label": None, "size": 100, "uuid": "EFI-0001"},
              {"name": "sda2", "path": "/dev/sda2", "fstype": "ext4", "type": "part",
-              "mountpoints": ["/"], "label": "root", "size": 300},
+              "mountpoints": ["/"], "label": "root", "size": 300, "uuid": "root-uuid"},
              {"name": "sda3", "path": "/dev/sda3", "fstype": "ext4", "type": "part",
-              "mountpoints": [None], "label": "spare", "size": 100},
+              "mountpoints": [None], "label": "spare", "size": 100, "uuid": "spare-uuid"},
          ]},
         {"name": "sdb", "path": "/dev/sdb", "fstype": None, "type": "disk", "rm": True,
          "hotplug": True, "size": 32_000_000_000, "model": "Flash Disk", "mountpoints": [None], "children": [
              {"name": "sdb1", "path": "/dev/sdb1", "fstype": "exfat", "type": "part",
-              "mountpoints": [None], "label": "MEDIA", "size": 32_000_000_000},
+              "mountpoints": [None], "label": "MEDIA", "size": 32_000_000_000, "uuid": MEDIA_UUID},
              {"name": "sdb2", "path": "/dev/sdb2", "fstype": "swap", "type": "part",
-              "mountpoints": [None], "label": None, "size": 1},
+              "mountpoints": [None], "label": None, "size": 1, "uuid": None},
          ]},
         {"name": "sdc", "path": "/dev/sdc", "fstype": None, "type": "disk", "rm": "0",
          "hotplug": "0", "size": "2000", "model": "Data HDD ", "mountpoints": [None], "children": [
              {"name": "sdc1", "path": "/dev/sdc1", "fstype": "ntfs", "type": "part",
-              "mountpoints": ["/media/pideck/Data"], "label": None, "size": "2000"},
+              "mountpoints": ["/media/pideck/Data"], "label": None, "size": "2000", "uuid": DATA_UUID},
          ]},
     ],
 }
@@ -75,8 +78,11 @@ def test_system_disk_loop_and_unmountable_filesystems_are_hidden() -> None:
     drives = parse_drives(LSBLK)
     assert [drive.device for drive in drives] == ["/dev/sdb1", "/dev/sdc1"]
     usb, hdd = drives
-    assert usb == Drive("/dev/sdb1", "MEDIA", "exfat", 32_000_000_000, None, True, "/dev/sdb")
+    assert usb == Drive(
+        "/dev/sdb1", "MEDIA", "exfat", 32_000_000_000, None, True, "/dev/sdb", MEDIA_UUID,
+    )
     assert hdd.label == "Data HDD (sdc1)"
+    assert hdd.uuid == DATA_UUID
     assert hdd.size == 2000 and hdd.mounted and hdd.removable is False
     with pytest.raises(StorageError):
         parse_drives({"unexpected": []})
@@ -94,6 +100,7 @@ def test_disks_with_mounts_outside_data_locations_are_system_disks() -> None:
         ]},
     ]}
     assert [drive.device for drive in parse_drives(document)] == ["/dev/sde1"]
+    assert parse_drives(document)[0].uuid is None
 
 
 def test_mount_uses_udisks_without_interaction() -> None:
@@ -141,6 +148,126 @@ def test_udisks_errors_are_readable_and_unknown_devices_rejected() -> None:
         gateway.mount(Drive("/dev/sda2", "root", "ext4", 1, "/", False, "/dev/sda"))
     with pytest.raises(StorageError, match="Invalid drive"):
         gateway.unmount(Drive("/dev/../etc", "x", "ext4", 1, None, False))
+
+
+def test_drive_preferences_round_trip(tmp_path: Path) -> None:
+    preferences = DrivePreferences(tmp_path / "drives.yaml")
+    assert preferences.load() == frozenset()
+    preferences.remember(MEDIA_UUID)
+    preferences.remember(DATA_UUID)
+    assert preferences.load() == frozenset({MEDIA_UUID, DATA_UUID})
+    saved = (tmp_path / "drives.yaml").read_text(encoding="utf-8")
+    assert "version: 1" in saved and MEDIA_UUID in saved and DATA_UUID in saved
+    preferences.forget(MEDIA_UUID)
+    assert preferences.load() == frozenset({DATA_UUID})
+    with pytest.raises(StorageError):
+        preferences.remember("not a uuid!")
+    (tmp_path / "drives.yaml").write_text("version: 2\nuuids: []\n", encoding="utf-8")
+    with pytest.raises(StorageError, match="Invalid saved drive settings"):
+        preferences.load()
+
+
+def test_mount_and_unmount_update_remembered_uuids(tmp_path: Path) -> None:
+    preferences = DrivePreferences(tmp_path / "drives.yaml")
+    runner = Runner()
+    gateway = UDisksStorageGateway(runner, preferences=preferences)
+    drive = gateway.list_drives()[0]
+    assert drive.uuid == MEDIA_UUID
+    gateway.mount(drive)
+    assert preferences.load() == frozenset({MEDIA_UUID})
+    gateway.unmount(drive)
+    assert preferences.load() == frozenset()
+
+
+def test_mount_without_uuid_does_not_write_preferences(tmp_path: Path) -> None:
+    preferences = DrivePreferences(tmp_path / "drives.yaml")
+    document = {"blockdevices": [
+        {"name": "sdf", "path": "/dev/sdf", "type": "disk", "rm": True, "hotplug": True, "children": [
+            {"name": "sdf1", "path": "/dev/sdf1", "fstype": "ext4", "type": "part",
+             "mountpoints": [None], "label": "NOUUID", "size": 100, "uuid": ""},
+        ]},
+    ]}
+    gateway = UDisksStorageGateway(Runner(document), preferences=preferences)
+    gateway.mount(gateway.list_drives()[0])
+    assert not preferences.path.exists()
+
+
+def test_restore_saved_mounts_remembered_drives(tmp_path: Path) -> None:
+    preferences = DrivePreferences(tmp_path / "drives.yaml")
+    preferences.save(frozenset({MEDIA_UUID, DATA_UUID, "DEAD-BEEF"}))
+    runner = Runner()
+    sleeps: list[float] = []
+    gateway = UDisksStorageGateway(
+        runner, which=lambda name: f"/usr/bin/{name}", preferences=preferences, sleep=sleeps.append,
+    )
+    gateway.restore_saved()
+    mounts = [command for command in runner.commands if command[:2] == ["udisksctl", "mount"]]
+    assert mounts == [["udisksctl", "mount", "--no-user-interaction", "--block-device", "/dev/sdb1"]]
+    assert preferences.load() == frozenset({MEDIA_UUID, DATA_UUID, "DEAD-BEEF"})
+    assert sleeps == []
+
+
+def test_restore_saved_retries_when_drives_are_still_probing(tmp_path: Path) -> None:
+    preferences = DrivePreferences(tmp_path / "drives.yaml")
+    preferences.remember(MEDIA_UUID)
+    empty = {"blockdevices": []}
+    runner = Runner(empty)
+    lists = {"count": 0}
+
+    def run(command: list[str]) -> subprocess.CompletedProcess[str]:
+        if command[0] == "lsblk":
+            lists["count"] += 1
+            if lists["count"] >= 2:
+                runner.document = LSBLK
+        return runner(command)
+
+    sleeps: list[float] = []
+    gateway = UDisksStorageGateway(
+        run, which=lambda name: f"/usr/bin/{name}", preferences=preferences, sleep=sleeps.append,
+    )
+    gateway.restore_saved()
+    assert sleeps == [3.0]
+    assert any(command[:2] == ["udisksctl", "mount"] for command in runner.commands)
+
+
+def test_restore_saved_continues_after_one_mount_failure(tmp_path: Path) -> None:
+    preferences = DrivePreferences(tmp_path / "drives.yaml")
+    second = "BBBB-CCCC"
+    document = {
+        "blockdevices": [
+            {"name": "sdb", "path": "/dev/sdb", "type": "disk", "rm": True, "hotplug": True, "children": [
+                {"name": "sdb1", "path": "/dev/sdb1", "fstype": "exfat", "type": "part",
+                 "mountpoints": [None], "label": "MEDIA", "size": 1, "uuid": MEDIA_UUID},
+            ]},
+            {"name": "sdg", "path": "/dev/sdg", "type": "disk", "rm": False, "hotplug": False, "children": [
+                {"name": "sdg1", "path": "/dev/sdg1", "fstype": "ext4", "type": "part",
+                 "mountpoints": [None], "label": "MORE", "size": 1, "uuid": second},
+            ]},
+        ],
+    }
+    preferences.save(frozenset({MEDIA_UUID, second}))
+
+    class Selective(Runner):
+        def __call__(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+            self.commands.append(command)
+            action = command[1] if command[0] == "udisksctl" else command[0]
+            if action == "mount" and command[-1] == "/dev/sdb1":
+                return subprocess.CompletedProcess(command, 1, "", "Error mounting /dev/sdb1: busy")
+            if command[0] == "lsblk":
+                return subprocess.CompletedProcess(command, 0, json.dumps(self.document), "")
+            if action == "mount":
+                return subprocess.CompletedProcess(
+                    command, 0, f"Mounted {command[-1]} at /media/pideck/MORE\n", "",
+                )
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+    selective = Selective(document)
+    gateway = UDisksStorageGateway(
+        selective, which=lambda name: f"/usr/bin/{name}", preferences=preferences, sleep=lambda _: None,
+    )
+    gateway.restore_saved()
+    mounts = [command[-1] for command in selective.commands if command[:2] == ["udisksctl", "mount"]]
+    assert mounts == ["/dev/sdb1", "/dev/sdg1"]
 
 
 def test_format_size_uses_decimal_units() -> None:

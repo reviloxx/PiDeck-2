@@ -6,29 +6,40 @@ treated as a system disk and hidden completely, so the appliance cannot
 unmount or power off its own root, boot, EFI or home filesystems. Mounting uses ``udisksctl`` without
 interactive authentication; new PiDeck images ship a polkit rule that grants
 the session user the required udisks2 actions.
+
+User-mounted filesystem UUIDs are remembered in a separate ``drives.yaml`` so
+they can be remounted after restart without touching ``pideck.yaml``.
 """
 
 from collections.abc import Callable, Iterator, Mapping
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
+import threading
+import time
 from typing import Any
+
+import yaml
 
 from pideck.application.ports.storage import Drive, StorageError
 
 
 _LOGGER = logging.getLogger(__name__)
 _DEVICE = re.compile(r"/dev/[A-Za-z0-9][A-Za-z0-9._/-]*")
+_UUID = re.compile(r"[0-9A-Fa-f][0-9A-Fa-f-]{3,63}")
 _DATA_MOUNT_ROOTS = ("/media/", "/mnt/", "/run/media/")
 _IGNORED_FILESYSTEMS = frozenset({
     "swap", "crypto_LUKS", "LVM2_member", "linux_raid_member", "zfs_member", "bcache", "squashfs",
 })
 _IGNORED_TYPES = frozenset({"loop", "ram", "zram"})
-_LSBLK_COLUMNS = "NAME,PATH,LABEL,FSTYPE,SIZE,MOUNTPOINTS,TYPE,RM,HOTPLUG,MODEL"
+_LSBLK_COLUMNS = "NAME,PATH,LABEL,FSTYPE,SIZE,MOUNTPOINTS,TYPE,RM,HOTPLUG,MODEL,UUID"
 _ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}
+_RESTORE_RETRY_SECONDS = 3.0
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
@@ -81,6 +92,15 @@ def _clean_error(text: str) -> str:
     return message or "The storage service rejected the request"
 
 
+def _filesystem_uuid(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    uuid = value.strip()
+    if not uuid or _UUID.fullmatch(uuid) is None:
+        return None
+    return uuid
+
+
 def parse_drives(document: object) -> tuple[Drive, ...]:
     """Convert ``lsblk --json`` output into mountable non-system drives."""
     if not isinstance(document, dict) or not isinstance(document.get("blockdevices"), list):
@@ -115,17 +135,93 @@ def parse_drives(document: object) -> tuple[Drive, ...]:
                 mountpoint=mounts[0] if mounts else None,
                 removable=disk_removable or _flag(node.get("rm")) or _flag(node.get("hotplug")),
                 parent=disk_path if isinstance(disk_path, str) and disk_path != path else None,
+                uuid=_filesystem_uuid(node.get("uuid")),
             ))
     return tuple(drives)
+
+
+class DrivePreferences:
+    """Persist filesystem UUIDs the user mounted through Settings."""
+
+    def __init__(self, path: Path) -> None:
+        """Create a repository for remembered data-drive mounts."""
+        self.path = path
+
+    def load(self) -> frozenset[str]:
+        """Load validated UUIDs; a missing file means nothing to remount."""
+        try:
+            document = yaml.safe_load(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return frozenset()
+        except (OSError, UnicodeError, yaml.YAMLError) as error:
+            raise StorageError(f"Unable to read drive settings: {error}") from error
+        if not isinstance(document, dict) or document.get("version") != 1:
+            raise StorageError("Invalid saved drive settings")
+        values = document.get("uuids")
+        if not isinstance(values, list):
+            raise StorageError("Invalid saved drive settings")
+        uuids: set[str] = set()
+        for value in values:
+            uuid = _filesystem_uuid(value)
+            if uuid is None:
+                raise StorageError("Invalid saved drive settings")
+            uuids.add(uuid)
+        return frozenset(uuids)
+
+    def save(self, uuids: frozenset[str]) -> None:
+        """Atomically replace the remembered UUID set."""
+        for uuid in uuids:
+            if _filesystem_uuid(uuid) is None:
+                raise StorageError("Invalid drive UUID")
+        document = {"version": 1, "uuids": sorted(uuids)}
+        temporary: Path | None = None
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.path.parent,
+                prefix=f".{self.path.name}.", suffix=".tmp", delete=False,
+            ) as file:
+                temporary = Path(file.name)
+                yaml.safe_dump(document, file, sort_keys=True)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temporary, self.path)
+        except (OSError, yaml.YAMLError) as error:
+            raise StorageError(f"Unable to save drive settings: {error}") from error
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def remember(self, uuid: str) -> None:
+        """Add ``uuid`` to the remembered set after a successful user mount."""
+        cleaned = _filesystem_uuid(uuid)
+        if cleaned is None:
+            raise StorageError("Invalid drive UUID")
+        self.save(self.load() | {cleaned})
+
+    def forget(self, uuid: str) -> None:
+        """Remove ``uuid`` after the user explicitly unmounts the drive."""
+        cleaned = _filesystem_uuid(uuid)
+        if cleaned is None:
+            raise StorageError("Invalid drive UUID")
+        self.save(self.load() - {cleaned})
 
 
 class UDisksStorageGateway:
     """List block devices with ``lsblk`` and change mounts with ``udisksctl``."""
 
-    def __init__(self, runner: Runner = _run, which: Callable[[str], str | None] = shutil.which) -> None:
-        """Create a gateway; ``runner`` and ``which`` are injectable for tests."""
+    def __init__(
+        self,
+        runner: Runner = _run,
+        which: Callable[[str], str | None] = shutil.which,
+        preferences: DrivePreferences | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        """Create a gateway; ``runner``, ``which`` and ``sleep`` are injectable for tests."""
         self._runner = runner
         self._which = which
+        self._preferences = preferences
+        self._sleep = sleep
 
     def available(self) -> bool:
         """Return whether udisks2 is installed on this image."""
@@ -154,19 +250,24 @@ class UDisksStorageGateway:
 
     def mount(self, drive: Drive) -> str:
         """Mount a listed drive and return the mount point udisks2 chose."""
-        device = self._validated(drive).device
+        current = self._validated(drive)
+        device = current.device
         output = self._execute(
             ["udisksctl", "mount", "--no-user-interaction", "--block-device", device],
             "The storage service is unavailable",
         )
         match = re.search(r" at (/.+?)\.?\s*$", output.strip())
-        if match is not None:
-            _LOGGER.info("Mounted drive device=%s mountpoint=%s", device, match.group(1))
-            return match.group(1)
-        for current in self.list_drives():
-            if current.device == device and current.mountpoint is not None:
-                return current.mountpoint
-        raise StorageError("The drive was not mounted")
+        mountpoint: str | None = match.group(1) if match is not None else None
+        if mountpoint is None:
+            for listed in self.list_drives():
+                if listed.device == device and listed.mountpoint is not None:
+                    mountpoint = listed.mountpoint
+                    break
+        if mountpoint is None:
+            raise StorageError("The drive was not mounted")
+        _LOGGER.info("Mounted drive device=%s mountpoint=%s", device, mountpoint)
+        self._remember(current.uuid)
+        return mountpoint
 
     def unmount(self, drive: Drive) -> None:
         """Unmount a drive, then power off a removable disk with no other mounts."""
@@ -177,6 +278,7 @@ class UDisksStorageGateway:
             "The storage service is unavailable",
         )
         _LOGGER.info("Unmounted drive device=%s", device)
+        self._forget(current.uuid)
         parent = current.parent or device
         if not current.removable or _DEVICE.fullmatch(parent) is None:
             return
@@ -194,6 +296,63 @@ class UDisksStorageGateway:
             _LOGGER.info("Powered off removable disk device=%s", parent)
         except StorageError as error:
             _LOGGER.warning("Unable to power off removable disk device=%s error=%s", parent, error)
+
+    def restore_saved(self) -> None:
+        """Remount remembered data drives that are present and still unmounted."""
+        if self._preferences is None or not self.available():
+            return
+        try:
+            uuids = self._preferences.load()
+        except StorageError as error:
+            _LOGGER.warning("Unable to load remembered drives: %s", error)
+            return
+        if not uuids:
+            return
+        drives = self.list_drives()
+        if not drives:
+            self._sleep(_RESTORE_RETRY_SECONDS)
+            drives = self.list_drives()
+        by_uuid = {drive.uuid: drive for drive in drives if drive.uuid}
+        for uuid in sorted(uuids):
+            drive = by_uuid.get(uuid)
+            if drive is None:
+                _LOGGER.info("Remembered drive is not present uuid=%s", uuid)
+                continue
+            if drive.mounted:
+                continue
+            try:
+                self.mount(drive)
+            except StorageError as error:
+                _LOGGER.warning("Unable to remount drive uuid=%s error=%s", uuid, error)
+
+    def restore_saved_async(self) -> None:
+        """Remount remembered drives off the UI thread at launcher startup."""
+        if self._preferences is None or not self._preferences.path.exists() or not self.available():
+            return
+
+        def restore() -> None:
+            try:
+                self.restore_saved()
+            except StorageError as error:
+                _LOGGER.warning("Unable to restore remembered drives: %s", error)
+
+        threading.Thread(target=restore, name="pideck-drives-restore", daemon=True).start()
+
+    def _remember(self, uuid: str | None) -> None:
+        if self._preferences is None or uuid is None:
+            return
+        try:
+            self._preferences.remember(uuid)
+        except StorageError as error:
+            _LOGGER.warning("Unable to remember mounted drive uuid=%s error=%s", uuid, error)
+
+    def _forget(self, uuid: str | None) -> None:
+        if self._preferences is None or uuid is None:
+            return
+        try:
+            self._preferences.forget(uuid)
+        except StorageError as error:
+            _LOGGER.warning("Unable to forget unmounted drive uuid=%s error=%s", uuid, error)
 
     def _validated(self, drive: Drive) -> Drive:
         """Return the freshly listed drive so stale UI snapshots cannot target other disks."""

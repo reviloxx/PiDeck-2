@@ -62,6 +62,7 @@ from pideck.application.ports.bluetooth import BluetoothError
 from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
 from pideck.infrastructure.system_power import SystemPower
 from pideck.infrastructure.system_audio import PulseAudioGateway
+from pideck.infrastructure.udisks_storage import DrivePreferences, UDisksStorageGateway
 from pideck.infrastructure.x11_display import DisplayPreferences, X11DisplayGateway
 from pideck.infrastructure.x11_hotkey import X11HotkeyListener
 from pideck.infrastructure.x11_key_injector import X11KeyInjector
@@ -345,6 +346,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     cec_status_bridge.status_received.connect(handle_cec_status, Qt.ConnectionType.QueuedConnection)
     display_gateway = X11DisplayGateway(DisplayPreferences(parsed_arguments.config.parent / "display.yaml"))
+    storage_gateway = UDisksStorageGateway(
+        preferences=DrivePreferences(parsed_arguments.config.parent / "drives.yaml"),
+    )
 
     class PiDeckUpdateBridge(QObject):
         """Forward release worker results to the Qt thread."""
@@ -991,13 +995,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
         nonlocal drives_window
         if drives_window is not None and drives_window.isVisible():
             return
-        from pideck.infrastructure.udisks_storage import UDisksStorageGateway
         from pideck.presentation.qt.drives_window import DrivesWindow
 
         parent = settings_window if settings_window is not None and settings_window.isVisible() else window
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
         drives_window = DrivesWindow(
-            UDisksStorageGateway(), theme, current_configuration.settings.language, parent,
+            storage_gateway, theme, current_configuration.settings.language, parent,
         )
         drives_window.showFullScreen()
 
@@ -1118,6 +1121,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     window.settings_requested.connect(handle_settings_request)
     window.shutdown_requested.connect(handle_shutdown_request)
     display_gateway.restore_saved_async()
+    storage_gateway.restore_saved_async()
     sync_installed_applications()
     window.show_launcher()
 
