@@ -118,8 +118,6 @@ class InputConfiguration:
 class SettingsConfiguration:
     """Store launcher-wide settings persisted in YAML."""
 
-    reduced_motion: bool = False
-    show_clock: bool = True
     language: str = "en"
     update_check_interval_hours: int = 6
 

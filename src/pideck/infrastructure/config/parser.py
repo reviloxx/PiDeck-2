@@ -218,22 +218,19 @@ class YamlConfigurationParser:
             data,
             set(),
             "settings",
+            # Legacy keys remain allowed so older pideck.yaml files still load.
             optional={"reduced_motion", "show_clock", "language", "update_check_interval_hours"},
         )
-        reduced_motion = data.get("reduced_motion", False)
-        show_clock = data.get("show_clock", True)
+        for key in ("reduced_motion", "show_clock"):
+            value = data.get(key)
+            if value is not None and not isinstance(value, bool):
+                raise ConfigurationValidationError(f"settings.{key} must be a boolean")
         language = data.get("language", "en")
         update_interval = data.get("update_check_interval_hours", 6)
-        if not isinstance(reduced_motion, bool):
-            raise ConfigurationValidationError("settings.reduced_motion must be a boolean")
-        if not isinstance(show_clock, bool):
-            raise ConfigurationValidationError("settings.show_clock must be a boolean")
         if not isinstance(language, str):
             raise ConfigurationValidationError("settings.language must be a string")
         try:
             return SettingsConfiguration(
-                reduced_motion=reduced_motion,
-                show_clock=show_clock,
                 language=language,
                 update_check_interval_hours=update_interval,
             )

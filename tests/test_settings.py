@@ -18,14 +18,13 @@ def test_settings_service_applies_and_persists_updates(tmp_path: Path) -> None:
     service = SettingsService()
     update = SettingsUpdate(
         theme="default",
-        reduced_motion=True,
         visible_applications=("browser",),
     )
 
     updated = service.save(repository, configuration, update)
     restored = repository.load()
 
-    assert updated.settings.reduced_motion is True
+    assert updated.settings.language == "en"
     assert updated.settings.update_check_interval_hours == 12
     assert updated.home.visible_applications == ("browser",)
     assert restored == updated
@@ -39,7 +38,7 @@ def test_settings_service_rejects_unknown_application() -> None:
     try:
         service.apply(
             configuration,
-            SettingsUpdate("default", False, ("missing",)),
+            SettingsUpdate("default", ("missing",)),
         )
     except ConfigurationValidationError as error:
         assert "unknown applications" in str(error)

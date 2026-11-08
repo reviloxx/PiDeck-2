@@ -61,8 +61,8 @@ def test_order_reorders_tiles_and_saved_applications() -> None:
 def test_settings_without_applications_can_still_be_saved() -> None:
     """After removing every application, appearance changes remain possible."""
     empty = replace(configuration(()), applications=())
-    updated = SettingsService().apply(empty, SettingsUpdate("default", True, ()))
-    assert updated.settings.reduced_motion
+    updated = SettingsService().apply(empty, SettingsUpdate("default", ()))
+    assert updated.home.theme == "default"
 
 
 def test_application_items_merge_configuration_and_catalog() -> None:

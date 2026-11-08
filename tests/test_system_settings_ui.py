@@ -22,11 +22,13 @@ from pideck.presentation.qt.network_window import NetworkWindow
 from pideck.presentation.qt.power_dialog import PowerDialog
 from pideck.presentation.qt.settings_window import SettingsWindow
 from pideck.presentation.qt.theme import SettingsComboBox, apply_theme, configure_combo_box
+from pideck.presentation.qt.timezone_window import TimezoneWindow
 from tests.test_audio_window import Audio
 from tests.test_bluetooth_window import Agent, Gateway
 from tests.test_configuration import configuration_document
 from tests.test_display_window import Display
 from tests.test_network_window import FakeNetwork
+from tests.test_timezone_window import Timezone
 
 
 @pytest.fixture(scope="module")
@@ -48,6 +50,7 @@ def _wait(application: QApplication, condition) -> None:
     ("row_name", "signal_name"),
     [
         ("_display_row", "display_requested"),
+        ("_timezone_row", "timezone_requested"),
         ("_audio_row", "audio_requested"),
         ("_bluetooth_row", "bluetooth_requested"),
         ("_drives_row", "drives_requested"),
@@ -196,14 +199,14 @@ def test_appearance_row_mouse_click_still_only_moves_focus(application: QApplica
     window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), system_enabled=True)
     window.show()
     window._select_page(0)
-    assert not window._reduced_motion.isChecked()
-    QTest.mouseClick(window._motion_row, Qt.MouseButton.LeftButton)
-    assert window.focusWidget() is window._motion_row
-    assert not window._reduced_motion.isChecked()
+    assert window._theme_combo.currentData() == "default"
+    QTest.mouseClick(window._theme_row, Qt.MouseButton.LeftButton)
+    assert window.focusWidget() is window._theme_row
+    assert window._theme_combo.currentData() == "default"
     window.close()
 
 
-@pytest.mark.parametrize("kind", ["audio", "display", "bluetooth", "network"])
+@pytest.mark.parametrize("kind", ["audio", "display", "timezone", "bluetooth", "network"])
 @pytest.mark.parametrize(("width", "height"), [(800, 600), (1280, 720), (1920, 1080), (2560, 1440)])
 @pytest.mark.parametrize("language", ["en", "de"])
 def test_system_panels_are_centered_responsive_and_unclipped(
@@ -218,6 +221,9 @@ def test_system_panels_are_centered_responsive_and_unclipped(
     elif kind == "display":
         window = DisplayWindow(Display(), DEFAULT_THEME, language, parent)
         ready = lambda: window.output.isEnabled()
+    elif kind == "timezone":
+        window = TimezoneWindow(Timezone(), DEFAULT_THEME, language, parent)
+        ready = lambda: window.region.isEnabled()
     elif kind == "bluetooth":
         window = BluetoothWindow(Gateway(agent), agent, DEFAULT_THEME, language, parent)
         ready = lambda: window._state is not None
@@ -242,6 +248,10 @@ def test_system_panels_are_centered_responsive_and_unclipped(
         assert window.output.width() < panel.width()
         if width >= 1920:
             assert window.output.width() < width * 0.6
+    if kind == "timezone":
+        assert window.region.width() < panel.width()
+        if width >= 1920:
+            assert window.region.width() < width * 0.6
     window.close()
     parent.close()
 

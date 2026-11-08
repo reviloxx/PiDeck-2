@@ -265,6 +265,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     udisks = (tmp_path / "etc/polkit-1/rules.d/50-pideck-udisks.rules").read_text()
     assert 'subject.isInGroup("plugdev")' in udisks and "subject.local && subject.active" in udisks
     assert "org.freedesktop.udisks2.filesystem-mount" in udisks
+    timezone = (tmp_path / "etc/polkit-1/rules.d/51-pideck-timezone.rules").read_text()
+    assert 'subject.user === "pideck"' in timezone and "subject.local && subject.active" in timezone
+    assert "org.freedesktop.timedate1.set-timezone" in timezone
     assert 'Option "XkbLayout" "de"' in (tmp_path / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf").read_text()
     assert {"udisks2", "x11-xkb-utils"} <= packages
     grub = (tmp_path / "etc/default/grub.d/90-pideck.cfg").read_text()

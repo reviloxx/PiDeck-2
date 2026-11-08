@@ -101,7 +101,7 @@ def test_parser_applies_defaults_to_optional_application_fields() -> None:
     assert application.arguments == ()
     assert application.profiles == ()
     assert application.preferred_input.value == "keyboard"
-    assert configuration.settings.reduced_motion is False
+    assert configuration.settings.language == "en"
 
 
 @pytest.mark.parametrize("value", [0, -1, 597, True, "6", 1.5])
@@ -119,6 +119,20 @@ def test_update_check_interval_can_be_configured() -> None:
     assert YamlConfigurationParser().parse(document).settings.update_check_interval_hours == 6
     document["settings"]["update_check_interval_hours"] = 12
     assert YamlConfigurationParser().parse(document).settings.update_check_interval_hours == 12
+
+
+def test_legacy_appearance_settings_are_ignored() -> None:
+    """Older reduced_motion and show_clock keys still load but are not modeled."""
+    document = configuration_document()
+    document["settings"] = {
+        "reduced_motion": True,
+        "show_clock": False,
+        "language": "de",
+    }
+    configuration = YamlConfigurationParser().parse(document)
+    assert configuration.settings.language == "de"
+    assert not hasattr(configuration.settings, "reduced_motion")
+    assert not hasattr(configuration.settings, "show_clock")
 
 
 def test_repository_recovers_from_invalid_configuration(tmp_path: Path) -> None:

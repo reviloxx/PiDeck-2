@@ -12,9 +12,7 @@ class SettingsUpdate:
     """Represent editable launcher settings from the settings presentation."""
 
     theme: str
-    reduced_motion: bool
     visible_applications: tuple[str, ...]
-    show_clock: bool = True
     language: str = "en"
 
     def __post_init__(self) -> None:
@@ -52,8 +50,6 @@ class SettingsService:
             ),
             settings=replace(
                 configuration.settings,
-                reduced_motion=update.reduced_motion,
-                show_clock=update.show_clock,
                 language=update.language,
             ),
         )

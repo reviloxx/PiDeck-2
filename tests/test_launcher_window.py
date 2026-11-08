@@ -64,14 +64,12 @@ def test_launcher_renders_tiles_and_focuses_first(application: QApplication) -> 
 
 
 def test_clock_is_visible_and_formatted_by_default(application: QApplication) -> None:
-    """The launcher shows a live date/time label by default."""
+    """The launcher always shows a live date/time label."""
     window = launcher_window(application)
 
     assert window._clock_label.isVisible()
     assert len(window._clock_label.text()) >= 16
-
-    window.set_clock_visible(False)
-    assert window._clock_label.isVisible() is False
+    assert window._clock_timer.isActive()
     window.close()
 
 
@@ -137,32 +135,17 @@ def test_theme_animation_and_running_state_are_applied(application: QApplication
 
     assert window._tiles[1].property("running") is True
     assert window._tiles[0].property("running") is False
-    assert animation.duration() == 180
+    assert animation.duration() == DEFAULT_THEME.animation.reduced_motion_duration_ms
     assert "wallpaper" in window.styleSheet()
 
     window.close()
 
 
-def test_reduced_motion_disables_focus_animation(application: QApplication) -> None:
-    """Reduced-motion configuration uses the theme's zero-duration timing."""
+def test_focus_animation_always_uses_reduced_motion_timing(application: QApplication) -> None:
+    """Focus glow always uses the theme's reduced-motion duration."""
     window = launcher_window(application)
-    reduced_theme = replace(
-        DEFAULT_THEME,
-        wallpaper=Path("assets/themes/default/wallpaper.svg"),
-    )
-    reduced_window = LauncherWindow(
-        window._controller,
-        reduced_theme,
-        Path.cwd(),
-        reduced_motion=True,
-    )
-    reduced_window.show()
-    application.processEvents()
-
-    animation = reduced_window._tiles[0].property("focus_animation")
-    assert animation.duration() == 0
-
-    reduced_window.close()
+    animation = window._tiles[0].property("focus_animation")
+    assert animation.duration() == DEFAULT_THEME.animation.reduced_motion_duration_ms
     window.close()
 
 

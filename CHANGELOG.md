@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.17
+
+- Appearance keeps theme and language only; reduced motion is always on and the
+  home clock is always shown.
+- System settings gain a Timezone page that changes the host timezone.
+- New themes: Ember, Nordic, Aurora, and Daylight (Midnight remains the default).
+
 ## v0.5.16
 
 - Fixed: Samsung Return Back works repeatedly in Kodi and YouTube. Remotes that

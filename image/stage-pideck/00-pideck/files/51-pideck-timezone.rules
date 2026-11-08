@@ -1,0 +1,8 @@
+// Let the PiDeck session user change the host timezone from
+// Settings > System > Timezone without an administrator password.
+polkit.addRule(function(action, subject) {
+    if (subject.local && subject.active && subject.user === "pideck" &&
+        action.id === "org.freedesktop.timedate1.set-timezone") {
+        return polkit.Result.YES;
+    }
+});

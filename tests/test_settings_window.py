@@ -584,11 +584,11 @@ def test_sidebar_navigation_hint_is_removed(application: QApplication) -> None:
 
 
 def test_settings_window_loads_current_values(application: QApplication) -> None:
-    """The dialog reflects the current theme, motion, and applications."""
+    """The dialog reflects the current theme, language, and applications."""
     window = settings_window(application)
 
     assert window._theme_combo.currentData() == "default"
-    assert window._reduced_motion.isChecked() is False
+    assert window._language_combo.currentData() == "en"
     assert [row.item.key for row in window._apps.rows()] == ["browser"]
     assert window._apps.row("browser").item.visible
 
@@ -600,11 +600,11 @@ def test_settings_window_emits_typed_update(application: QApplication) -> None:
     window = settings_window(application)
     updates: list[SettingsUpdate] = []
     window.settings_submitted.connect(updates.append)
-    window._reduced_motion.setChecked(True)
+    window._language_combo.setCurrentIndex(1)
 
     window._submit()
 
-    assert updates == [SettingsUpdate("default", True, ("browser",))]
+    assert updates == [SettingsUpdate("default", ("browser",), language="de")]
     window.close()
 
 
@@ -616,10 +616,12 @@ def test_settings_window_emits_changes_immediately(application: QApplication) ->
 
     QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Right)
     QTest.keyClick(window._theme_row, Qt.Key.Key_Down)
-    QTest.keyClick(window._motion_row, Qt.Key.Key_Space)
+    QTest.keyClick(window._language_row, Qt.Key.Key_Return)
+    QTest.keyClick(window._language_combo.view(), Qt.Key.Key_Down)
+    QTest.keyClick(window._language_combo.view(), Qt.Key.Key_Return)
 
     assert updates
-    assert updates[-1].reduced_motion is True
+    assert updates[-1].language == "de"
     assert not hasattr(window, "_save_button")
     assert not hasattr(window, "_cancel_button")
     window.close()
@@ -634,10 +636,8 @@ def test_german_language_updates_settings_labels(application: QApplication) -> N
 
     assert window._nav_buttons[0].text() == "Darstellung"
     assert window._nav_buttons[1].text() == "Anwendungen"
-    assert window._clock_labels[0].text() == "Uhr"
+    assert window._theme_labels[0].text() == "Design"
     assert window._language_labels[0].text() == "Sprache"
-    assert window._show_clock.state_text() == "Ein"
-    assert window._reduced_motion.state_text() == ("Ein" if window._reduced_motion.isChecked() else "Aus")
     window.close()
 
 
@@ -699,8 +699,6 @@ def test_settings_are_responsive_and_controls_reachable(
     window._select_page(0)
     for row, control in (
         (window._theme_row, window._theme_combo),
-        (window._motion_row, window._reduced_motion),
-        (window._clock_row, window._show_clock),
         (window._language_row, window._language_combo),
     ):
         row.setFocus()
@@ -772,12 +770,12 @@ def test_appearance_changes_keep_saved_visibility(application: QApplication) -> 
     updates: list[SettingsUpdate] = []
     window.settings_changed.connect(updates.append)
     window.show()
-    window._reduced_motion.setChecked(True)
+    window._language_combo.setCurrentIndex(1)
     assert updates[-1].visible_applications == ("one", "two")
     from pideck.application.home_layout import set_visibility
 
     window.set_configuration(set_visibility(configuration, "one", False))
-    window._reduced_motion.setChecked(False)
+    window._language_combo.setCurrentIndex(0)
     assert updates[-1].visible_applications == ("two",)
     assert window._apps.row("one").detail_label.text() == "Hidden from the home screen"
     window.close()
@@ -794,18 +792,11 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Right)
     assert window._theme_row.hasFocus()
     QTest.keyClick(window._theme_row, Qt.Key.Key_Down)
-    assert window._motion_row.hasFocus()
-    QTest.keyClick(window._motion_row, Qt.Key.Key_Space)
-    assert window._reduced_motion.isChecked() is True
-    QTest.keyClick(window._motion_row, Qt.Key.Key_Return)
-    assert window._reduced_motion.isChecked() is False
-    QTest.keyClick(window._motion_row, Qt.Key.Key_Down)
-    assert window._clock_row.hasFocus()
-    QTest.keyClick(window._clock_row, Qt.Key.Key_Space)
-    assert window._show_clock.isChecked() is False
-    QTest.keyClick(window._clock_row, Qt.Key.Key_Up)
-    QTest.keyClick(window._motion_row, Qt.Key.Key_Up)
-    QTest.keyClick(window._theme_row, Qt.Key.Key_Up)
+    assert window._language_row.hasFocus()
+    QTest.keyClick(window._language_row, Qt.Key.Key_Return)
+    assert window._language_combo.view().isVisible()
+    QTest.keyClick(window._language_combo.view(), Qt.Key.Key_Escape)
+    QTest.keyClick(window._language_row, Qt.Key.Key_Up)
     assert window._theme_row.hasFocus()
     QTest.keyClick(window._theme_row, Qt.Key.Key_Left)
     assert window._nav_buttons[0].hasFocus()

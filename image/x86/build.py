@@ -205,6 +205,7 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(INPUTS / "pideck-network-profile.sh", root / "etc/profile.d/00-pideck-network.sh")
     _install(INPUTS / "49-pideck-network.rules", root / "etc/polkit-1/rules.d/49-pideck-network.rules")
     _install(PI_FILES / "50-pideck-udisks.rules", root / "etc/polkit-1/rules.d/50-pideck-udisks.rules")
+    _install(PI_FILES / "51-pideck-timezone.rules", root / "etc/polkit-1/rules.d/51-pideck-timezone.rules")
     _install(PI_FILES / "00-pideck-keyboard.conf", root / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf")
     cec_support = ROOT / "src/pideck/infrastructure/cec_support"
     _install(cec_support / "71-pideck-cec-attach.rules", root / "etc/udev/rules.d/71-pideck-cec-attach.rules")

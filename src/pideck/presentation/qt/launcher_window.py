@@ -49,7 +49,6 @@ class LauncherTile(QPushButton):
         theme: ThemeDefinition,
         asset_root: Path,
         input_icon: Path | None = None,
-        reduced_motion: bool = False,
         parent: QWidget | None = None,
         language: str = "en",
     ) -> None:
@@ -68,7 +67,7 @@ class LauncherTile(QPushButton):
         self._spinner.move(self.width() - 32, 8)
         self._spinner.set_running(False)
         self.clicked.connect(lambda: self.activated.emit(application))
-        FocusGlow(self, theme, reduced_motion)
+        FocusGlow(self, theme, reduced_motion=True)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Forward directional keys to the launcher's grid controller."""
@@ -183,8 +182,6 @@ class LauncherWindow(QMainWindow):
         controller: LauncherController,
         theme: ThemeDefinition,
         asset_root: Path,
-        reduced_motion: bool = False,
-        show_clock: bool = True,
         language: str = "en",
         parent: QWidget | None = None,
     ) -> None:
@@ -193,8 +190,6 @@ class LauncherWindow(QMainWindow):
         self._controller = controller
         self._theme = theme
         self._asset_root = asset_root
-        self._reduced_motion = reduced_motion
-        self._show_clock = show_clock
         self._language = language if language in {"en", "de"} else "en"
         self._running_identifier: str | None = None
         self._has_been_shown = False
@@ -312,17 +307,8 @@ class LauncherWindow(QMainWindow):
         self._clock_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self._clock_label)
         self._root_layout.addLayout(header)
-        self.set_clock_visible(self._show_clock)
-
-    def set_clock_visible(self, visible: bool) -> None:
-        """Show or hide the live home-screen clock."""
-        self._show_clock = visible
-        self._clock_label.setVisible(visible)
-        if visible:
-            self._update_clock()
-            self._clock_timer.start(1000)
-        else:
-            self._clock_timer.stop()
+        self._update_clock()
+        self._clock_timer.start(1000)
 
     def _update_clock(self) -> None:
         """Refresh the date and time using the local system timezone."""
@@ -343,7 +329,7 @@ class LauncherWindow(QMainWindow):
         settings.setObjectName("launcher_action")
         settings.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         settings.setIcon(icon_for_path(self._theme.icons.get("settings")))
-        FocusGlow(settings, self._theme, self._reduced_motion)
+        FocusGlow(settings, self._theme, reduced_motion=True)
         settings.clicked.connect(self.settings_requested)
         settings.navigation_requested.connect(
             lambda direction: self._handle_action_navigation(settings, direction)
@@ -352,7 +338,7 @@ class LauncherWindow(QMainWindow):
         shutdown.setObjectName("launcher_action")
         shutdown.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         shutdown.setIcon(icon_for_path(self._theme.icons.get("power")))
-        FocusGlow(shutdown, self._theme, self._reduced_motion)
+        FocusGlow(shutdown, self._theme, reduced_motion=True)
         shutdown.clicked.connect(self.request_shutdown)
         shutdown.navigation_requested.connect(
             lambda direction: self._handle_action_navigation(shutdown, direction)
@@ -416,7 +402,6 @@ class LauncherWindow(QMainWindow):
                 self._theme,
                 self._asset_root,
                 self._theme.icons.get(_preferred_input_icon_key(application.preferred_input)),
-                self._reduced_motion,
                 self._grid_container,
                 self._language,
             )
@@ -499,8 +484,6 @@ class LauncherWindow(QMainWindow):
         """Apply saved settings and rebuild the launcher presentation."""
         self._controller.update_configuration(configuration)
         self._theme = theme
-        self._reduced_motion = configuration.settings.reduced_motion
-        self.set_clock_visible(configuration.settings.show_clock)
         self.set_language(configuration.settings.language)
         self._grid_layout.setHorizontalSpacing(theme.tile.gap)
         self._grid_layout.setVerticalSpacing(theme.tile.gap)

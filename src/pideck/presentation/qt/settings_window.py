@@ -112,6 +112,7 @@ class SettingsWindow(QDialog):
     audio_requested = Signal()
     drives_requested = Signal()
     display_requested = Signal()
+    timezone_requested = Signal()
     bluetooth_requested = Signal()
     system_info_requested = Signal()
     power_requested = Signal(str)
@@ -176,8 +177,6 @@ class SettingsWindow(QDialog):
         self._build_ui()
         apply_theme(self, theme)
         self._theme_combo.currentIndexChanged.connect(self._emit_current_settings)
-        self._reduced_motion.toggled.connect(self._emit_current_settings)
-        self._show_clock.toggled.connect(self._emit_current_settings)
         self._language_combo.currentIndexChanged.connect(self._handle_language_changed)
         self._select_page(0, focus_first=False)
         self.apply_language(self._language)
@@ -315,7 +314,7 @@ class SettingsWindow(QDialog):
         return layout
 
     def _build_appearance_page(self) -> QWidget:
-        """Create theme and motion controls."""
+        """Create theme and language controls."""
         self._appearance_scroll, page = self._scroll_page()
         layout = self._page_layout(page)
         theme_row, self._theme_combo = self._control_row(
@@ -333,26 +332,6 @@ class SettingsWindow(QDialog):
         current_index = self._theme_combo.findData(self._configuration.home.theme)
         if current_index >= 0:
             self._theme_combo.setCurrentIndex(current_index)
-        motion_row, self._reduced_motion = self._control_row(
-            page,
-            "Reduced motion",
-            "Use shorter focus animations for a calmer interface.",
-            ToggleSwitch(page),
-        )
-        self._reduced_motion.setObjectName("settings_control")
-        self._motion_row = motion_row
-        self._motion_labels = motion_row.findChildren(QLabel)
-        self._reduced_motion.setChecked(self._configuration.settings.reduced_motion)
-        clock_row, self._show_clock = self._control_row(
-            page,
-            "Clock",
-            "Show the current date and time on the home screen.",
-            ToggleSwitch(page),
-        )
-        self._show_clock.setObjectName("settings_control")
-        self._clock_row = clock_row
-        self._clock_labels = clock_row.findChildren(QLabel)
-        self._show_clock.setChecked(self._configuration.settings.show_clock)
         language_row, self._language_combo = self._control_row(
             page,
             "Language",
@@ -369,11 +348,9 @@ class SettingsWindow(QDialog):
         if language_index >= 0:
             self._language_combo.setCurrentIndex(language_index)
         layout.addWidget(theme_row)
-        layout.addWidget(motion_row)
-        layout.addWidget(clock_row)
         layout.addWidget(language_row)
         layout.addStretch()
-        self._page_controls[0] = [theme_row, motion_row, clock_row, language_row]
+        self._page_controls[0] = [theme_row, language_row]
         return self._appearance_scroll
 
     def _build_applications_page(self) -> QWidget:
@@ -463,6 +440,12 @@ class SettingsWindow(QDialog):
         self._display_row = display_row
         self._display_labels = display_row.findChildren(QLabel)
         layout.addWidget(display_row)
+        timezone_row = self._action_row(
+            page, tr(self._language, "timezone"), tr(self._language, "timezone_description"),
+        )
+        self._timezone_row = timezone_row
+        self._timezone_labels = timezone_row.findChildren(QLabel)
+        layout.addWidget(timezone_row)
         row = self._action_row(
             page, tr(self._language, "audio"), tr(self._language, "audio_description"),
         )
@@ -481,7 +464,7 @@ class SettingsWindow(QDialog):
         self._drives_row = drives_row
         self._drives_labels = drives_row.findChildren(QLabel)
         layout.addWidget(drives_row)
-        system_rows = [display_row, row, bluetooth_row, drives_row]
+        system_rows = [display_row, timezone_row, row, bluetooth_row, drives_row]
         if self._network_enabled:
             network_row = self._action_row(
                 page, tr(self._language, "network"), tr(self._language, "network_description"),
@@ -880,10 +863,6 @@ class SettingsWindow(QDialog):
         """Adjust a row or open its selector with Enter/Space."""
         if row is self._theme_row:
             self._theme_combo.showPopup()
-        elif row is self._motion_row:
-            self._reduced_motion.toggle()
-        elif row is self._clock_row:
-            self._show_clock.toggle()
         elif row is self._language_row:
             self._language_combo.showPopup()
         elif self._input_page is not None and row in self._input_rows.values():
@@ -907,6 +886,8 @@ class SettingsWindow(QDialog):
             self.audio_requested.emit()
         elif self._system_page is not None and row is self._display_row:
             self.display_requested.emit()
+        elif self._system_page is not None and row is self._timezone_row:
+            self.timezone_requested.emit()
         elif self._system_page is not None and row is self._bluetooth_row:
             self.bluetooth_requested.emit()
         elif self._system_page is not None and row is self._drives_row:
@@ -960,6 +941,8 @@ class SettingsWindow(QDialog):
             self._nav_buttons[self._system_page].setText(tr(self._language, "system"))
             self._display_labels[0].setText(tr(self._language, "display"))
             self._display_labels[1].setText(tr(self._language, "display_description"))
+            self._timezone_labels[0].setText(tr(self._language, "timezone"))
+            self._timezone_labels[1].setText(tr(self._language, "timezone_description"))
             self._audio_labels[0].setText(tr(self._language, "audio"))
             self._audio_labels[1].setText(tr(self._language, "audio_description"))
             self._bluetooth_labels[0].setText(tr(self._language, "bluetooth"))
@@ -970,6 +953,7 @@ class SettingsWindow(QDialog):
             self._system_info_labels[1].setText(tr(self._language, "system_info_description"))
             for row, labels in (
                 (self._display_row, self._display_labels),
+                (self._timezone_row, self._timezone_labels),
                 (self._audio_row, self._audio_labels),
                 (self._bluetooth_row, self._bluetooth_labels),
                 (self._drives_row, self._drives_labels),
@@ -983,13 +967,9 @@ class SettingsWindow(QDialog):
                 self._power_rows[action].setAccessibleName(self._power_labels[action][0].text())
                 self._power_rows[action].setAccessibleDescription(self._power_labels[action][1].text())
         self._back_button.setText(tr(self._language, "back"))
-        for switch in (self._reduced_motion, self._show_clock):
-            switch.set_state_texts(tr(self._language, "on"), tr(self._language, "off"))
         self._sidebar_subtitle.setText(tr(self._language, "launcher_settings"))
         setting_rows = (
             (self._theme_labels, "theme", "theme_hint"),
-            (self._motion_labels, "reduced_motion", "reduced_motion_hint"),
-            (self._clock_labels, "clock", "clock_hint"),
             (self._language_labels, "language", "language_hint"),
         )
         for labels, title_key, hint_key in setting_rows:
@@ -1199,9 +1179,7 @@ class SettingsWindow(QDialog):
         self._clear_error()
         return SettingsUpdate(
             theme=self._theme_combo.currentData(),
-            reduced_motion=self._reduced_motion.isChecked(),
             visible_applications=selected_applications,
-            show_clock=self._show_clock.isChecked(),
             language=self._language,
         )
 

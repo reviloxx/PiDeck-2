@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     from pideck.presentation.qt.network_window import NetworkWindow
     from pideck.presentation.qt.audio_window import AudioWindow
     from pideck.presentation.qt.display_window import DisplayWindow
+    from pideck.presentation.qt.timezone_window import TimezoneWindow
     from pideck.presentation.qt.system_info_window import SystemInfoWindow
     from pideck.presentation.qt.bluetooth_window import BluetoothWindow
     from pideck.presentation.qt.drives_window import DrivesWindow
@@ -232,8 +233,6 @@ def build_launcher_window(
         controller,
         theme,
         asset_root,
-        dependencies.configuration.settings.reduced_motion,
-        dependencies.configuration.settings.show_clock,
         dependencies.configuration.settings.language,
     )
 
@@ -329,6 +328,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     drives_window: DrivesWindow | None = None
     system_info_window: SystemInfoWindow | None = None
     display_window: DisplayWindow | None = None
+    timezone_window: TimezoneWindow | None = None
     bluetooth_window: BluetoothWindow | None = None
     bluetooth_opening = False
 
@@ -456,6 +456,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return (
             (bluetooth_window is not None and bluetooth_window.isVisible())
             or (display_window is not None and display_window.isVisible())
+            or (timezone_window is not None and timezone_window.isVisible())
             or (audio_window is not None and audio_window.isVisible())
             or (drives_window is not None and drives_window.isVisible())
             or (system_info_window is not None and system_info_window.isVisible())
@@ -541,6 +542,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             bluetooth_window.handle_input(event)
         elif display_window is not None and display_window.isVisible():
             display_window.handle_input(event)
+        elif timezone_window is not None and timezone_window.isVisible():
+            timezone_window.handle_input(event)
         elif audio_window is not None and audio_window.isVisible():
             audio_window.handle_input(event)
         elif drives_window is not None and drives_window.isVisible():
@@ -796,6 +799,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.audio_requested.connect(open_audio_window)
         settings_window.drives_requested.connect(open_drives_window)
         settings_window.display_requested.connect(open_display_window)
+        settings_window.timezone_requested.connect(open_timezone_window)
         settings_window.bluetooth_requested.connect(open_bluetooth_window)
         settings_window.system_info_requested.connect(open_system_info_window)
         settings_window.power_requested.connect(handle_system_power_request)
@@ -1016,6 +1020,21 @@ def main(arguments: Sequence[str] | None = None) -> int:
             display_gateway, theme, current_configuration.settings.language, parent,
         )
         display_window.showFullScreen()
+
+    def open_timezone_window() -> None:
+        """Open host timezone settings using timedatectl."""
+        nonlocal timezone_window
+        if timezone_window is not None and timezone_window.isVisible():
+            return
+        from pideck.infrastructure.timedatectl_timezone import TimedatectlTimezoneGateway
+        from pideck.presentation.qt.timezone_window import TimezoneWindow
+
+        parent = settings_window if settings_window is not None and settings_window.isVisible() else window
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        timezone_window = TimezoneWindow(
+            TimedatectlTimezoneGateway(), theme, current_configuration.settings.language, parent,
+        )
+        timezone_window.showFullScreen()
 
     def open_bluetooth_window() -> None:
         """Open Bluetooth settings with an explicitly authorized pairing agent."""

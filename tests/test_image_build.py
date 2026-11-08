@@ -188,6 +188,7 @@ def test_prepare_stage_copies_snapshot_and_enables_only_custom_export(tmp_path: 
     for name in ("google-chrome.sources", "brave-browser.sources", "keyrings/brave-browser.gpg"):
         assert (stage / "00-pideck" / "files" / name).is_file()
     assert "etc/polkit-1/rules.d/50-pideck-udisks.rules" in run_script
+    assert "etc/polkit-1/rules.d/51-pideck-timezone.rules" in run_script
     assert "etc/X11/xorg.conf.d/00-pideck-keyboard.conf" in run_script
     assert os.access(stage / "prerun.sh", os.X_OK)
     assert os.access(stage / "00-pideck" / "01-run.sh", os.X_OK)

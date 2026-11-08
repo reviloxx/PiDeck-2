@@ -54,3 +54,15 @@ def test_sample_configuration_resolves_bundled_theme_assets() -> None:
         if application.icon is not None
     )
     dependencies.process_supervisor.close()
+
+
+def test_sample_configuration_loads_all_shipped_themes() -> None:
+    """Midnight plus Ember, Nordic, Aurora, and Daylight resolve with wallpapers."""
+    dependencies = build_dependencies(Path("config/pideck.yaml"), log_level="WARNING")
+    expected = ("default", "ember", "nordic", "aurora", "daylight")
+    assert tuple(theme.identifier for theme in dependencies.configuration.themes) == expected
+    for identifier in expected:
+        theme = dependencies.theme_repository.get(identifier)
+        assert theme.wallpaper is not None and theme.wallpaper.is_file()
+        assert all(icon.is_file() for icon in theme.icons.values())
+    dependencies.process_supervisor.close()
