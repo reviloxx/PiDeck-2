@@ -45,8 +45,12 @@ def test_window_modes_do_not_change_saved_configuration(tmp_path: Path) -> None:
 def test_window_policy_validation(tmp_path: Path) -> None:
     """Only supported named window modes are accepted."""
     path = tmp_path / "window-modes.yaml"
-    path.write_text("browser: maximized\nretroarch: normal\n")
-    assert load_window_modes(path) == {"browser": WindowMode.MAXIMIZED, "retroarch": WindowMode.NORMAL}
+    path.write_text("browser: maximized\nretroarch: normal\nnomachine: fullscreen\n")
+    assert load_window_modes(path) == {
+        "browser": WindowMode.MAXIMIZED,
+        "retroarch": WindowMode.NORMAL,
+        "nomachine": WindowMode.FULLSCREEN,
+    }
     path.write_text("browser: invalid\n")
     with pytest.raises(ConfigurationError, match="Invalid window mode"):
         load_window_modes(path)

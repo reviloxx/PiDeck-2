@@ -2,5 +2,5 @@ chromium: maximized
 chrome: maximized
 brave: maximized
 firefox: maximized
-nomachine: maximized
+nomachine: fullscreen
 retroarch: maximized

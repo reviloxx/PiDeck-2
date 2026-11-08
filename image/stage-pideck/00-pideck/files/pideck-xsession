@@ -4,7 +4,13 @@ set -eu
 if ! xset s off -dpms; then
     echo "Unable to disable X11 screen blanking or DPMS." >&2
 fi
-openbox &
+
+OPENBOX_RC=/usr/share/pideck/openbox/rc.xml
+if [ -f "$OPENBOX_RC" ]; then
+    openbox --config-file "$OPENBOX_RC" &
+else
+    openbox &
+fi
 window_manager=$!
 attempt=0
 while ! wmctrl -m >/dev/null 2>&1; do
@@ -20,6 +26,11 @@ while ! wmctrl -m >/dev/null 2>&1; do
     attempt=$((attempt + 1))
     sleep 0.1
 done
+
+# Chromium-family browsers read this for client-side window buttons.
+if command -v gsettings >/dev/null 2>&1; then
+    gsettings set org.gnome.desktop.wm.preferences button-layout ':close' >/dev/null 2>&1 || true
+fi
 
 # Composite fullscreen apps so the session overlay can blur what is on screen.
 if command -v picom >/dev/null 2>&1; then

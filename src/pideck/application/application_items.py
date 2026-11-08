@@ -20,8 +20,6 @@ class ApplicationAction(StrEnum):
     CANCEL_INSTALL = "cancel_install"
     UPDATE = "update"
     CANCEL_UPDATE = "cancel_update"
-    SHOW = "show"
-    HIDE = "hide"
     MOVE = "move"
     INSTALL = "install"
     REMOVE = "remove"
@@ -95,12 +93,8 @@ def available_actions(
     elif update_available:
         actions.append(ApplicationAction.UPDATE)
     state = item.catalog.state if item.catalog is not None else None
-    if item.configured:
-        actions.append(ApplicationAction.HIDE if item.visible else ApplicationAction.SHOW)
-        if count > 1:
-            actions.append(ApplicationAction.MOVE)
-    elif state is InstallState.INSTALLED:
-        actions.append(ApplicationAction.SHOW)
+    if item.configured and count > 1:
+        actions.append(ApplicationAction.MOVE)
     if not busy and state is InstallState.NOT_INSTALLED:
         actions.append(ApplicationAction.INSTALL)
     if not busy and state is InstallState.INSTALLED and item.catalog is not None and item.catalog.removable:

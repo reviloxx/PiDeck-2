@@ -166,7 +166,7 @@ themes:
       duration_ms: 180
       reduced_motion_duration_ms: 0
 home:
-  visible_applications: [kodi, youtube]
+  visible_applications: []
   theme: default
 input:
   enabled_sources: [cec, gamepad, keyboard, mouse]

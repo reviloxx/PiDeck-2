@@ -31,7 +31,7 @@ class ConfirmationDialog(WallpaperDialog):
         title_label.setObjectName("settings_heading")
         layout.addWidget(title_label)
         message_label = QLabel(message, self)
-        message_label.setObjectName("settings_label")
+        message_label.setObjectName("settings_description")
         message_label.setWordWrap(True)
         layout.addWidget(message_label)
         layout.addStretch()

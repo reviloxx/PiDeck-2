@@ -303,8 +303,8 @@ installation needs a separately applied system update or a newly built image.
 The launcher wallpaper fills the window while preserving its aspect ratio;
 edges are cropped on screens with a different shape. The image's default
 window policies are in `/usr/share/pideck/config/window-modes.yaml`.
-Chromium, Firefox, NoMachine and RetroArch are set to `maximized`; fullscreen
-windows remain fullscreen. To override a policy without editing system files,
+Chromium, Firefox and RetroArch are set to `maximized`; NoMachine is set to
+`fullscreen`. Windows that already open fullscreen remain fullscreen. To override a policy without editing system files,
 create `~/.config/pideck/window-modes.yaml` with, for example,
 `firefox: normal`. Policies apply to detected main windows launched by PiDeck,
 not dialog windows. They are stored separately from launcher settings so older

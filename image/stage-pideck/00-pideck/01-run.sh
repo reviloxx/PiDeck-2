@@ -3,6 +3,7 @@
 install -d "${ROOTFS_DIR}/usr/lib/pideck/python" \
     "${ROOTFS_DIR}/usr/lib/pideck-updater/python" \
     "${ROOTFS_DIR}/usr/share/pideck/config" \
+    "${ROOTFS_DIR}/usr/share/pideck/openbox" \
     "${ROOTFS_DIR}/usr/share/pideck/assets" \
     "${ROOTFS_DIR}/etc/profile.d" \
     "${ROOTFS_DIR}/etc/udev/rules.d" \
@@ -32,6 +33,7 @@ install -m 644 files/project/src/pideck/infrastructure/cec_support/71-pideck-cec
 install -m 644 files/project/src/pideck/infrastructure/cec_support/pideck-cec-attach@.service \
     "${ROOTFS_DIR}/etc/systemd/system/pideck-cec-attach@.service"
 install -m 644 files/window-modes.yaml "${ROOTFS_DIR}/usr/share/pideck/config/window-modes.yaml"
+install -m 644 files/openbox/rc.xml "${ROOTFS_DIR}/usr/share/pideck/openbox/rc.xml"
 install -m 755 files/pideck-getty files/pideck-session files/pideck-xsession \
     "${ROOTFS_DIR}/usr/lib/pideck/"
 install -m 644 files/picom.conf "${ROOTFS_DIR}/usr/lib/pideck/picom.conf"

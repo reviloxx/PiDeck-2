@@ -45,8 +45,8 @@ necessary.
 
 Wallpaper scales proportionally to fill the window, cropping edges when
 necessary. The default policies in `/usr/share/pideck/config/window-modes.yaml`
-request maximized main windows for Chromium, Chrome, Brave, Firefox, RetroArch
-and NoMachine; the application catalog declares the same defaults for releases
+request maximized main windows for Chromium, Chrome, Brave, Firefox and RetroArch,
+and fullscreen for NoMachine; the application catalog declares the same defaults for releases
 that know newer applications. Existing fullscreen windows stay fullscreen. User overrides can
 be placed in `~/.config/pideck/window-modes.yaml`, for example `firefox: normal`.
 Dialogs are not maximized, and the separate policy file keeps the existing

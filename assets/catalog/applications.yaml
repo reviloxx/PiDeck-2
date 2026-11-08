@@ -115,7 +115,7 @@ applications:
     executable: /usr/NX/bin/nxplayer
     icon: ../assets/icons/nomachine.svg
     preferred_input: mouse
-    window: maximized
+    window: fullscreen
     install:
       amd64:
         method: deb

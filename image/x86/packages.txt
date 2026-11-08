@@ -46,6 +46,7 @@ libxres1
 x11-xserver-utils
 x11-utils
 dbus-x11
+libglib2.0-bin
 pulseaudio
 pulseaudio-utils
 network-manager

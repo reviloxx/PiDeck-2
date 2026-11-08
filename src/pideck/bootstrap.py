@@ -21,14 +21,14 @@ from pideck.application.session import (
 from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.application.app_management import ApplicationManagementService
 from pideck.application.catalog import catalog_window_modes
-from pideck.application.home_layout import set_application_order, set_visibility
+from pideck.application.home_layout import normalize_home, set_application_order
 from pideck.application.input_forwarding import InputForwardingService
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.installation import InstallProgress
 from pideck.application.ports.packages import PackageOperationError
-from pideck.domain.catalog import CatalogEntry
+from pideck.domain.catalog import CatalogEntry, InstallState
 from pideck.domain.configuration import (
     ApplicationDefinition,
     ApplicationProfile,
@@ -199,6 +199,10 @@ def build_dependencies(
     configuration = _apply_window_modes(configuration, window_modes)
     configuration = _apply_catalog_preferred_inputs(configuration, catalog)
     configuration = apply_shipped_themes(configuration, resolved_asset_root, logger=logger)
+    normalized = normalize_home(configuration)
+    if normalized is not configuration:
+        configuration_repository.save(normalized)
+        configuration = normalized
     theme_repository = FileThemeRepository(
         themes=configuration.themes,
         asset_root=resolved_asset_root,
@@ -741,6 +745,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         if settings_window is not None:
             settings_window.close()
+        sync_installed_applications()
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
         settings_window = SettingsWindow(
             current_configuration,
@@ -809,7 +814,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.application_install_requested.connect(handle_install_request)
         settings_window.application_remove_requested.connect(handle_remove_request)
-        settings_window.application_visibility_requested.connect(handle_visibility_request)
         settings_window.application_order_requested.connect(handle_order_request)
         settings_window.finished.connect(lambda _: window.show_launcher())
         settings_window.finished.connect(cancel_install_on_close)
@@ -916,9 +920,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             settings_window.set_configuration(updated, application_manager.statuses(updated))
 
     def save_application_layout(change: Callable[[Configuration], Configuration]) -> None:
-        """Persist a home-screen visibility or order change requested in settings."""
-        from pideck.presentation.qt.localization import tr
-
+        """Persist a home-screen order change requested in settings."""
         try:
             updated = change(current_configuration)
             if updated is current_configuration:
@@ -927,21 +929,25 @@ def main(arguments: Sequence[str] | None = None) -> int:
         except (ConfigurationError, PackageOperationError) as error:
             dependencies.logger.warning("Unable to change application layout: %s", error)
             if settings_window is not None:
-                message = str(error)
-                if "At least one application" in message:
-                    message = tr(current_configuration.settings.language, "at_least_one")
-                settings_window.show_error(message)
+                settings_window.show_error(str(error))
             return
         apply_application_change(updated)
 
-    def handle_visibility_request(application_id: str, visible: bool) -> None:
-        """Show or hide a tile; an installed but unlisted catalog app is added first."""
-        def change(configuration: Configuration) -> Configuration:
-            if any(item.identifier == application_id for item in configuration.applications):
-                return set_visibility(configuration, application_id, visible)
-            return application_manager.registered(configuration, application_id)
-
-        save_application_layout(change)
+    def sync_installed_applications() -> None:
+        """Add every installed catalog application to the home screen."""
+        updated = current_configuration
+        for status in application_manager.statuses(updated):
+            if status.state is InstallState.INSTALLED:
+                updated = application_manager.registered(updated, status.identifier)
+        updated = normalize_home(updated)
+        if updated is current_configuration:
+            return
+        try:
+            dependencies.configuration_repository.save(updated)
+        except ConfigurationError as error:
+            dependencies.logger.warning("Unable to sync installed applications: %s", error)
+            return
+        apply_application_change(updated)
 
     def handle_order_request(order: tuple[str, ...]) -> None:
         """Save the home-screen tile order chosen in settings."""
@@ -1112,6 +1118,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     window.settings_requested.connect(handle_settings_request)
     window.shutdown_requested.connect(handle_shutdown_request)
     display_gateway.restore_saved_async()
+    sync_installed_applications()
     window.show_launcher()
 
     QTimer.singleShot(0, pideck_update_service.check_async)

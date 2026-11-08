@@ -1,4 +1,4 @@
-"""Tests for home-screen order and visibility helpers."""
+"""Tests for home-screen order helpers."""
 
 from dataclasses import replace
 
@@ -7,8 +7,8 @@ import pytest
 from pideck.application.home_layout import (
     application_order,
     is_visible,
+    normalize_home,
     set_application_order,
-    set_visibility,
 )
 from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.domain.configuration import ApplicationDefinition
@@ -24,31 +24,33 @@ def configuration(visible: tuple[str, ...]):
     return replace(base, applications=apps, home=replace(base.home, visible_applications=visible))
 
 
-def test_order_follows_tiles_and_keeps_hidden_in_place() -> None:
-    """Tile order wins; hidden apps stay behind their predecessor."""
+def test_order_follows_tiles_then_remaining_applications() -> None:
+    """A non-empty visibility list sets tile order; remaining apps follow."""
     assert application_order(configuration(())) == ("a", "b", "c", "d")
-    assert application_order(configuration(("c", "a"))) == ("c", "d", "a", "b")
-    assert application_order(configuration(("d",))) == ("a", "b", "c", "d")
+    assert application_order(configuration(("c", "a"))) == ("c", "a", "b", "d")
+    assert application_order(configuration(("d",))) == ("d", "a", "b", "c")
 
 
-def test_visibility_round_trip_restores_position() -> None:
-    """Hiding and showing keeps the tile position and the all-visible sentinel is resolved."""
-    config = configuration(())
-    hidden = set_visibility(config, "b", False)
-    assert hidden.home.visible_applications == ("a", "c", "d")
-    assert not is_visible(hidden, "b") and is_visible(config, "b")
-    shown = set_visibility(hidden, "b", True)
-    assert shown.home.visible_applications == ("a", "b", "c", "d")
-    with pytest.raises(ConfigurationValidationError, match="At least one"):
-        set_visibility(configuration(("a",)), "a", False)
-    with pytest.raises(ConfigurationValidationError, match="Unknown"):
-        set_visibility(config, "x", True)
+def test_configured_applications_are_always_visible() -> None:
+    """Every configured application is shown; unknown ids are not."""
+    config = configuration(("a", "c"))
+    assert all(is_visible(config, identifier) for identifier in "abcd")
+    assert not is_visible(config, "x")
 
 
-def test_order_reorders_tiles_and_saved_applications() -> None:
-    """A new order changes both lists consistently and keeps visibility."""
+def test_normalize_home_reveals_every_configured_application() -> None:
+    """Partial visibility lists are expanded to the show-all sentinel."""
+    partial = configuration(("c", "a"))
+    normalized = normalize_home(partial)
+    assert [item.identifier for item in normalized.applications] == ["c", "a", "b", "d"]
+    assert normalized.home.visible_applications == ()
+    assert normalize_home(normalized) is normalized
+
+
+def test_order_reorders_saved_applications() -> None:
+    """A new order rewrites applications and clears the visibility filter."""
     moved = set_application_order(configuration(("a", "c", "d")), ("a", "d", "b", "c"))
-    assert moved.home.visible_applications == ("a", "d", "c")
+    assert moved.home.visible_applications == ()
     assert [item.identifier for item in moved.applications] == ["a", "d", "b", "c"]
     assert application_order(moved) == ("a", "d", "b", "c")
     unchanged = configuration(())
@@ -83,17 +85,17 @@ def test_application_items_merge_configuration_and_catalog() -> None:
         CatalogItemStatus(entries["kodi"], InstallState.NOT_INSTALLED),
     )
     items = application_items(config, statuses)
-    assert [item.key for item in items] == ["b", "c", "d", "a", "kodi"]
-    red = items[3]
-    assert red.catalog_id == "youtube" and red.visible and red.position == 3
+    assert [item.key for item in items] == ["b", "a", "c", "d", "kodi"]
+    red = items[1]
+    assert red.catalog_id == "youtube" and red.visible and red.position == 1
     assert available_actions(red, count=4) == (
-        ApplicationAction.HIDE, ApplicationAction.MOVE, ApplicationAction.REMOVE,
+        ApplicationAction.MOVE, ApplicationAction.REMOVE,
     )
-    assert available_actions(items[1], count=4)[1:] == (ApplicationAction.MOVE,)
-    assert ApplicationAction.MOVE not in available_actions(items[1], count=1)
+    assert available_actions(items[0], count=4) == (ApplicationAction.MOVE,)
+    assert ApplicationAction.MOVE not in available_actions(items[0], count=1)
     assert available_actions(red, count=4, busy=True, update_available=True)[0] is ApplicationAction.UPDATE
     assert ApplicationAction.REMOVE not in available_actions(red, count=4, busy=True)
     assert available_actions(items[4], count=4) == (ApplicationAction.INSTALL,)
     assert available_actions(items[4], count=4, installing=True) == (ApplicationAction.CANCEL_INSTALL,)
     assert available_actions(items[2], count=4, updating=True)[0] is ApplicationAction.CANCEL_UPDATE
-    assert not items[1].visible and available_actions(items[1], count=4)[0] is ApplicationAction.SHOW
+    assert items[2].visible

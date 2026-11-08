@@ -37,10 +37,6 @@ class SettingsService:
         theme_ids = {theme.identifier for theme in configuration.themes}
         if update.theme not in theme_ids:
             raise ConfigurationValidationError(f"Settings reference unknown theme: {update.theme!r}")
-        if not update.visible_applications and configuration.applications:
-            raise ConfigurationValidationError(
-                "At least one application must remain visible"
-            )
         return replace(
             configuration,
             home=replace(

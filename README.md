@@ -130,18 +130,19 @@ cannot be installed. Missing build dates are hidden; Flatpak applications
 without a version show their commit, and other unavailable versions are shown
 as unknown.
 
-Select a row to open its options: **Show on home screen** or **Hide from home
-screen**, **Move** to change the tile order, **Update**, **Install**, **Remove**,
-or cancel a running installation or update. **Move** highlights the row in the
-list: Up and Down move it, OK saves the new order and Back restores the previous
-one. At least one application stays on the home screen. Images only preinstall Kodi and YouTube. While an application installs,
-its row shows the current step, a progress bar and a busy indicator;
+Select a row to open its options: **Move** to change the tile order, **Update**,
+**Install**, **Remove**, or cancel a running installation or update. **Move**
+highlights the row in the list: Up and Down move it, OK saves the new order and
+Back restores the previous one. Installed applications are always shown on the
+home screen. Images only preinstall Kodi and YouTube. While an application
+installs, its row shows the current step, a progress bar and a busy indicator;
 installations can be cancelled while downloading, removals cannot. Installing
 adds the application to the home screen and removing takes it off. Removing
 keeps the application's settings and data, so they come back after
 reinstalling. Installation needs internet and disk space; errors are shown in
-Settings. The tile order is saved by reordering the existing `applications` and
-`home.visible_applications` lists, so older releases still read the settings.
+Settings. The tile order is saved by reordering the existing `applications`
+list; an empty `home.visible_applications` list means show all, so older
+releases still read the settings.
 
 YouTube is the independent [Red](https://flathub.org/en/apps/com.ktechpit.red)
 Flatpak, not an official YouTube application; it starts in TV mode. Red has its

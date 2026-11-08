@@ -100,6 +100,7 @@ def test_catalog_declares_window_defaults() -> None:
     """Browsers start maximized unless a window-modes.yaml policy overrides it."""
     modes = catalog_window_modes(load_catalog(ROOT / "assets/catalog/applications.yaml"))
     assert modes["chrome"].value == "maximized"
+    assert modes["nomachine"].value == "fullscreen"
     assert "youtube" not in modes
 
 

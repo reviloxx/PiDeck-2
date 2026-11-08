@@ -247,6 +247,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert (tmp_path / "usr/share/pideck/config/window-modes.yaml").read_text() == (
         x86_build.PI_FILES / "window-modes.yaml"
     ).read_text()
+    assert (tmp_path / "usr/share/pideck/openbox/rc.xml").read_text() == (
+        x86_build.PI_FILES / "openbox/rc.xml"
+    ).read_text()
     assert (tmp_path / "usr/lib/pideck-updater/python/pideck/infrastructure/image_update_daemon.py").is_file()
     assert (tmp_path / "usr/lib/pideck/pideck-getty").stat().st_mode & 0o111
     from image.update_bundle import project_version

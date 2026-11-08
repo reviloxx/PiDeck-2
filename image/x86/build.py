@@ -196,6 +196,7 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "pideck.yaml", root / "usr/share/pideck/config/pideck.yaml")
     _install(PI_FILES / "70-pideck-cec.rules", root / "etc/udev/rules.d/70-pideck-cec.rules")
     _install(PI_FILES / "window-modes.yaml", root / "usr/share/pideck/config/window-modes.yaml")
+    _install(PI_FILES / "openbox/rc.xml", root / "usr/share/pideck/openbox/rc.xml")
     for name in ("pideck-session", "pideck-xsession"):
         _install(PI_FILES / name, lib / name, 0o755)
     _install(PI_FILES / "picom.conf", lib / "picom.conf")

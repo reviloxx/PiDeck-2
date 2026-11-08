@@ -1,11 +1,11 @@
-"""Settings > Applications: install, update, remove, show and order applications.
+"""Settings > Applications: install, update, remove and order applications.
 
-One focusable row per configured or supported application shows its home
-screen state, installed version, update status and install/removal progress.
-Selecting a row opens an action menu. Its Move entry puts the row into move
-mode, where Up and Down reorder the existing row widgets in place until the
-order is saved or cancelled. The page only emits intents; the
-composition root persists configuration and runs package operations.
+One focusable row per configured or supported application shows its installed
+version, update status and install/removal progress. Selecting a row opens an
+action menu. Its Move entry puts the row into move mode, where Up and Down
+reorder the existing row widgets in place until the order is saved or
+cancelled. The page only emits intents; the composition root persists
+configuration and runs package operations.
 """
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
@@ -33,7 +33,7 @@ from .power_dialog import ConfirmationDialog
 from .update_rows import PasswordPrompt, UpdateRow
 
 _STATE_TEXT = {
-    InstallState.INSTALLED: "application_not_on_home",
+    InstallState.INSTALLED: "application_installed",
     InstallState.NOT_INSTALLED: "application_not_installed",
     InstallState.UNAVAILABLE: "application_unavailable",
     InstallState.REQUIRES_NEWER_IMAGE: "application_requires_image",
@@ -116,12 +116,12 @@ class ApplicationRow(UpdateRow):
                 self.progress_bar.setValue(max(0, min(100, self.operation.percent)))
             return
         self.progress_bar.hide()
-        self.detail_label.setVisible(item.configured)
         if item.configured:
-            key = "application_shown" if item.visible else "application_hidden"
             if self.sorting:
-                key = "application_sorting_hint"
-            self.detail_label.setText(tr(self._language, key))
+                self.detail_label.show()
+                self.detail_label.setText(tr(self._language, "application_sorting_hint"))
+            else:
+                self.detail_label.hide()
             return
         state = item.catalog.state if item.catalog is not None else InstallState.UNAVAILABLE
         self.detail_label.setText("")
@@ -137,7 +137,6 @@ class ApplicationsPage(QScrollArea):
     install_requested = Signal(str)
     """Catalog ID to install, or of the running installation to cancel."""
     remove_requested = Signal(str)
-    visibility_requested = Signal(str, bool)
     order_requested = Signal(tuple)
     """Complete home-screen order of configured applications after sorting."""
     navigation_requested = Signal(object)
@@ -288,8 +287,6 @@ class ApplicationsPage(QScrollArea):
         action, item = ApplicationAction(value), row.item
         if action is ApplicationAction.MOVE:
             self._sort_target = item.key
-        elif action in (ApplicationAction.SHOW, ApplicationAction.HIDE):
-            self.visibility_requested.emit(item.key, action is ApplicationAction.SHOW)
         elif action in (ApplicationAction.INSTALL, ApplicationAction.CANCEL_INSTALL) and item.catalog_id:
             self.install_requested.emit(item.catalog_id)
         elif action in (ApplicationAction.UPDATE, ApplicationAction.CANCEL_UPDATE):

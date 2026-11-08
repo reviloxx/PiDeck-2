@@ -113,11 +113,11 @@ def test_applications_page_lists_configured_and_catalog_applications(application
     assert window._page_title.text() == "Applications"
     assert [row.item.key for row in page.rows()] == ["browser", "kodi", "youtube", "chrome", "brave", "firefox"]
     assert window.focusWidget() is page.rows()[0]
-    assert row_texts(page.row("browser"))[0] == "Shown on the home screen"
+    assert row_texts(page.row("browser"))[0] == ""
     assert row_texts(page.row("youtube")) == ("", "Not installed")
     assert row_texts(page.row("chrome"))[1] == "Not available on this device"
     assert row_texts(page.row("brave"))[1] == "Requires a newer PiDeck image"
-    assert row_texts(page.row("firefox"))[1] == "Installed · not on the home screen"
+    assert row_texts(page.row("firefox"))[1] == "Installed"
     window.apply_language("de")
     assert window._nav_buttons[1].text() == "Anwendungen"
     assert row_texts(page.row("youtube"))[1] == "Nicht installiert"
@@ -127,14 +127,11 @@ def test_applications_page_lists_configured_and_catalog_applications(application
 def test_action_menu_offers_state_dependent_actions(application: QApplication) -> None:
     """Menus only contain actions that apply to the application's state."""
     window = applications_window(application)
-    assert open_menu(window, application, "browser").actions() == ("hide",)
-    window._apps.dialog.reject()
-    application.processEvents()
+    assert open_menu(window, application, "browser") is None
     assert window.focusWidget() is window._apps.row("browser")
     assert open_menu(window, application, "kodi").actions() == ("install",)
     window._apps.dialog.reject()
-    assert open_menu(window, application, "firefox").actions() == ("show",)
-    window._apps.dialog.reject()
+    assert open_menu(window, application, "firefox") is None
     window._apps.row("chrome").setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert window._apps.dialog is None
@@ -175,14 +172,13 @@ def press(window: SettingsWindow, key: Qt.Key) -> None:
     QTest.keyClick(window.focusWidget(), key)
 
 
-def test_menu_requests_install_cancel_visibility_and_moves(application: QApplication) -> None:
+def test_menu_requests_install_cancel_and_moves(application: QApplication) -> None:
     """Menu actions emit intents and close the menu; Move starts sorting in the list."""
     window, orders = sorting_window(application, ("one", "two"))
-    visibility, installs = [], []
-    window.application_visibility_requested.connect(lambda *args: visibility.append(args))
+    installs: list[str] = []
     window.application_install_requested.connect(installs.append)
     menu = open_menu(window, application, "one")
-    assert menu.actions() == ("hide", "move")
+    assert menu.actions() == ("move",)
     menu.choose(ApplicationAction.MOVE)
     application.processEvents()
     assert window._apps.dialog is None and window._apps.is_sorting
@@ -190,10 +186,6 @@ def test_menu_requests_install_cancel_visibility_and_moves(application: QApplica
     assert window._apps.row("one").detail_label.text().startswith("Up/Down to move")
     window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
     assert not window._apps.is_sorting and orders == []
-    menu = open_menu(window, application, "one")
-    menu.choose(ApplicationAction.HIDE)
-    application.processEvents()
-    assert visibility == [("one", False)] and window._apps.dialog is None
     open_menu(window, application, "kodi").choose(ApplicationAction.INSTALL)
     assert installs == ["kodi"]
     window.set_application_busy("kodi")
@@ -237,9 +229,10 @@ def test_sorting_moves_rows_in_place_and_saves_once(application: QApplication) -
     application.processEvents()
     assert orders == [("two", "three", "one")] and not window._apps.is_sorting
     assert configured_order(window) == ["two", "three", "one"]
-    assert window._configuration.home.visible_applications == ("two", "three", "one")
+    assert window._configuration.home.visible_applications == ()
+    assert [app.identifier for app in window._configuration.applications] == ["two", "three", "one"]
     assert window.focusWidget() is window._apps.row("one")
-    assert window._apps.row("one").detail_label.text() == "Shown on the home screen"
+    assert not window._apps.row("one").detail_label.isVisible()
     window.handle_input(InputEvent(InputAction.UP, "gamepad"))
     assert window.focusWidget() is window._apps.row("three")
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
@@ -300,7 +293,7 @@ def test_removal_requires_confirmation(application: QApplication, accept: bool) 
     removals: list[str] = []
     window.application_remove_requested.connect(removals.append)
     menu = open_menu(window, application, "firefox")
-    assert menu.actions() == ("show", "remove")
+    assert menu.actions() == ("remove",)
     menu.choose(ApplicationAction.REMOVE)
     application.processEvents()
     dialog = window._apps.dialog
@@ -757,8 +750,8 @@ def test_language_dropdown_renders_visible_selected_item(application: QApplicati
     window.close()
 
 
-def test_appearance_changes_keep_saved_visibility(application: QApplication) -> None:
-    """Appearance updates carry the saved tiles; the all-visible sentinel is resolved."""
+def test_appearance_changes_keep_saved_applications(application: QApplication) -> None:
+    """Appearance updates carry every configured application as the visible set."""
     document = configuration_document()
     document["applications"] = [
         {"id": identifier, "name": identifier.title(), "executable": identifier}
@@ -772,12 +765,6 @@ def test_appearance_changes_keep_saved_visibility(application: QApplication) -> 
     window.show()
     window._language_combo.setCurrentIndex(1)
     assert updates[-1].visible_applications == ("one", "two")
-    from pideck.application.home_layout import set_visibility
-
-    window.set_configuration(set_visibility(configuration, "one", False))
-    window._language_combo.setCurrentIndex(0)
-    assert updates[-1].visible_applications == ("two",)
-    assert window._apps.row("one").detail_label.text() == "Hidden from the home screen"
     window.close()
 
 
@@ -857,7 +844,7 @@ def test_application_rows_render_update_status(application: QApplication) -> Non
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE, available_version="21.3-Omega"))
     assert row.action.isHidden()
     assert row.status_label.text() == "Update available: 21.3-Omega"
-    assert row.detail_label.text() == "Shown on the home screen"
+    assert not row.detail_label.isVisible()
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATING))
     assert row.spinner.isVisible()
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE))

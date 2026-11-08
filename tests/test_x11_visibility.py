@@ -79,3 +79,27 @@ def test_maximization_is_verified(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subprocess, "run", run)
     x11_visibility._maximize_window("0x123", threading.Event())
     assert commands == [["wmctrl", "-ir", "0x123", "-b", "add,maximized_vert,maximized_horz"]]
+
+
+def test_fullscreen_request_is_verified(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fullscreen request is followed by confirmation of the EWMH state."""
+    properties = iter(["", "_NET_WM_STATE_FULLSCREEN"])
+    monkeypatch.setattr(x11_visibility, "_window_properties", lambda window_id: next(properties))
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    x11_visibility._fullscreen_window("0x123", threading.Event())
+    assert commands == [["wmctrl", "-ir", "0x123", "-b", "add,fullscreen"]]
+
+
+def test_fullscreen_request_skips_already_fullscreen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An already-fullscreen window is left unchanged."""
+    monkeypatch.setattr(
+        x11_visibility, "_window_properties", lambda window_id: "_NET_WM_STATE_FULLSCREEN",
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("fullscreen was changed"))
+    x11_visibility._fullscreen_window("0x123", threading.Event())

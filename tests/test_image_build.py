@@ -135,7 +135,7 @@ def test_image_configuration_and_assets(tmp_path: Path) -> None:
     applications = {app.identifier: app for app in config.applications}
     assert list(applications) == ["kodi", "youtube"]
     assert applications["youtube"].arguments == ("run", "com.ktechpit.red", "--tv")
-    assert set(config.home.visible_applications) == set(applications)
+    assert not config.home.visible_applications or set(config.home.visible_applications) == set(applications)
     assert config.settings.language == "de"
     packages = (STAGE / "00-pideck" / "00-packages-nr").read_text().split()
     assert {"kodi", "flatpak"} <= set(packages)
@@ -333,6 +333,9 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     assert (rootfs / "etc/systemd/system/pideck-cec-attach@.service").is_file()
     assert (rootfs / "usr/share/pideck/config/window-modes.yaml").read_text() == (
         FILES / "window-modes.yaml"
+    ).read_text()
+    assert (rootfs / "usr/share/pideck/openbox/rc.xml").read_text() == (
+        FILES / "openbox/rc.xml"
     ).read_text()
     assert os.access(rootfs / "usr/lib/pideck/pideck-session", os.X_OK)
     assert (rootfs / "etc/systemd/system/getty@tty1.service.d/pideck.conf").is_file()

@@ -120,9 +120,9 @@ def test_power_confirmation_uses_themed_legible_text(application: QApplication) 
     dialog = PowerDialog("restart", DEFAULT_THEME, "de", parent)
     dialog.show()
     application.processEvents()
-    message = dialog.findChild(QLabel, "settings_label")
+    message = dialog.findChild(QLabel, "settings_description")
     assert message is not None
-    assert message.palette().color(QPalette.ColorRole.WindowText) == QColor(DEFAULT_THEME.colors["text"])
+    assert message.palette().color(QPalette.ColorRole.WindowText) == QColor(DEFAULT_THEME.colors["muted_text"])
     assert dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert dialog.cancel.hasFocus()
     dialog.close()

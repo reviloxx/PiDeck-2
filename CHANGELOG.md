@@ -4,6 +4,15 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.19
+
+- NoMachine opens fullscreen.
+- Browser windows keep only the close button (no minimize or maximize).
+- Remove and other confirmations use the secondary text style for the
+  explanation.
+- Installed applications always appear on the home screen; Show and Hide
+  options are removed.
+
 ## v0.5.18
 
 - Fixed: new themes appear in Design after an update, even when an older

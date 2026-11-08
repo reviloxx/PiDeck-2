@@ -86,14 +86,15 @@ class X11WindowVisibilityDetector:
         window_mode: WindowMode | None,
     ) -> None:
         """Poll X11 windows until readiness, cancellation, or timeout."""
+        managed = window_mode in (WindowMode.MAXIMIZED, WindowMode.FULLSCREEN)
         deadline = time.monotonic() + self._timeout
         while time.monotonic() < deadline and not watch.cancel.is_set():
-            window_id = self._find_visible_window(
-                watch.handle, main_only=window_mode is WindowMode.MAXIMIZED,
-            )
+            window_id = self._find_visible_window(watch.handle, main_only=managed)
             if window_id:
                 if window_mode is WindowMode.MAXIMIZED:
                     _maximize_window(window_id, watch.cancel)
+                elif window_mode is WindowMode.FULLSCREEN:
+                    _fullscreen_window(window_id, watch.cancel)
                 self._finish(watch.handle)
                 on_visible(watch.handle)
                 return
@@ -210,6 +211,37 @@ def _maximize_window(window_id: str, cancel: threading.Event) -> None:
         cancel.wait(0.1)
     if not cancel.is_set():
         _LOGGER.warning("Window %s did not enter the maximized state", window_id)
+
+
+def _fullscreen_window(window_id: str, cancel: threading.Event) -> None:
+    """Ask the window manager to present a main window fullscreen."""
+    properties = _window_properties(window_id)
+    if properties is None:
+        _LOGGER.warning("Cannot fullscreen window %s: properties unavailable", window_id)
+        return
+    if "_NET_WM_STATE_FULLSCREEN" in properties:
+        return
+    try:
+        result = subprocess.run(
+            ["wmctrl", "-ir", window_id, "-b", "add,fullscreen"],
+            check=False, capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _LOGGER.warning("Unable to fullscreen window %s: %s", window_id, error)
+        return
+    if result.returncode:
+        _LOGGER.warning("Unable to fullscreen window %s: %s", window_id, result.stderr.strip())
+        return
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and not cancel.is_set():
+        properties = _window_properties(window_id)
+        if properties is None:
+            break
+        if "_NET_WM_STATE_FULLSCREEN" in properties:
+            return
+        cancel.wait(0.1)
+    if not cancel.is_set():
+        _LOGGER.warning("Window %s did not enter the fullscreen state", window_id)
 
 
 def _window_client_pid(window_id: str) -> int | None:

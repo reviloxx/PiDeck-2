@@ -32,6 +32,7 @@ class WindowMode(StrEnum):
 
     NORMAL = "normal"
     MAXIMIZED = "maximized"
+    FULLSCREEN = "fullscreen"
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +90,11 @@ class ApplicationDefinition:
 
 @dataclass(frozen=True, slots=True)
 class HomeScreenConfiguration:
-    """Define home-screen visibility and the selected theme."""
+    """Define home-screen tile order and the selected theme.
+
+    An empty ``visible_applications`` list means every configured application is
+    shown, using the ``applications`` order.
+    """
 
     visible_applications: tuple[str, ...]
     theme: str
