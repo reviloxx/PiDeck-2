@@ -47,25 +47,27 @@ def test_remote_actions_become_keys_for_the_focused_application() -> None:
         assert service.handle(InputEvent(action, "cec"), RUNNING, pideck_has_focus=False)
     assert injector.keys == [
         VirtualKey.UP, VirtualKey.DOWN, VirtualKey.LEFT, VirtualKey.RIGHT,
-        VirtualKey.RETURN, VirtualKey.BACKSPACE, VirtualKey.MEDIA_PLAY, VirtualKey.MEDIA_PAUSE,
-        VirtualKey.MEDIA_PLAY_PAUSE, VirtualKey.MEDIA_STOP, VirtualKey.MEDIA_REWIND,
+        VirtualKey.RETURN, VirtualKey.ESCAPE, VirtualKey.MEDIA_PLAY, VirtualKey.MEDIA_PAUSE,
+        VirtualKey.MEDIA_PLAY_PAUSE, VirtualKey.ESCAPE, VirtualKey.MEDIA_REWIND,
         VirtualKey.MEDIA_FAST_FORWARD,
     ]
 
 
-def test_youtube_back_uses_backspace() -> None:
-    """YouTube/Red treats Backspace as in-app Back."""
+def test_youtube_back_and_stop_use_escape() -> None:
+    """YouTube/Red exits video with Escape for Return and media Stop."""
     service, injector = _service()
     assert service.handle(InputEvent(InputAction.BACK, "cec"), RUNNING, pideck_has_focus=False)
-    assert injector.keys == [VirtualKey.BACKSPACE]
+    assert service.handle(InputEvent(InputAction.STOP, "cec"), RUNNING, pideck_has_focus=False)
+    assert injector.keys == [VirtualKey.ESCAPE, VirtualKey.ESCAPE]
 
 
-def test_kodi_back_uses_escape() -> None:
-    """Kodi treats Escape as in-app Back."""
+def test_kodi_back_uses_escape_and_stop_uses_media_stop() -> None:
+    """Kodi keeps Escape for Back and XF86AudioStop for Stop."""
     service, injector = _service()
     running = SessionSnapshot(SessionState.RUNNING, KODI)
     assert service.handle(InputEvent(InputAction.BACK, "cec"), running, pideck_has_focus=False)
-    assert injector.keys == [VirtualKey.ESCAPE]
+    assert service.handle(InputEvent(InputAction.STOP, "cec"), running, pideck_has_focus=False)
+    assert injector.keys == [VirtualKey.ESCAPE, VirtualKey.MEDIA_STOP]
 
 
 def test_menu_is_not_forwarded_so_the_overlay_can_handle_it() -> None:

@@ -20,6 +20,7 @@ _KEYS = {
     InputAction.LEFT: VirtualKey.LEFT,
     InputAction.RIGHT: VirtualKey.RIGHT,
     InputAction.ACTIVATE: VirtualKey.RETURN,
+    InputAction.BACK: VirtualKey.ESCAPE,
     InputAction.PLAY: VirtualKey.MEDIA_PLAY,
     InputAction.PAUSE: VirtualKey.MEDIA_PAUSE,
     InputAction.PLAY_PAUSE: VirtualKey.MEDIA_PLAY_PAUSE,
@@ -28,17 +29,17 @@ _KEYS = {
     InputAction.FAST_FORWARD: VirtualKey.MEDIA_FAST_FORWARD,
 }
 
-# Chromium / Red (YouTube) often ignore Escape for in-app Back; Backspace works.
-_BACKSPACE_BACK_IDS = frozenset({"youtube"})
+# Chromium / Red (YouTube) ignores XF86AudioStop; Escape exits playback.
+_ESCAPE_STOP_IDS = frozenset({"youtube"})
 
 _OVERLAY_ACTIONS = frozenset({InputAction.MENU, InputAction.HOME})
 
 
-def _back_key(application_id: str) -> VirtualKey:
-    """Choose Escape or Backspace for Back based on the running application."""
-    if application_id in _BACKSPACE_BACK_IDS:
-        return VirtualKey.BACKSPACE
-    return VirtualKey.ESCAPE
+def _key_for(application_id: str, action: InputAction) -> VirtualKey | None:
+    """Choose the synthesized key for ``action`` in the running application."""
+    if action is InputAction.STOP and application_id in _ESCAPE_STOP_IDS:
+        return VirtualKey.ESCAPE
+    return _KEYS.get(action)
 
 
 class InputForwardingService:
@@ -64,10 +65,7 @@ class InputForwardingService:
             return True
         if session.state is not SessionState.RUNNING or pideck_has_focus:
             return True
-        if event.action is InputAction.BACK:
-            self._injector.tap(_back_key(application.identifier))
-            return True
-        key = _KEYS.get(event.action)
+        key = _key_for(application.identifier, event.action)
         if key is not None:
             self._injector.tap(key)
         return True

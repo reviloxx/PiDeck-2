@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.20
+
+- YouTube: TV Return and Stop exit a video (both sent as Escape). Stop no
+  longer uses the media Stop key, which Red ignores.
+
 ## v0.5.19
 
 - NoMachine opens fullscreen.
