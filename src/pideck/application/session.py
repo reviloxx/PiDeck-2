@@ -330,10 +330,15 @@ class ApplicationSessionService:
         arguments = command_arguments + application.arguments + (
             profile.arguments if profile else ()
         )
+        environment = dict(profile.environment) if profile else {}
+        if application.identifier == "kodi":
+            # Browser session exports NVIDIA VA-API vars; Kodi must use VDPAU instead.
+            environment["LIBVA_DRIVER_NAME"] = ""
+            environment["NVD_BACKEND"] = ""
         return ProcessCommand(
             executable=executable,
             arguments=arguments,
-            environment=profile.environment if profile else None,
+            environment=environment or None,
             working_directory=profile.working_directory if profile else None,
         )
 

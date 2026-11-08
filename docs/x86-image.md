@@ -68,8 +68,9 @@ automatic reconnection until Connect or a launcher restart.
 PiDeck keeps its CEC client for every application and forwards the remote's
 navigation and media keys; Return navigates Back and Exit / Root Menu open the
 session overlay. For Kodi, PiDeck disables Kodi's CEC peripherals before launch
-so libCEC does not open `/dev/cec0` while PiDeck holds it. Re-enabling CEC
-inside Kodi will conflict while PiDeck holds the adapter.
+(`enabled=0`, `activate_source=0`, and a nonexistent `port`) so libCEC does not
+open `/dev/cec0` while PiDeck holds it. Re-enabling CEC inside Kodi will
+conflict while PiDeck holds the adapter.
 
 The Debian libCEC Linux backend opens only `/dev/cec0`; if that device is a GPU
 or another CEC adapter instead of Pulse-Eight, PiDeck reports an error rather
@@ -118,8 +119,9 @@ X configuration selects the NVIDIA X driver only for NVIDIA devices.
   rebuild it with the included `linux-headers-amd64` and compiler. Secure
   Boot must stay disabled because the module is unsigned.
 - **Modesetting:** `/etc/modprobe.d/pideck-nvidia.conf` sets
-  `nvidia-drm modeset=1 fbdev=1`, which rootless X, tear-free output and the
-  VA-API driver require. Like other GPU drivers, the NVIDIA modules stay out
+  `nvidia-drm modeset=1 fbdev=1`, which rootless X, the Plymouth splash and the
+  VA-API driver require. Tear-free composited video additionally needs picom
+  vsync (see below). Like other GPU drivers, the NVIDIA modules stay out
   of the initramfs and load from the root filesystem.
 - **Nouveau** is blacklisted by the driver package. Kepler and older NVIDIA
   GPUs are not supported by driver 550 and are therefore unsupported by this
@@ -136,7 +138,7 @@ Hardware video decoding per application:
 
 | Application | API | Status |
 |---|---|---|
-| Kodi | VDPAU | On NVIDIA, PiDeck forces VDPAU and disables VA-API in `~/.kodi/userdata/guisettings.xml` at each launch. |
+| Kodi | VDPAU | On NVIDIA, PiDeck forces VDPAU and disables VA-API in `~/.kodi/userdata/guisettings.xml` at each launch, and clears browser `LIBVA_DRIVER_NAME` / `NVD_BACKEND` for the Kodi process. |
 | Firefox ESR | VA-API via `nvidia-vaapi-driver` | Enabled by `/etc/firefox-esr/pideck-video.js`; AV1 is disabled so sites choose VP9 or H.264. |
 | Chromium | VA-API | Best effort, through `/etc/chromium.d/pideck-video`. Chromium falls back to software decoding when the driver is unusable. |
 | Chrome, Brave | VA-API | Best effort, through decoder flags in the catalog's launch arguments. |
@@ -147,9 +149,16 @@ Hardware video decoding per application:
 `NVD_BACKEND=direct` and `MOZ_DISABLE_RDD_SANDBOX=1` only when the NVIDIA
 driver is loaded. Those variables are for browsers; Kodi would otherwise open
 the NVIDIA VA-API driver first and fall back to software decode. PiDeck
-therefore rewrites Kodi's player settings on NVIDIA only. Raspberry Pi,
-Intel and AMD keep Kodi's defaults. Pascal GPUs decode H.264, HEVC
-(including 10-bit), VP9, VC-1 and MPEG-2, but not AV1.
+therefore clears them for the Kodi process and rewrites Kodi's player settings
+on NVIDIA only. Raspberry Pi, Intel and AMD keep Kodi's defaults. Picom uses the
+`glx` backend with `unredir-if-possible` disabled (so the overlay can capture
+fullscreen apps) and `vsync` enabled so composited playback does not tear. The
+canonical config ships in the updatable release at
+`…/python/pideck/infrastructure/session/picom.conf`; bootstrap restarts picom
+with that file at session start, and images also install a fallback at
+`/usr/lib/pideck/picom.conf`. Older images that still use picom's `xrender`
+backend need a new image for the glx change; the vsync fix does not. Pascal GPUs
+decode H.264, HEVC (including 10-bit), VP9, VC-1 and MPEG-2, but not AV1.
 
 **Settings → System → System information** lists the GPU, its driver and
 version, and the codecs VDPAU and VA-API report (`vdpauinfo`, `vainfo`).
@@ -285,29 +294,35 @@ extra display mode change, which can be slow on TVs.
 To shorten boots from USB media, new builds keep GPU drivers and GPU firmware
 (NVIDIA, AMD and Intel) out of the initramfs; the Plymouth hook would
 otherwise add over 100 MiB. The drivers load from the root filesystem via
-`pideck-nvidia-load.service` in parallel with the rest of early userspace,
-instead of blocking `systemd-modules-load`. Plymouth and the first console
-wait for that load, and the console then waits for `/dev/dri/card0` (up to
-20 seconds) before starting X, so the session does not start before the
-graphics driver is ready. The initramfs is compressed with zstd, which
-decompresses faster than the gzip fallback used when `zstd` is missing, and
-it skips the resume lookup because the image has no swap. New builds install
-`intel-microcode` so Intel CPUs apply microcode updates from the initramfs.
-Steam Link's Flatpak runtime is installed with the default GL drivers and the
-GL extension for the image's NVIDIA driver, never one for the build host's
-driver.
+`pideck-nvidia-load.service` as soon as udev is up, in parallel with the rest
+of early userspace (including Plymouth, dbus and NetworkManager), instead of
+blocking `systemd-modules-load`. Only the first console waits for that load,
+then for `/dev/dri/card0` (up to 20 seconds) before starting X, so the session
+does not start before the graphics driver is ready. The initramfs is compressed
+with zstd, which decompresses faster than the gzip fallback used when `zstd` is
+missing, and it skips the resume lookup because the image has no swap. New
+builds install `intel-microcode` so Intel CPUs apply microcode updates from the
+initramfs. Steam Link's Flatpak runtime is installed with the default GL
+drivers and the GL extension for the image's NVIDIA driver, never one for the
+build host's driver.
+
+On physical hardware, unused PCIe root ports that fail link retraining can
+each cost about a second during early kernel init; disable empty slots or
+unused ports in the system firmware when possible. Booting the image from an
+internal disk is faster than USB because the kernel does not wait for
+usb-storage to enumerate the root device.
 
 New builds use a PiDeck Plymouth splash while Linux starts. Firmware and
 VirtualBox screens before Linux starts are outside its control. Because GPU
-drivers load after the initramfs, the splash waits for NVIDIA DRM and may
-appear later; when booting in BIOS mode it may not appear until the graphics
-driver loads. Press Escape to switch to boot details, and use the system
-journal when diagnosing failures; the splash does not remove journal entries.
-Graphics-driver availability may affect the splash on physical hardware. The
-splash uses the default theme's colors because it starts before user theme
-settings are available. Boot components are not updated by PiDeck's
-application updater: an existing installation needs a separately applied
-system update or a newly built image.
+drivers load after the initramfs, the splash may appear before modeset is
+ready and can look incomplete until the driver finishes; when booting in BIOS
+mode it may not appear until later. Press Escape to switch to boot details,
+and use the system journal when diagnosing failures; the splash does not
+remove journal entries. Graphics-driver availability may affect the splash on
+physical hardware. The splash uses the default theme's colors because it
+starts before user theme settings are available. Boot components are not
+updated by PiDeck's application updater: an existing installation needs a
+separately applied system update or a newly built image.
 
 The launcher wallpaper fills the window while preserving its aspect ratio;
 edges are cropped on screens with a different shape. The image's default

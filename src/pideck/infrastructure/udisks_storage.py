@@ -8,10 +8,13 @@ interactive authentication; new PiDeck images ship a polkit rule that grants
 the session user the required udisks2 actions.
 
 User-mounted filesystem UUIDs are remembered in a separate ``drives.yaml`` so
-they can be remounted after restart without touching ``pideck.yaml``.
+they can be remounted after restart without touching ``pideck.yaml``. Stable
+``/media/<user>/by-uuid/<UUID>`` symlinks keep Kodi library paths valid when
+udisks chooses a different label directory after reboot.
 """
 
 from collections.abc import Callable, Iterator, Mapping
+from dataclasses import replace
 import json
 import logging
 import os
@@ -40,6 +43,7 @@ _IGNORED_TYPES = frozenset({"loop", "ram", "zram"})
 _LSBLK_COLUMNS = "NAME,PATH,LABEL,FSTYPE,SIZE,MOUNTPOINTS,TYPE,RM,HOTPLUG,MODEL,UUID"
 _ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}
 _RESTORE_RETRY_SECONDS = 3.0
+_UNSAFE_LABEL = re.compile(r"[^\w.+-]+", re.UNICODE)
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
@@ -101,6 +105,14 @@ def _filesystem_uuid(value: object) -> str | None:
     return uuid
 
 
+def _sanitize_label(label: str) -> str | None:
+    """Return a single path component for a filesystem label, or None if unusable."""
+    cleaned = _UNSAFE_LABEL.sub("_", label.strip()).strip("._")
+    if not cleaned or cleaned in {".", ".."}:
+        return None
+    return cleaned
+
+
 def parse_drives(document: object) -> tuple[Drive, ...]:
     """Convert ``lsblk --json`` output into mountable non-system drives."""
     if not isinstance(document, dict) or not isinstance(document.get("blockdevices"), list):
@@ -122,8 +134,15 @@ def parse_drives(document: object) -> tuple[Drive, ...]:
                 continue
             if not isinstance(filesystem, str) or not filesystem or filesystem in _IGNORED_FILESYSTEMS:
                 continue
-            label = node.get("label")
-            if not isinstance(label, str) or not label.strip():
+            raw_label = node.get("label")
+            filesystem_label = (
+                raw_label.strip()
+                if isinstance(raw_label, str) and raw_label.strip()
+                else None
+            )
+            if filesystem_label is not None:
+                label = filesystem_label
+            else:
                 name = node.get("name") if isinstance(node.get("name"), str) else path.rsplit("/", 1)[-1]
                 label = f"{model.strip()} ({name})" if model and model.strip() else name
             mounts = _mountpoints(node)
@@ -136,6 +155,7 @@ def parse_drives(document: object) -> tuple[Drive, ...]:
                 removable=disk_removable or _flag(node.get("rm")) or _flag(node.get("hotplug")),
                 parent=disk_path if isinstance(disk_path, str) and disk_path != path else None,
                 uuid=_filesystem_uuid(node.get("uuid")),
+                filesystem_label=filesystem_label,
             ))
     return tuple(drives)
 
@@ -216,16 +236,26 @@ class UDisksStorageGateway:
         which: Callable[[str], str | None] = shutil.which,
         preferences: DrivePreferences | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        media_root: Path | None = None,
+        home: Path | None = None,
     ) -> None:
-        """Create a gateway; ``runner``, ``which`` and ``sleep`` are injectable for tests."""
+        """Create a gateway; ``runner``, ``which``, ``sleep`` and ``media_root`` are injectable for tests."""
         self._runner = runner
         self._which = which
         self._preferences = preferences
         self._sleep = sleep
+        self._media_root = media_root
+        self._home = home or Path.home()
 
     def available(self) -> bool:
         """Return whether udisks2 is installed on this image."""
         return self._which("udisksctl") is not None and self._which("lsblk") is not None
+
+    def _user_media_root(self) -> Path:
+        """Return ``/media/<user>`` where stable by-uuid links are published."""
+        if self._media_root is not None:
+            return self._media_root
+        return Path("/media") / self._home.name
 
     def _execute(self, command: list[str], failure: str) -> str:
         try:
@@ -236,8 +266,8 @@ class UDisksStorageGateway:
             raise StorageError(_clean_error(result.stderr or result.stdout))
         return result.stdout
 
-    def list_drives(self) -> tuple[Drive, ...]:
-        """Return data drives and partitions that are not on the system disk."""
+    def _listed_drives(self) -> tuple[Drive, ...]:
+        """Return drives from ``lsblk`` without rewriting mount points."""
         output = self._execute(
             ["lsblk", "--json", "--bytes", "--output", _LSBLK_COLUMNS],
             "The drive list is unavailable",
@@ -248,8 +278,13 @@ class UDisksStorageGateway:
             raise StorageError("The drive list is invalid") from error
         return parse_drives(document)
 
+    def list_drives(self) -> tuple[Drive, ...]:
+        """Return data drives with stable by-uuid mount paths when mounted."""
+        drives = self._listed_drives()
+        return tuple(self._with_stable_mountpoint(drive, drives) for drive in drives)
+
     def mount(self, drive: Drive) -> str:
-        """Mount a listed drive and return the mount point udisks2 chose."""
+        """Mount a listed drive and return the stable by-uuid mount path."""
         current = self._validated(drive)
         device = current.device
         output = self._execute(
@@ -258,21 +293,25 @@ class UDisksStorageGateway:
         )
         match = re.search(r" at (/.+?)\.?\s*$", output.strip())
         mountpoint: str | None = match.group(1) if match is not None else None
+        listed = self._listed_drives()
         if mountpoint is None:
-            for listed in self.list_drives():
-                if listed.device == device and listed.mountpoint is not None:
-                    mountpoint = listed.mountpoint
+            for item in listed:
+                if item.device == device and item.mountpoint is not None:
+                    mountpoint = item.mountpoint
                     break
         if mountpoint is None:
             raise StorageError("The drive was not mounted")
-        _LOGGER.info("Mounted drive device=%s mountpoint=%s", device, mountpoint)
+        current = next((item for item in listed if item.device == device), current)
+        stable = self._ensure_stable_links(current, mountpoint, listed)
+        _LOGGER.info("Mounted drive device=%s mountpoint=%s stable=%s", device, mountpoint, stable)
         self._remember(current.uuid)
-        return mountpoint
+        return stable
 
     def unmount(self, drive: Drive) -> None:
         """Unmount a drive, then power off a removable disk with no other mounts."""
         current = self._validated(drive)
         device = current.device
+        self._remove_stable_links(current)
         self._execute(
             ["udisksctl", "unmount", "--no-user-interaction", "--block-device", device],
             "The storage service is unavailable",
@@ -285,7 +324,7 @@ class UDisksStorageGateway:
         try:
             still_mounted = any(
                 other.mounted and (other.parent or other.device) == parent
-                for other in self.list_drives()
+                for other in self._listed_drives()
             )
             if still_mounted:
                 return
@@ -308,17 +347,18 @@ class UDisksStorageGateway:
             return
         if not uuids:
             return
-        drives = self.list_drives()
+        drives = self._listed_drives()
         if not drives:
             self._sleep(_RESTORE_RETRY_SECONDS)
-            drives = self.list_drives()
+            drives = self._listed_drives()
         by_uuid = {drive.uuid: drive for drive in drives if drive.uuid}
         for uuid in sorted(uuids):
             drive = by_uuid.get(uuid)
             if drive is None:
                 _LOGGER.info("Remembered drive is not present uuid=%s", uuid)
                 continue
-            if drive.mounted:
+            if drive.mounted and drive.mountpoint is not None:
+                self._ensure_stable_links(drive, drive.mountpoint, drives)
                 continue
             try:
                 self.mount(drive)
@@ -337,6 +377,76 @@ class UDisksStorageGateway:
                 _LOGGER.warning("Unable to restore remembered drives: %s", error)
 
         threading.Thread(target=restore, name="pideck-drives-restore", daemon=True).start()
+
+    def _with_stable_mountpoint(self, drive: Drive, all_drives: tuple[Drive, ...]) -> Drive:
+        """Publish stable links for a mounted UUID drive and report that path."""
+        if drive.mountpoint is None or drive.uuid is None:
+            return drive
+        stable = self._ensure_stable_links(drive, drive.mountpoint, all_drives)
+        if stable == drive.mountpoint:
+            return drive
+        return replace(drive, mountpoint=stable)
+
+    def _ensure_stable_links(
+        self,
+        drive: Drive,
+        real_mount: str,
+        all_drives: tuple[Drive, ...],
+    ) -> str:
+        """Create by-uuid (and unique by-label) symlinks; return the by-uuid path."""
+        if drive.uuid is None:
+            return real_mount
+        target = Path(real_mount)
+        uuid_link = self._user_media_root() / "by-uuid" / drive.uuid
+        self._replace_symlink(uuid_link, target)
+        sanitized = (
+            _sanitize_label(drive.filesystem_label)
+            if drive.filesystem_label is not None
+            else None
+        )
+        if sanitized is not None:
+            same_label = sum(
+                1
+                for other in all_drives
+                if other.filesystem_label == drive.filesystem_label
+            )
+            if same_label == 1:
+                self._replace_symlink(self._user_media_root() / "by-label" / sanitized, target)
+        return str(uuid_link)
+
+    def _remove_stable_links(self, drive: Drive) -> None:
+        """Remove published symlinks for ``drive`` before unmounting."""
+        root = self._user_media_root()
+        if drive.uuid is not None:
+            self._unlink_if_symlink(root / "by-uuid" / drive.uuid)
+        if drive.filesystem_label is not None:
+            sanitized = _sanitize_label(drive.filesystem_label)
+            if sanitized is not None:
+                self._unlink_if_symlink(root / "by-label" / sanitized)
+
+    @staticmethod
+    def _replace_symlink(link: Path, target: Path) -> None:
+        """Point ``link`` at ``target``, replacing a previous symlink if present."""
+        try:
+            link.parent.mkdir(parents=True, exist_ok=True)
+            if link.is_symlink() or link.is_file():
+                if link.is_symlink() and os.readlink(link) == str(target):
+                    return
+                link.unlink()
+            elif link.exists():
+                _LOGGER.warning("Stable mount path is not a symlink path=%s", link)
+                return
+            link.symlink_to(target)
+        except OSError as error:
+            _LOGGER.warning("Unable to publish stable mount path=%s error=%s", link, error)
+
+    @staticmethod
+    def _unlink_if_symlink(path: Path) -> None:
+        try:
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+        except OSError as error:
+            _LOGGER.warning("Unable to remove stable mount path=%s error=%s", path, error)
 
     def _remember(self, uuid: str | None) -> None:
         if self._preferences is None or uuid is None:
@@ -358,7 +468,7 @@ class UDisksStorageGateway:
         """Return the freshly listed drive so stale UI snapshots cannot target other disks."""
         if _DEVICE.fullmatch(drive.device) is None or ".." in drive.device:
             raise StorageError("Invalid drive")
-        for current in self.list_drives():
+        for current in self._listed_drives():
             if current.device == drive.device:
                 return current
         raise StorageError("The drive is no longer available")

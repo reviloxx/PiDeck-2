@@ -33,8 +33,13 @@ if command -v gsettings >/dev/null 2>&1; then
 fi
 
 # Composite fullscreen apps so the session overlay can blur what is on screen.
+# Prefer the updatable release config (vsync) when present; fall back for recovery.
 if command -v picom >/dev/null 2>&1; then
-    picom --config /usr/lib/pideck/picom.conf &
+    PICOM_CONF=/usr/lib/pideck/current/python/pideck/infrastructure/session/picom.conf
+    if [ ! -f "$PICOM_CONF" ]; then
+        PICOM_CONF=/usr/lib/pideck/picom.conf
+    fi
+    picom --config "$PICOM_CONF" &
 fi
 
 exec /usr/bin/python3 -m pideck.bootstrap \

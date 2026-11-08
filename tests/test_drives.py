@@ -79,10 +79,11 @@ def test_system_disk_loop_and_unmountable_filesystems_are_hidden() -> None:
     assert [drive.device for drive in drives] == ["/dev/sdb1", "/dev/sdc1"]
     usb, hdd = drives
     assert usb == Drive(
-        "/dev/sdb1", "MEDIA", "exfat", 32_000_000_000, None, True, "/dev/sdb", MEDIA_UUID,
+        "/dev/sdb1", "MEDIA", "exfat", 32_000_000_000, None, True, "/dev/sdb", MEDIA_UUID, "MEDIA",
     )
     assert hdd.label == "Data HDD (sdc1)"
     assert hdd.uuid == DATA_UUID
+    assert hdd.filesystem_label is None
     assert hdd.size == 2000 and hdd.mounted and hdd.removable is False
     with pytest.raises(StorageError):
         parse_drives({"unexpected": []})
@@ -103,45 +104,77 @@ def test_disks_with_mounts_outside_data_locations_are_system_disks() -> None:
     assert parse_drives(document)[0].uuid is None
 
 
-def test_mount_uses_udisks_without_interaction() -> None:
+def test_mount_returns_stable_by_uuid_path_and_creates_symlinks(tmp_path: Path) -> None:
+    media_root = tmp_path / "media" / "pideck"
     runner = Runner()
-    gateway = UDisksStorageGateway(runner, which=lambda name: f"/usr/bin/{name}")
+    gateway = UDisksStorageGateway(
+        runner, which=lambda name: f"/usr/bin/{name}", media_root=media_root,
+    )
     assert gateway.available()
-    drive = gateway.list_drives()[0]
-    assert gateway.mount(drive) == "/media/pideck/MEDIA"
-    assert runner.commands[-1] == ["udisksctl", "mount", "--no-user-interaction", "--block-device", "/dev/sdb1"]
+    drives = gateway.list_drives()
+    drive = drives[0]
+    stable = str(media_root / "by-uuid" / MEDIA_UUID)
+    assert gateway.mount(drive) == stable
+    assert [
+        "udisksctl", "mount", "--no-user-interaction", "--block-device", "/dev/sdb1",
+    ] in runner.commands
+    uuid_link = media_root / "by-uuid" / MEDIA_UUID
+    assert uuid_link.is_symlink() and os.readlink(uuid_link) == "/media/pideck/MEDIA"
+    label_link = media_root / "by-label" / "MEDIA"
+    assert label_link.is_symlink() and os.readlink(label_link) == "/media/pideck/MEDIA"
+    already = drives[1]
+    assert already.mountpoint == str(media_root / "by-uuid" / DATA_UUID)
+    assert os.readlink(media_root / "by-uuid" / DATA_UUID) == "/media/pideck/Data"
 
 
-def test_unmounting_removable_drive_powers_off_its_disk() -> None:
+def test_unmounting_removable_drive_powers_off_its_disk(tmp_path: Path) -> None:
+    media_root = tmp_path / "media" / "pideck"
     runner = Runner()
-    gateway = UDisksStorageGateway(runner, which=lambda name: None)
+    gateway = UDisksStorageGateway(runner, which=lambda name: None, media_root=media_root)
     assert not gateway.available()
-    drive = Drive("/dev/sdb1", "MEDIA", "exfat", 1, "/media/pideck/MEDIA", True, "/dev/sdb")
+    drive = Drive(
+        "/dev/sdb1", "MEDIA", "exfat", 1, "/media/pideck/MEDIA", True, "/dev/sdb",
+        MEDIA_UUID, "MEDIA",
+    )
+    (media_root / "by-uuid").mkdir(parents=True)
+    (media_root / "by-label").mkdir(parents=True)
+    (media_root / "by-uuid" / MEDIA_UUID).symlink_to("/media/pideck/MEDIA")
+    (media_root / "by-label" / "MEDIA").symlink_to("/media/pideck/MEDIA")
     gateway.unmount(drive)
     udisks = [command for command in runner.commands if command[0] == "udisksctl"]
     assert udisks == [
         ["udisksctl", "unmount", "--no-user-interaction", "--block-device", "/dev/sdb1"],
         ["udisksctl", "power-off", "--no-user-interaction", "--block-device", "/dev/sdb"],
     ]
+    assert not (media_root / "by-uuid" / MEDIA_UUID).exists()
+    assert not (media_root / "by-label" / "MEDIA").exists()
 
 
-def test_internal_drive_is_not_powered_off_and_power_off_failure_is_not_fatal() -> None:
+def test_internal_drive_is_not_powered_off_and_power_off_failure_is_not_fatal(
+    tmp_path: Path,
+) -> None:
+    media_root = tmp_path / "media" / "pideck"
     runner = Runner()
-    gateway = UDisksStorageGateway(runner)
+    gateway = UDisksStorageGateway(runner, media_root=media_root)
     # A stale snapshot claiming the internal disk is removable must not power it off.
-    gateway.unmount(Drive("/dev/sdc1", "Data", "ntfs", 1, "/media/pideck/Data", True, "/dev/sda"))
+    gateway.unmount(Drive(
+        "/dev/sdc1", "Data", "ntfs", 1, "/media/pideck/Data", True, "/dev/sda", DATA_UUID,
+    ))
     assert not any(command[1:2] == ["power-off"] for command in runner.commands)
     runner.failures["power-off"] = "Error powering off drive: busy"
-    gateway.unmount(Drive("/dev/sdb1", "MEDIA", "exfat", 1, "/media/x", True, "/dev/sdb"))
+    gateway.unmount(Drive(
+        "/dev/sdb1", "MEDIA", "exfat", 1, "/media/x", True, "/dev/sdb", MEDIA_UUID, "MEDIA",
+    ))
 
 
-def test_udisks_errors_are_readable_and_unknown_devices_rejected() -> None:
+def test_udisks_errors_are_readable_and_unknown_devices_rejected(tmp_path: Path) -> None:
+    media_root = tmp_path / "media" / "pideck"
     runner = Runner()
     runner.failures["mount"] = (
         "Error mounting /dev/sdb1: GDBus.Error:org.freedesktop.UDisks2.Error.NotAuthorizedCanObtain: "
         "Not authorized to perform operation"
     )
-    gateway = UDisksStorageGateway(runner)
+    gateway = UDisksStorageGateway(runner, media_root=media_root)
     with pytest.raises(StorageError, match="^Error mounting /dev/sdb1: Not authorized"):
         gateway.mount(gateway.list_drives()[0])
     with pytest.raises(StorageError, match="no longer available"):
@@ -169,47 +202,63 @@ def test_drive_preferences_round_trip(tmp_path: Path) -> None:
 
 def test_mount_and_unmount_update_remembered_uuids(tmp_path: Path) -> None:
     preferences = DrivePreferences(tmp_path / "drives.yaml")
+    media_root = tmp_path / "media" / "pideck"
     runner = Runner()
-    gateway = UDisksStorageGateway(runner, preferences=preferences)
+    gateway = UDisksStorageGateway(runner, preferences=preferences, media_root=media_root)
     drive = gateway.list_drives()[0]
     assert drive.uuid == MEDIA_UUID
     gateway.mount(drive)
     assert preferences.load() == frozenset({MEDIA_UUID})
+    assert (media_root / "by-uuid" / MEDIA_UUID).is_symlink()
     gateway.unmount(drive)
     assert preferences.load() == frozenset()
+    assert not (media_root / "by-uuid" / MEDIA_UUID).exists()
+    assert not (media_root / "by-label" / "MEDIA").exists()
 
 
 def test_mount_without_uuid_does_not_write_preferences(tmp_path: Path) -> None:
     preferences = DrivePreferences(tmp_path / "drives.yaml")
+    media_root = tmp_path / "media" / "pideck"
     document = {"blockdevices": [
         {"name": "sdf", "path": "/dev/sdf", "type": "disk", "rm": True, "hotplug": True, "children": [
             {"name": "sdf1", "path": "/dev/sdf1", "fstype": "ext4", "type": "part",
              "mountpoints": [None], "label": "NOUUID", "size": 100, "uuid": ""},
         ]},
     ]}
-    gateway = UDisksStorageGateway(Runner(document), preferences=preferences)
-    gateway.mount(gateway.list_drives()[0])
+    gateway = UDisksStorageGateway(Runner(document), preferences=preferences, media_root=media_root)
+    assert gateway.mount(gateway.list_drives()[0]) == "/media/pideck/MEDIA"
     assert not preferences.path.exists()
+    assert not (media_root / "by-uuid").exists()
 
 
-def test_restore_saved_mounts_remembered_drives(tmp_path: Path) -> None:
+def test_restore_saved_mounts_remembered_drives_and_publishes_stable_paths(
+    tmp_path: Path,
+) -> None:
     preferences = DrivePreferences(tmp_path / "drives.yaml")
     preferences.save(frozenset({MEDIA_UUID, DATA_UUID, "DEAD-BEEF"}))
+    media_root = tmp_path / "media" / "pideck"
     runner = Runner()
     sleeps: list[float] = []
     gateway = UDisksStorageGateway(
-        runner, which=lambda name: f"/usr/bin/{name}", preferences=preferences, sleep=sleeps.append,
+        runner,
+        which=lambda name: f"/usr/bin/{name}",
+        preferences=preferences,
+        sleep=sleeps.append,
+        media_root=media_root,
     )
     gateway.restore_saved()
     mounts = [command for command in runner.commands if command[:2] == ["udisksctl", "mount"]]
     assert mounts == [["udisksctl", "mount", "--no-user-interaction", "--block-device", "/dev/sdb1"]]
     assert preferences.load() == frozenset({MEDIA_UUID, DATA_UUID, "DEAD-BEEF"})
     assert sleeps == []
+    assert os.readlink(media_root / "by-uuid" / DATA_UUID) == "/media/pideck/Data"
+    assert os.readlink(media_root / "by-uuid" / MEDIA_UUID) == "/media/pideck/MEDIA"
 
 
 def test_restore_saved_retries_when_drives_are_still_probing(tmp_path: Path) -> None:
     preferences = DrivePreferences(tmp_path / "drives.yaml")
     preferences.remember(MEDIA_UUID)
+    media_root = tmp_path / "media" / "pideck"
     empty = {"blockdevices": []}
     runner = Runner(empty)
     lists = {"count": 0}
@@ -223,7 +272,11 @@ def test_restore_saved_retries_when_drives_are_still_probing(tmp_path: Path) -> 
 
     sleeps: list[float] = []
     gateway = UDisksStorageGateway(
-        run, which=lambda name: f"/usr/bin/{name}", preferences=preferences, sleep=sleeps.append,
+        run,
+        which=lambda name: f"/usr/bin/{name}",
+        preferences=preferences,
+        sleep=sleeps.append,
+        media_root=media_root,
     )
     gateway.restore_saved()
     assert sleeps == [3.0]
@@ -233,6 +286,7 @@ def test_restore_saved_retries_when_drives_are_still_probing(tmp_path: Path) -> 
 def test_restore_saved_continues_after_one_mount_failure(tmp_path: Path) -> None:
     preferences = DrivePreferences(tmp_path / "drives.yaml")
     second = "BBBB-CCCC"
+    media_root = tmp_path / "media" / "pideck"
     document = {
         "blockdevices": [
             {"name": "sdb", "path": "/dev/sdb", "type": "disk", "rm": True, "hotplug": True, "children": [
@@ -263,11 +317,42 @@ def test_restore_saved_continues_after_one_mount_failure(tmp_path: Path) -> None
 
     selective = Selective(document)
     gateway = UDisksStorageGateway(
-        selective, which=lambda name: f"/usr/bin/{name}", preferences=preferences, sleep=lambda _: None,
+        selective,
+        which=lambda name: f"/usr/bin/{name}",
+        preferences=preferences,
+        sleep=lambda _: None,
+        media_root=media_root,
     )
     gateway.restore_saved()
     mounts = [command[-1] for command in selective.commands if command[:2] == ["udisksctl", "mount"]]
     assert mounts == ["/dev/sdb1", "/dev/sdg1"]
+
+
+def test_duplicate_filesystem_labels_skip_by_label_symlink(tmp_path: Path) -> None:
+    media_root = tmp_path / "media" / "pideck"
+    first = "AAAA-1111"
+    second = "BBBB-2222"
+    document = {
+        "blockdevices": [
+            {"name": "sdb", "path": "/dev/sdb", "type": "disk", "rm": True, "hotplug": True, "children": [
+                {"name": "sdb1", "path": "/dev/sdb1", "fstype": "exfat", "type": "part",
+                 "mountpoints": ["/media/pideck/SHARE"], "label": "SHARE", "size": 1, "uuid": first},
+            ]},
+            {"name": "sdc", "path": "/dev/sdc", "type": "disk", "rm": True, "hotplug": True, "children": [
+                {"name": "sdc1", "path": "/dev/sdc1", "fstype": "exfat", "type": "part",
+                 "mountpoints": ["/media/pideck/SHARE1"], "label": "SHARE", "size": 1, "uuid": second},
+            ]},
+        ],
+    }
+    gateway = UDisksStorageGateway(Runner(document), media_root=media_root)
+    drives = gateway.list_drives()
+    assert [drive.mountpoint for drive in drives] == [
+        str(media_root / "by-uuid" / first),
+        str(media_root / "by-uuid" / second),
+    ]
+    assert os.readlink(media_root / "by-uuid" / first) == "/media/pideck/SHARE"
+    assert os.readlink(media_root / "by-uuid" / second) == "/media/pideck/SHARE1"
+    assert not (media_root / "by-label" / "SHARE").exists()
 
 
 def test_format_size_uses_decimal_units() -> None:

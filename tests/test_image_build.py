@@ -338,6 +338,11 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
         FILES / "openbox/rc.xml"
     ).read_text()
     assert os.access(rootfs / "usr/lib/pideck/pideck-session", os.X_OK)
+    picom = (rootfs / "usr/lib/pideck/picom.conf").read_text()
+    assert "vsync = true" in picom
+    assert "unredir-if-possible = false" in picom
+    xsession = (rootfs / "usr/lib/pideck/pideck-xsession").read_text()
+    assert "infrastructure/session/picom.conf" in xsession
     assert (rootfs / "etc/systemd/system/getty@tty1.service.d/pideck.conf").is_file()
     assert (rootfs / "etc/systemd/system/userconfig.service.d/pideck.conf").is_file()
     assert "After=userconfig.service" in (FILES / "getty-override.conf").read_text()

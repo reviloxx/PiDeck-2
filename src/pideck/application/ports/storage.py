@@ -25,6 +25,7 @@ class Drive:
     removable: bool
     parent: str | None = None
     uuid: str | None = None
+    filesystem_label: str | None = None
 
     @property
     def mounted(self) -> bool:

@@ -1,8 +1,8 @@
 [Unit]
 Description=Load NVIDIA DRM for PiDeck
 DefaultDependencies=no
-After=local-fs.target systemd-udevd.service
-Before=plymouth-start.service getty@tty1.service
+After=systemd-udevd.service
+Before=getty@tty1.service
 Wants=systemd-udevd.service
 
 [Service]

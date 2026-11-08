@@ -30,8 +30,9 @@ connection resumes after an application exits, but starts disconnected after
 a PiDeck restart. PiDeck keeps CEC for every application and forwards the
 remote's navigation and media keys; Return navigates Back and Exit / Root Menu
 open the session overlay. For Kodi, PiDeck disables Kodi's CEC peripherals
-before launch so only PiDeck opens `/dev/cec0`. Re-enabling CEC inside Kodi will
-conflict while PiDeck holds the adapter.
+before launch (`enabled=0`, `activate_source=0`, and a nonexistent `port`) so
+only PiDeck opens `/dev/cec0`. Re-enabling CEC inside Kodi will conflict while
+PiDeck holds the adapter.
 
 The libCEC Linux backend uses `/dev/cec0`, so check which HDMI connector maps
 to that device and that the local user can access it. Check Input status, the
@@ -314,5 +315,8 @@ application's real window and process lifecycle remains a release gate.
 
 While an application is running, Super (Windows), the Xbox Guide button and the
 TV Exit / Root Menu key open the session overlay so the user can return to PiDeck.
-The session starts picom so the overlay can blur fullscreen apps; keep
-`unredir-if-possible` disabled in `/usr/lib/pideck/picom.conf`.
+The session starts picom with the `glx` backend and vsync so the overlay can
+blur fullscreen apps without tearing. Keep `unredir-if-possible` disabled. The
+updatable release owns
+`…/python/pideck/infrastructure/session/picom.conf`; images also install a
+fallback at `/usr/lib/pideck/picom.conf`.

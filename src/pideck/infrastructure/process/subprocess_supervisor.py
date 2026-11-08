@@ -52,7 +52,11 @@ class SubprocessSupervisor:
                 raise SubprocessLaunchError("Process supervisor is closed")
         environment = os.environ.copy()
         if command.environment is not None:
-            environment.update(command.environment)
+            for key, value in command.environment.items():
+                if value == "":
+                    environment.pop(key, None)
+                else:
+                    environment[key] = value
         try:
             process = subprocess.Popen(
                 [command.executable, *command.arguments],

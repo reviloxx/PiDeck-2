@@ -192,10 +192,12 @@ able to replace both the release and its manifest can distribute altered code.
   and asks before authorizing a pairing or confirming a displayed code; it
   does not automatically trust devices.
 - Drives: mount and unmount USB sticks, external disks and additional
-  internal partitions through udisks2, so they appear under
-  `/media/<user>/<label>` for Kodi (its file browser lists them under the
-  root filesystem or removable sources) and other applications. Disks
-  with swap or any filesystem mounted outside `/media`, `/mnt` or
+  internal partitions through udisks2. Use the stable path
+  `/media/<user>/by-uuid/<UUID>` in Kodi sources (shown in Settings >
+  Drives after mount); udisks may also create a changing
+  `/media/<user>/<label>` directory, and a convenience
+  `/media/<user>/by-label/<label>` link exists when the label is unique.
+  Disks with swap or any filesystem mounted outside `/media`, `/mnt` or
   `/run/media` (such as root, boot, EFI or home) are never listed. Unmounting
   a removable drive also powers it off so it can be removed safely. Mounting
   requires an image built from v0.4.0 or later, which ships udisks2 and a

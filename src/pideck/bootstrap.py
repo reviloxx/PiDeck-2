@@ -45,6 +45,7 @@ from pideck.infrastructure.packages.installed import device_architecture
 from pideck.infrastructure.packages.manager import SystemPackageManager
 from pideck.infrastructure.kodi_acceleration import configure_kodi_acceleration
 from pideck.infrastructure.kodi_cec import disable_kodi_cec
+from pideck.infrastructure.session.picom import apply_release_picom
 from pideck.infrastructure.user_defaults import UserDefaultsInstaller
 from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
@@ -281,6 +282,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     application = QApplication(["pideck"])
     application.setApplicationName("PiDeck")
+    # Replace any image-started picom so existing installs pick up release vsync.
+    apply_release_picom()
     cursor_visibility = CursorVisibility(application)
     application.installEventFilter(cursor_visibility)
     application.installEventFilter(BackspaceAsBack(application))

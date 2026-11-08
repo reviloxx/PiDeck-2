@@ -199,7 +199,7 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "openbox/rc.xml", root / "usr/share/pideck/openbox/rc.xml")
     for name in ("pideck-session", "pideck-xsession"):
         _install(PI_FILES / name, lib / name, 0o755)
-    _install(PI_FILES / "picom.conf", lib / "picom.conf")
+    _install(ROOT / "src/pideck/infrastructure/session/picom.conf", lib / "picom.conf")
     for name in ("pideck-getty", "pideck-grow-root", "pideck-wait-drm"):
         _install(INPUTS / name, lib / name, 0o755)
     _install(PI_FILES / "pideck-profile.sh", root / "etc/profile.d/pideck.sh")
@@ -230,10 +230,6 @@ def _write_inputs(root: Path, tag: str | None) -> None:
         _install(PI_FILES / name, root / "etc/systemd/system" / name)
     _install(INPUTS / "pideck-grow-root.service", root / "etc/systemd/system/pideck-grow-root.service")
     _install(INPUTS / "pideck-nvidia-load.service", root / "etc/systemd/system/pideck-nvidia-load.service")
-    _install(
-        INPUTS / "plymouth-start-override.conf",
-        root / "etc/systemd/system/plymouth-start.service.d/pideck.conf",
-    )
     version = image_version(ROOT, tag)
     release = lib / "releases" / version
     shutil.copytree(ROOT / "src/pideck", release / "python/pideck", ignore=ignore)

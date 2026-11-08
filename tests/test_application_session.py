@@ -144,6 +144,23 @@ def test_session_starts_and_returns_to_idle() -> None:
     service.close()
 
 
+def test_kodi_launch_clears_browser_vaapi_environment() -> None:
+    """Kodi must not inherit NVIDIA VA-API browser variables from the session."""
+    command = ApplicationSessionService._command_for(
+        ApplicationDefinition(identifier="kodi", name="Kodi", executable="kodi"),
+        None,
+    )
+    assert command.environment == {
+        "LIBVA_DRIVER_NAME": "",
+        "NVD_BACKEND": "",
+    }
+    other = ApplicationSessionService._command_for(
+        ApplicationDefinition(identifier="youtube", name="YouTube", executable="flatpak"),
+        None,
+    )
+    assert other.environment is None
+
+
 def test_session_waits_for_application_visibility() -> None:
     """A process start stays STARTING until its application window is visible."""
     supervisor = FakeSupervisor()

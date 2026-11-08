@@ -75,6 +75,9 @@ def test_bundle_is_reproducible_and_contains_only_application_files(tmp_path: Pa
         assert "python/pideck/bootstrap.py" in names
         assert "python/pideck/infrastructure/cec_support/71-pideck-cec-attach.rules" in names
         assert "python/pideck/infrastructure/cec_support/pideck-cec-attach@.service" in names
+        picom = "python/pideck/infrastructure/session/picom.conf"
+        assert picom in names
+        assert b"vsync = true" in archive.extractfile(picom).read()
         metadata = json.load(archive.extractfile("python/pideck/_build_info.json"))
         assert metadata["built_at"] == "2026-01-01T00:00:00+00:00"
         assert "assets/icons/settings.svg" in names

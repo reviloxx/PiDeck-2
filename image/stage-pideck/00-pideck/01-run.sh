@@ -36,7 +36,8 @@ install -m 644 files/window-modes.yaml "${ROOTFS_DIR}/usr/share/pideck/config/wi
 install -m 644 files/openbox/rc.xml "${ROOTFS_DIR}/usr/share/pideck/openbox/rc.xml"
 install -m 755 files/pideck-getty files/pideck-session files/pideck-xsession \
     "${ROOTFS_DIR}/usr/lib/pideck/"
-install -m 644 files/picom.conf "${ROOTFS_DIR}/usr/lib/pideck/picom.conf"
+install -m 644 files/project/src/pideck/infrastructure/session/picom.conf \
+    "${ROOTFS_DIR}/usr/lib/pideck/picom.conf"
 install -m 644 files/pideck-profile.sh "${ROOTFS_DIR}/etc/profile.d/pideck.sh"
 install -m 644 files/pideck.plymouth files/pideck.script \
     "${ROOTFS_DIR}/usr/share/plymouth/themes/pideck/"
