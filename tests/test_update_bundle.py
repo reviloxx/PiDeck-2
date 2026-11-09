@@ -78,7 +78,9 @@ def test_bundle_is_reproducible_and_contains_only_application_files(tmp_path: Pa
         picom = "python/pideck/infrastructure/session/picom.conf"
         nvidia = "python/pideck/infrastructure/session/picom-nvidia.conf"
         vm = "python/pideck/infrastructure/session/picom-vm.conf"
-        assert {picom, nvidia, vm} <= set(names)
+        openbox = "python/pideck/infrastructure/session/openbox-rc.xml"
+        assert {picom, nvidia, vm, openbox} <= set(names)
+        assert b'name="Frame"' not in archive.extractfile(openbox).read()
         assert b'backend = "xrender"' in archive.extractfile(picom).read()
         assert b"vsync = true" in archive.extractfile(picom).read()
         assert b'backend = "glx"' in archive.extractfile(nvidia).read()

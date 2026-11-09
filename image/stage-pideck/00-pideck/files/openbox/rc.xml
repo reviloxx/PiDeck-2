@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- PiDeck Openbox config: decorated windows keep a title and close button only. -->
+<!-- PiDeck Openbox config: decorated windows keep a title and close button only.
+     Do not bind Left Press on Frame — Openbox does not pass those clicks to apps. -->
 <openbox_config xmlns="http://openbox.org/3.4/rc">
   <resistance>
     <strength>10</strength>
@@ -58,12 +59,6 @@
   </desktops>
   <keyboard/>
   <mouse>
-    <context name="Frame">
-      <mousebind button="Left" action="Press">
-        <action name="Focus"/>
-        <action name="Raise"/>
-      </mousebind>
-    </context>
     <context name="Titlebar">
       <mousebind button="Left" action="Press">
         <action name="Focus"/>

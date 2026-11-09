@@ -348,6 +348,8 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     xsession = (rootfs / "usr/lib/pideck/pideck-xsession").read_text()
     assert "picom-nvidia.conf" in xsession
     assert "picom-vm.conf" in xsession
+    assert "openbox-rc.xml" in xsession
+    assert 'name="Frame"' not in (rootfs / "usr/share/pideck/openbox/rc.xml").read_text()
     assert (rootfs / "etc/systemd/system/getty@tty1.service.d/pideck.conf").is_file()
     assert (rootfs / "etc/systemd/system/userconfig.service.d/pideck.conf").is_file()
     assert "After=userconfig.service" in (FILES / "getty-override.conf").read_text()

@@ -268,6 +268,8 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     xsession = (tmp_path / "usr/lib/pideck/pideck-xsession").read_text()
     assert "picom-nvidia.conf" in xsession
     assert "picom-vm.conf" in xsession
+    assert "openbox-rc.xml" in xsession
+    assert 'name="Frame"' not in (tmp_path / "usr/share/pideck/openbox/rc.xml").read_text()
     from image.update_bundle import project_version
 
     version = project_version(x86_build.ROOT)
@@ -279,6 +281,7 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert (release_session / "picom.conf").is_file()
     assert (release_session / "picom-nvidia.conf").is_file()
     assert (release_session / "picom-vm.conf").is_file()
+    assert (release_session / "openbox-rc.xml").is_file()
     override = (tmp_path / "etc/systemd/system/getty@tty1.service.d/pideck.conf").read_text()
     assert "userconfig.service" not in override
     assert "pideck-wait-drm" in override

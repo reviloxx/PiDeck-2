@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.46
+
+- Fixed: Mouse clicks work again in PiDeck and in apps. Openbox was keeping
+  left-clicks instead of passing them through; the update applies the fixed
+  window-manager config without reflashing.
+
 ## v0.5.45
 
 - Fixed: The mouse pointer shows again when you click inside a running app, and

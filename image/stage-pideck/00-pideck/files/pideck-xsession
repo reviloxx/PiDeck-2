@@ -5,7 +5,12 @@ if ! xset s off -dpms; then
     echo "Unable to disable X11 screen blanking or DPMS." >&2
 fi
 
-OPENBOX_RC=/usr/share/pideck/openbox/rc.xml
+SESSION_OPENBOX=/usr/lib/pideck/current/python/pideck/infrastructure/session/openbox-rc.xml
+if [ -f "$SESSION_OPENBOX" ]; then
+    OPENBOX_RC="$SESSION_OPENBOX"
+else
+    OPENBOX_RC=/usr/share/pideck/openbox/rc.xml
+fi
 if [ -f "$OPENBOX_RC" ]; then
     openbox --config-file "$OPENBOX_RC" &
 else
