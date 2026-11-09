@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.42
+
+- Changed: HDMI audio targets TV ARC passthrough. Settings prefers Digital
+  Stereo (HDMI) per port, enables AC3/DTS/EAC3 sink formats, and Kodi uses
+  2.0 channels with passthrough and AC3 transcoding (sync-to-display off).
+
 ## v0.5.41
 
 - Fixed: Settings > Audio lists every HDMI port (for example HDMI and HDMI 2 on

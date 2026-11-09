@@ -34,11 +34,11 @@ class AudioGateway(Protocol):
         ...
 
     def set_output(self, identifier: str) -> None:
-        """Select the system default output, promoting HDMI surround when needed."""
+        """Select the system default output, promoting HDMI stereo when needed."""
         ...
 
-    def ensure_hdmi_surround(self) -> None:
-        """Promote the default sink to HDMI Digital Surround 5.1 when available."""
+    def ensure_hdmi_passthrough(self) -> None:
+        """Promote the default sink to HDMI stereo and enable bitstream formats."""
         ...
 
     def set_volume(self, volume: int) -> None:

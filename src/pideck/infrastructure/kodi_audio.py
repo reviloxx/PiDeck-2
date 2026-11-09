@@ -1,4 +1,4 @@
-"""Configure Kodi for PulseAudio HDMI multichannel PCM (5.1)."""
+"""Configure Kodi for PulseAudio HDMI bitstream passthrough (TV ARC)."""
 
 from __future__ import annotations
 
@@ -10,14 +10,23 @@ _LOGGER = logging.getLogger(__name__)
 _GUISETTINGS = Path(".kodi") / "userdata" / "guisettings.xml"
 _SETTINGS = {
     "audiooutput.audiodevice": "PULSE:Default",
-    # Kodi Omega option value for 5.1 (1=2.0 … 8=5.1).
-    "audiooutput.channels": "8",
-    "audiooutput.passthrough": "false",
+    # 2.0 channels — required for PulseAudio passthrough mode.
+    "audiooutput.channels": "1",
+    "audiooutput.passthrough": "true",
+    "audiooutput.passthroughdevice": "PULSE:Default",
+    "audiooutput.ac3passthrough": "true",
+    "audiooutput.dtspassthrough": "true",
+    "audiooutput.eac3passthrough": "true",
+    "audiooutput.ac3transcode": "true",
+    "audiooutput.truehdpassthrough": "false",
+    "audiooutput.dtshdpassthrough": "false",
+    # Sync-to-display silently disables passthrough.
+    "videoplayer.usedisplayasclock": "false",
 }
 
 
 def configure_kodi_audio(*, home: Path | None = None) -> None:
-    """Force Kodi onto Pulse Default with 5.1 channels and passthrough off.
+    """Force Kodi onto Pulse Default with ARC-friendly bitstream passthrough.
 
     Failures are logged and never raised.
     """
@@ -38,11 +47,11 @@ def configure_kodi_audio(*, home: Path | None = None) -> None:
     except ET.ParseError as error:
         _LOGGER.warning("Unable to parse Kodi guisettings %s: %s", path, error)
         return
-    _LOGGER.info("Configured Kodi HDMI 5.1 PulseAudio settings at %s", path)
+    _LOGGER.info("Configured Kodi HDMI ARC passthrough settings at %s", path)
 
 
 def _apply_audio_settings(text: str) -> str:
-    """Return guisettings XML with PiDeck HDMI 5.1 PulseAudio values."""
+    """Return guisettings XML with PiDeck Pulse passthrough values."""
     root = ET.fromstring(text)
     if root.tag != "settings":
         raise ET.ParseError(f"expected <settings> root, found <{root.tag}>")

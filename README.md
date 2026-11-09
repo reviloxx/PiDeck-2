@@ -188,11 +188,14 @@ able to replace both the release and its manifest can distribute altered code.
 - System audio output and volume through `pactl` and a PulseAudio-compatible
   server, including PipeWire's PulseAudio compatibility service. When HDMI is
   available, Settings lists HDMI ports only (including inactive NVIDIA ports
-  such as HDMI vs HDMI 2) and prefers Digital Surround 5.1. Selecting a port
-  or launching Kodi promotes that same port to 5.1 when PulseAudio exposes it.
-  The chosen system default is stored in `audio.yaml` beside the PiDeck
-  configuration. Kodi is set to PulseAudio Default with 5.1 channels and
-  passthrough disabled so multichannel PCM plays over HDMI.
+  such as HDMI vs HDMI 2) and prefers Digital Stereo (HDMI) so bitstream
+  passthrough works. Selecting a port or launching Kodi promotes that same port
+  to stereo and enables AC3/DTS/EAC3 sink formats. The chosen system default is
+  stored in `audio.yaml` beside the PiDeck configuration. Kodi uses PulseAudio
+  Default with 2.0 channels and passthrough enabled (AC3 transcoding on) so
+  surround can reach an AVR over TV HDMI ARC. Multichannel PCM 5.1 still needs
+  a direct PC→AVR HDMI link; ARC typically carries stereo PCM or compressed
+  AC3/DTS only.
 - Bluetooth power, eight-second discovery, pairing and connecting or
   disconnecting devices through BlueZ. PiDeck uses the first available adapter
   and asks before authorizing a pairing or confirming a displayed code; it

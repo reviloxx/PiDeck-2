@@ -13,6 +13,7 @@ from pideck.application.ports.audio import AudioError, AudioOutput, AudioState
 _SINK_PREFIX = "sink:"
 _PROFILE_PREFIX = "profile:"
 _HDMI_PORT = re.compile(r"hdmi-(?:stereo|surround71|surround)(?:-(extra\d+))?", re.IGNORECASE)
+_PASSTHROUGH_FORMATS = "pcm;ac3-iec61937;dts-iec61937;eac3-iec61937"
 
 
 class PulseAudioGateway:
@@ -83,7 +84,7 @@ class PulseAudioGateway:
         return AudioState(tuple(outputs), current, current_volume)
 
     def set_output(self, identifier: str) -> None:
-        """Change the default sink, activating an HDMI profile when needed."""
+        """Change the default sink, activating an HDMI stereo profile when needed."""
         if not isinstance(identifier, str) or not identifier:
             raise AudioError("Invalid audio output")
         if identifier.startswith(_PROFILE_PREFIX):
@@ -92,20 +93,23 @@ class PulseAudioGateway:
             sink_name = self._resolve_sink(identifier)
         else:
             raise AudioError("Invalid audio output")
-        sink_name = self._promote_hdmi_surround(sink_name) or sink_name
+        sink_name = self._promote_hdmi_stereo(sink_name) or sink_name
         self._run("set-default-sink", sink_name)
+        self._enable_passthrough_formats(sink_name)
 
-    def ensure_hdmi_surround(self) -> None:
-        """Promote the default sink to Digital Surround 5.1 on the same HDMI port."""
+    def ensure_hdmi_passthrough(self) -> None:
+        """Promote the default sink to Digital Stereo (HDMI) and enable bitstream formats."""
         info = self._load_json("info")
         if not isinstance(info, dict):
             raise AudioError("The audio service returned invalid data")
         default = info.get("default_sink_name")
         if not isinstance(default, str) or not default:
             raise AudioError("No active audio output is available")
-        promoted = self._promote_hdmi_surround(default)
+        promoted = self._promote_hdmi_stereo(default)
+        sink_name = promoted or default
         if promoted is not None and promoted != default:
             self._run("set-default-sink", promoted)
+        self._enable_passthrough_formats(sink_name)
 
     def set_volume(self, volume: int) -> None:
         """Set the default output volume without raising it above 100 percent."""
@@ -170,6 +174,13 @@ class PulseAudioGateway:
                 return True
         return False
 
+    def _enable_passthrough_formats(self, sink_name: str) -> None:
+        """Allow AC3/DTS/EAC3 bitstream on the sink when the server supports it."""
+        try:
+            self._run("set-sink-formats", sink_name, _PASSTHROUGH_FORMATS)
+        except AudioError:
+            return
+
     @staticmethod
     def _sink_is_hdmi(sink: object) -> bool:
         if not isinstance(sink, dict):
@@ -229,7 +240,7 @@ class PulseAudioGateway:
         cards: list[object],
         covered_ports: set[tuple[str, str]],
     ) -> list[AudioOutput]:
-        """One inactive HDMI profile per port, preferring 5.1 over stereo/7.1."""
+        """One inactive HDMI profile per port, preferring stereo for ARC passthrough."""
         best: dict[tuple[str, str], tuple[int, str, str]] = {}
         for card in cards:
             if not isinstance(card, dict):
@@ -277,28 +288,28 @@ class PulseAudioGateway:
 
     @staticmethod
     def _hdmi_profile_score(profile_name: str) -> int | None:
-        """Lower is better: 5.1 surround, then 7.1, then stereo."""
+        """Lower is better: stereo (passthrough), then 5.1, then 7.1."""
         lower = profile_name.lower()
         if "hdmi" not in lower:
             return None
         if "surround71" in lower or "7.1" in lower:
-            return 1
-        if "surround" in lower:
-            return 0
-        if "stereo" in lower:
             return 2
+        if "surround" in lower:
+            return 1
+        if "stereo" in lower:
+            return 0
         return None
 
-    def _promote_hdmi_surround(self, sink_name: str) -> str | None:
-        """Switch the sink's card to HDMI surround 5.1 on the same port when available."""
+    def _promote_hdmi_stereo(self, sink_name: str) -> str | None:
+        """Switch the sink's card to Digital Stereo (HDMI) on the same port when available."""
         card = self._card_for_sink(sink_name)
         if card is None:
             return None
         card_name, active, profiles = card
-        if self._is_hdmi_surround_profile(active):
+        if self._is_hdmi_stereo_profile(active):
             return sink_name
         port = self._hdmi_port_key(active or "") or self._hdmi_port_key(sink_name)
-        profile = self._best_hdmi_surround_profile(profiles, port_key=port)
+        profile = self._best_hdmi_stereo_profile(profiles, port_key=port)
         if profile is None:
             return None
         self._run("set-card-profile", card_name, profile)
@@ -338,36 +349,30 @@ class PulseAudioGateway:
         return None
 
     @staticmethod
-    def _is_hdmi_surround_profile(profile: str | None) -> bool:
+    def _is_hdmi_stereo_profile(profile: str | None) -> bool:
         if not isinstance(profile, str):
             return False
         lower = profile.lower()
-        return "hdmi" in lower and "surround" in lower
+        return "hdmi" in lower and "stereo" in lower and "surround" not in lower
 
     @classmethod
-    def _best_hdmi_surround_profile(
+    def _best_hdmi_stereo_profile(
         cls,
         profiles: dict[str, object],
         *,
         port_key: str | None,
     ) -> str | None:
-        """Prefer Digital Surround 5.1 on the given HDMI port over 7.1."""
-        candidates: list[tuple[int, str]] = []
+        """Pick Digital Stereo (HDMI) on the given port."""
         for name in profiles:
             if not isinstance(name, str) or name == "off":
                 continue
-            lower = name.lower()
-            if "hdmi" not in lower or "surround" not in lower:
+            if not cls._is_hdmi_stereo_profile(name):
                 continue
             this_port = cls._hdmi_port_key(name)
             if port_key is not None and this_port != port_key:
                 continue
-            priority = 1 if ("surround71" in lower or "7.1" in lower) else 0
-            candidates.append((priority, name))
-        if not candidates:
-            return None
-        candidates.sort()
-        return candidates[0][1]
+            return name
+        return None
 
     def _find_sink_for_card(self, card_name: str, profile_name: str) -> str | None:
         sinks = self._load_json("list", "sinks")

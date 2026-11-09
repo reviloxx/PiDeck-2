@@ -47,7 +47,7 @@ class Audio:
     def set_output(self, identifier: str) -> None:
         self.current = identifier
 
-    def ensure_hdmi_surround(self) -> None:
+    def ensure_hdmi_passthrough(self) -> None:
         self.ensured_surround += 1
 
     def set_volume(self, volume: int) -> None:

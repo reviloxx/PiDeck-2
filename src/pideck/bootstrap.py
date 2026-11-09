@@ -664,9 +664,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
             disable_kodi_cec()
             configure_kodi_acceleration()
             try:
-                audio_gateway.ensure_hdmi_surround()
+                audio_gateway.ensure_hdmi_passthrough()
             except AudioError as error:
-                dependencies.logger.warning("Unable to enable HDMI surround for Kodi: %s", error)
+                dependencies.logger.warning("Unable to enable HDMI passthrough for Kodi: %s", error)
             configure_kodi_audio()
         result = session_service.request_launch(application_definition)
         if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
