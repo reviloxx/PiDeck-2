@@ -63,7 +63,7 @@ applications:
   - id: chromium
     name: Chromium
     executable: chromium
-    arguments: [--no-first-run, --no-default-browser-check, --password-store=basic]
+    arguments: [--no-first-run, --no-default-browser-check, --password-store=basic, --start-maximized]
     icon: ../assets/icons/chromium.svg
     preferred_input: mouse
     window: maximized
@@ -73,7 +73,7 @@ applications:
   - id: chrome
     name: Chrome
     executable: google-chrome-stable
-    arguments: [--no-first-run, --no-default-browser-check, --password-store=basic]
+    arguments: [--no-first-run, --no-default-browser-check, --password-store=basic, --start-maximized]
     icon: ../assets/icons/chrome.svg
     preferred_input: mouse
     window: maximized
@@ -82,14 +82,14 @@ applications:
         method: apt
         packages: [google-chrome-stable]
         arguments: [
-          --no-first-run, --no-default-browser-check, --password-store=basic, --ignore-gpu-blocklist,
+          --no-first-run, --no-default-browser-check, --password-store=basic, --start-maximized, --ignore-gpu-blocklist,
           "--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,VaapiVideoDecodeLinuxGL",
         ]
       arm64: {method: apt, packages: [google-chrome-stable]}
   - id: brave
     name: Brave
     executable: brave-browser
-    arguments: [--no-first-run, --no-default-browser-check, --password-store=basic]
+    arguments: [--no-first-run, --no-default-browser-check, --password-store=basic, --start-maximized]
     icon: ../assets/icons/brave.svg
     preferred_input: mouse
     window: maximized
@@ -98,7 +98,7 @@ applications:
         method: apt
         packages: [brave-browser]
         arguments: [
-          --no-first-run, --no-default-browser-check, --password-store=basic, --ignore-gpu-blocklist,
+          --no-first-run, --no-default-browser-check, --password-store=basic, --start-maximized, --ignore-gpu-blocklist,
           "--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,VaapiVideoDecodeLinuxGL",
         ]
       arm64: {method: apt, packages: [brave-browser]}

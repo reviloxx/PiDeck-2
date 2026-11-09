@@ -71,7 +71,10 @@ def test_fullscreen_is_not_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_maximization_is_verified(monkeypatch: pytest.MonkeyPatch) -> None:
     """A maximize request is followed by confirmation of both EWMH states."""
-    properties = iter(["", "_NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_MAXIMIZED_HORZ"])
+    properties = iter([
+        "",
+        "_NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_MAXIMIZED_HORZ",
+    ])
     monkeypatch.setattr(x11_visibility, "_window_properties", lambda window_id: next(properties))
     commands: list[list[str]] = []
 
@@ -82,6 +85,19 @@ def test_maximization_is_verified(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subprocess, "run", run)
     x11_visibility._maximize_window("0x123", threading.Event())
     assert commands == [["wmctrl", "-ir", "0x123", "-b", "add,maximized_vert,maximized_horz"]]
+
+
+def test_managed_mode_is_reapplied_after_short_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Browsers that resize after map get a second maximize attempt."""
+    calls: list[str] = []
+
+    def maximize(window_id: str, cancel: threading.Event) -> None:
+        del cancel
+        calls.append(window_id)
+
+    monkeypatch.setattr(x11_visibility, "_maximize_window", maximize)
+    X11WindowVisibilityDetector._apply_window_mode("0xabc", WindowMode.MAXIMIZED, threading.Event())
+    assert calls == ["0xabc", "0xabc"]
 
 
 def test_fullscreen_request_is_verified(monkeypatch: pytest.MonkeyPatch) -> None:

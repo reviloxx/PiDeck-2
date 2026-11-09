@@ -119,11 +119,19 @@ class X11WindowVisibilityDetector:
         window_mode: WindowMode | None,
         cancel: threading.Event,
     ) -> None:
-        """Apply the configured presentation mode to one mapped window."""
+        """Apply the configured presentation mode to one mapped window.
+
+        Chromium-based browsers often map at a restored size and only accept
+        maximize a moment later, so managed modes are applied twice.
+        """
         if window_mode is WindowMode.MAXIMIZED:
             _maximize_window(window_id, cancel)
+            if not cancel.wait(1.0):
+                _maximize_window(window_id, cancel)
         elif window_mode is WindowMode.FULLSCREEN:
             _fullscreen_window(window_id, cancel)
+            if not cancel.wait(1.0):
+                _fullscreen_window(window_id, cancel)
 
     def _finish(self, handle: ProcessHandle) -> None:
         """Remove a completed watch."""

@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.53
+
+- Fixed: Brave, Chrome, Chromium and YouTube open maximized reliably. Browsers
+  get ``--start-maximized``, Openbox maximizes ``Brave-browser`` / ``red`` (and
+  other browser classes), and PiDeck reapplies maximize shortly after the window
+  maps so Chromium cannot keep a restored size.
+
 ## v0.5.52
 
 - Fixed: YouTube and Brave open maximized again. When the main window was slow

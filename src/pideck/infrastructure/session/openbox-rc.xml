@@ -86,5 +86,23 @@
       <fullscreen>yes</fullscreen>
       <decor>no</decor>
     </application>
+    <application class="Brave-browser">
+      <maximized>yes</maximized>
+    </application>
+    <application class="Google-chrome">
+      <maximized>yes</maximized>
+    </application>
+    <application class="Chromium">
+      <maximized>yes</maximized>
+    </application>
+    <application class="Chromium-browser">
+      <maximized>yes</maximized>
+    </application>
+    <application class="chromium-browser">
+      <maximized>yes</maximized>
+    </application>
+    <application class="red">
+      <maximized>yes</maximized>
+    </application>
   </applications>
 </openbox_config>
