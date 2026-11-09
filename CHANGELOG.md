@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.41
+
+- Fixed: Settings > Audio lists every HDMI port (for example HDMI and HDMI 2 on
+  NVIDIA cards), not only the active one. IEC958 / Xonar sinks are hidden when
+  HDMI is available. Surround 5.1 promotion stays on the selected port.
+
 ## v0.5.40
 
 - Changed: Settings > Audio is a single system output and volume again. Xonar /

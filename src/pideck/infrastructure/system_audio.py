@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from typing import Any
 
 from pideck.application.ports.audio import AudioError, AudioOutput, AudioState
 
 _SINK_PREFIX = "sink:"
+_PROFILE_PREFIX = "profile:"
+_HDMI_PORT = re.compile(r"hdmi-(?:stereo|surround71|surround)(?:-(extra\d+))?", re.IGNORECASE)
 
 
 class PulseAudioGateway:
@@ -39,33 +42,61 @@ class PulseAudioGateway:
             raise AudioError("The audio service returned invalid data") from error
 
     def inspect(self) -> AudioState:
-        """Read active sinks and the default output volume."""
+        """Read HDMI sinks and inactive HDMI port profiles, plus default volume."""
         info = self._load_json("info")
         sinks = self._load_json("list", "sinks")
-        if not isinstance(info, dict) or not isinstance(sinks, list):
+        cards = self._load_json("list", "cards")
+        if not isinstance(info, dict) or not isinstance(sinks, list) or not isinstance(cards, list):
             raise AudioError("The audio service returned invalid data")
         default = info.get("default_sink_name")
-        outputs: list[AudioOutput] = []
+        all_sinks: list[AudioOutput] = []
+        hdmi_sinks: list[AudioOutput] = []
+        covered_ports: set[tuple[str, str]] = set()
         current: str | None = None
         current_volume: int | None = None
         for sink in sinks:
             output, volume = self._parse_sink(sink)
-            outputs.append(output)
+            all_sinks.append(output)
             if output.name == default:
                 current = output.identifier
                 current_volume = volume
-        if current is None or current_volume is None:
+            if not self._sink_is_hdmi(sink):
+                continue
+            hdmi_sinks.append(output)
+            port = self._sink_hdmi_port(sink)
+            card_name = self._sink_card_name(sink, cards)
+            if port is not None and card_name is not None:
+                covered_ports.add((card_name, port))
+        profile_outputs = self._inactive_hdmi_profiles(cards, covered_ports)
+        if hdmi_sinks or profile_outputs:
+            outputs = hdmi_sinks + profile_outputs
+        else:
+            outputs = all_sinks
+        if current_volume is None or current is None:
             raise AudioError("No active audio output is available")
+        identifiers = {output.identifier for output in outputs}
+        if current not in identifiers:
+            if hdmi_sinks:
+                current = hdmi_sinks[0].identifier
+            elif outputs:
+                current = outputs[0].identifier
         return AudioState(tuple(outputs), current, current_volume)
 
     def set_output(self, identifier: str) -> None:
-        """Change the default sink, promoting HDMI cards to surround 5.1 when available."""
-        sink_name = self._resolve_sink(identifier)
+        """Change the default sink, activating an HDMI profile when needed."""
+        if not isinstance(identifier, str) or not identifier:
+            raise AudioError("Invalid audio output")
+        if identifier.startswith(_PROFILE_PREFIX):
+            sink_name = self._activate_profile(identifier)
+        elif identifier.startswith(_SINK_PREFIX):
+            sink_name = self._resolve_sink(identifier)
+        else:
+            raise AudioError("Invalid audio output")
         sink_name = self._promote_hdmi_surround(sink_name) or sink_name
         self._run("set-default-sink", sink_name)
 
     def ensure_hdmi_surround(self) -> None:
-        """Promote the default sink to Digital Surround 5.1 (HDMI) when the card supports it."""
+        """Promote the default sink to Digital Surround 5.1 on the same HDMI port."""
         info = self._load_json("info")
         if not isinstance(info, dict):
             raise AudioError("The audio service returned invalid data")
@@ -83,12 +114,25 @@ class PulseAudioGateway:
         self._run("set-sink-volume", "@DEFAULT_SINK@", f"{volume}%")
 
     def _resolve_sink(self, identifier: str) -> str:
-        if not isinstance(identifier, str) or not identifier.startswith(_SINK_PREFIX):
-            raise AudioError("Invalid audio output")
         sink_name = identifier[len(_SINK_PREFIX) :]
         if not sink_name or not self._sink_exists(sink_name):
             raise AudioError("The selected audio output is unavailable")
         return sink_name
+
+    def _activate_profile(self, identifier: str) -> str:
+        card_name, profile_name = self._parse_profile_identifier(identifier)
+        self._run("set-card-profile", card_name, profile_name)
+        sink_name = self._find_sink_for_card(card_name, profile_name)
+        if sink_name is None:
+            raise AudioError("The selected audio output is unavailable")
+        return sink_name
+
+    def _parse_profile_identifier(self, identifier: str) -> tuple[str, str]:
+        remainder = identifier[len(_PROFILE_PREFIX) :]
+        card_name, separator, profile_name = remainder.partition(":")
+        if not separator or not card_name or not profile_name:
+            raise AudioError("Invalid audio output")
+        return card_name, profile_name
 
     def _parse_sink(self, sink: object) -> tuple[AudioOutput, int | None]:
         if not isinstance(sink, dict):
@@ -126,19 +170,135 @@ class PulseAudioGateway:
                 return True
         return False
 
-    def _promote_hdmi_surround(self, sink_name: str) -> str | None:
-        """Switch the sink's card to HDMI surround 5.1 when available.
+    @staticmethod
+    def _sink_is_hdmi(sink: object) -> bool:
+        if not isinstance(sink, dict):
+            return False
+        name = sink.get("name") if isinstance(sink.get("name"), str) else ""
+        description = sink.get("description") if isinstance(sink.get("description"), str) else ""
+        properties = sink.get("properties") if isinstance(sink.get("properties"), dict) else {}
+        profile = properties.get("device.profile.name") if isinstance(properties.get("device.profile.name"), str) else ""
+        return "hdmi" in f"{name} {description} {profile}".lower()
 
-        Returns the new sink name after a profile change, ``sink_name`` when already
-        surround, or ``None`` when the card has no HDMI surround profile.
-        """
+    @classmethod
+    def _hdmi_port_key(cls, text: str) -> str | None:
+        match = _HDMI_PORT.search(text)
+        if match is None:
+            return None
+        return match.group(1) or ""
+
+    @classmethod
+    def _sink_hdmi_port(cls, sink: object) -> str | None:
+        if not isinstance(sink, dict):
+            return None
+        properties = sink.get("properties") if isinstance(sink.get("properties"), dict) else {}
+        profile = properties.get("device.profile.name")
+        if isinstance(profile, str):
+            port = cls._hdmi_port_key(profile)
+            if port is not None:
+                return port
+        name = sink.get("name")
+        if isinstance(name, str):
+            return cls._hdmi_port_key(name)
+        return None
+
+    @staticmethod
+    def _sink_card_name(sink: object, cards: list[object]) -> str | None:
+        if not isinstance(sink, dict):
+            return None
+        properties = sink.get("properties") if isinstance(sink.get("properties"), dict) else {}
+        alsa_card = properties.get("alsa.card")
+        name = sink.get("name") if isinstance(sink.get("name"), str) else ""
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            card_name = card.get("name")
+            if not isinstance(card_name, str):
+                continue
+            index = card.get("index")
+            if str(alsa_card).isdigit() and type(index) is int and int(alsa_card) == index:
+                return card_name
+            if card_name.startswith("alsa_card."):
+                suffix = card_name.removeprefix("alsa_card.")
+                if name.startswith(f"alsa_output.{suffix}"):
+                    return card_name
+        return None
+
+    def _inactive_hdmi_profiles(
+        self,
+        cards: list[object],
+        covered_ports: set[tuple[str, str]],
+    ) -> list[AudioOutput]:
+        """One inactive HDMI profile per port, preferring 5.1 over stereo/7.1."""
+        best: dict[tuple[str, str], tuple[int, str, str]] = {}
+        for card in cards:
+            if not isinstance(card, dict):
+                raise AudioError("The audio service returned invalid output data")
+            card_name = card.get("name")
+            active = card.get("active_profile")
+            profiles = card.get("profiles")
+            if not isinstance(card_name, str) or not card_name:
+                raise AudioError("The audio service returned invalid output data")
+            if not isinstance(profiles, dict):
+                raise AudioError("The audio service returned invalid output data")
+            for profile_name, details in profiles.items():
+                if not isinstance(profile_name, str) or not profile_name or profile_name == "off":
+                    continue
+                if profile_name == active:
+                    continue
+                port = self._hdmi_port_key(profile_name)
+                if port is None:
+                    continue
+                score = self._hdmi_profile_score(profile_name)
+                if score is None:
+                    continue
+                key = (card_name, port)
+                if key in covered_ports:
+                    continue
+                description = profile_name
+                if isinstance(details, dict):
+                    label = details.get("description")
+                    if isinstance(label, str) and label:
+                        description = label
+                previous = best.get(key)
+                if previous is None or score < previous[0]:
+                    best[key] = (score, profile_name, description)
+        outputs: list[AudioOutput] = []
+        for card_name, port in sorted(best, key=lambda item: (item[0], item[1])):
+            _score, profile_name, description = best[(card_name, port)]
+            outputs.append(
+                AudioOutput(
+                    f"{_PROFILE_PREFIX}{card_name}:{profile_name}",
+                    profile_name,
+                    description,
+                )
+            )
+        return outputs
+
+    @staticmethod
+    def _hdmi_profile_score(profile_name: str) -> int | None:
+        """Lower is better: 5.1 surround, then 7.1, then stereo."""
+        lower = profile_name.lower()
+        if "hdmi" not in lower:
+            return None
+        if "surround71" in lower or "7.1" in lower:
+            return 1
+        if "surround" in lower:
+            return 0
+        if "stereo" in lower:
+            return 2
+        return None
+
+    def _promote_hdmi_surround(self, sink_name: str) -> str | None:
+        """Switch the sink's card to HDMI surround 5.1 on the same port when available."""
         card = self._card_for_sink(sink_name)
         if card is None:
             return None
         card_name, active, profiles = card
         if self._is_hdmi_surround_profile(active):
             return sink_name
-        profile = self._best_hdmi_surround_profile(profiles)
+        port = self._hdmi_port_key(active or "") or self._hdmi_port_key(sink_name)
+        profile = self._best_hdmi_surround_profile(profiles, port_key=port)
         if profile is None:
             return None
         self._run("set-card-profile", card_name, profile)
@@ -184,9 +344,14 @@ class PulseAudioGateway:
         lower = profile.lower()
         return "hdmi" in lower and "surround" in lower
 
-    @staticmethod
-    def _best_hdmi_surround_profile(profiles: dict[str, object]) -> str | None:
-        """Prefer Digital Surround 5.1 (HDMI) over 7.1 when both exist."""
+    @classmethod
+    def _best_hdmi_surround_profile(
+        cls,
+        profiles: dict[str, object],
+        *,
+        port_key: str | None,
+    ) -> str | None:
+        """Prefer Digital Surround 5.1 on the given HDMI port over 7.1."""
         candidates: list[tuple[int, str]] = []
         for name in profiles:
             if not isinstance(name, str) or name == "off":
@@ -194,8 +359,10 @@ class PulseAudioGateway:
             lower = name.lower()
             if "hdmi" not in lower or "surround" not in lower:
                 continue
-            # Prefer 5.1 (hdmi-surround) over 7.1 (hdmi-surround71).
-            priority = 1 if ("71" in lower or "7.1" in lower) else 0
+            this_port = cls._hdmi_port_key(name)
+            if port_key is not None and this_port != port_key:
+                continue
+            priority = 1 if ("surround71" in lower or "7.1" in lower) else 0
             candidates.append((priority, name))
         if not candidates:
             return None

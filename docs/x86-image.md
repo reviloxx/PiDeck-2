@@ -471,9 +471,9 @@ partition and package manifests, and test:
   `about:support` and Chromium `chrome://gpu` report hardware decoding; Steam
   Link and YouTube start with GPU rendering; YouTube playback at 1080p does not
   drop frames; a kernel upgrade rebuilds the module; System information shows
-  the expected hardware, drivers and audio devices; Settings → Audio lists HDMI
-  sinks and promotes Digital Surround 5.1 when available; Kodi plays 5.1
-  multichannel PCM over HDMI.
+  the expected hardware, drivers and audio devices; Settings → Audio lists each
+  HDMI port (including inactive NVIDIA HDMI vs HDMI 2) and promotes Digital
+  Surround 5.1 on the selected port; Kodi plays 5.1 multichannel PCM over HDMI.
 
 These are release gates, not claims that the current experimental builder
 has already passed them.

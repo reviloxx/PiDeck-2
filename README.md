@@ -186,12 +186,13 @@ able to replace both the release and its manifest can distribute altered code.
   configuration and restored on later X11 sessions if still available. Wayland
   display configuration is not supported.
 - System audio output and volume through `pactl` and a PulseAudio-compatible
-  server, including PipeWire's PulseAudio compatibility service. Selecting an
-  HDMI sink (or launching Kodi) promotes the card to Digital Surround 5.1 when
-  PulseAudio exposes that profile. The chosen system default is stored in
-  `audio.yaml` beside the PiDeck configuration. Kodi is set to PulseAudio
-  Default with 5.1 channels and passthrough disabled so multichannel PCM plays
-  over HDMI.
+  server, including PipeWire's PulseAudio compatibility service. When HDMI is
+  available, Settings lists HDMI ports only (including inactive NVIDIA ports
+  such as HDMI vs HDMI 2) and prefers Digital Surround 5.1. Selecting a port
+  or launching Kodi promotes that same port to 5.1 when PulseAudio exposes it.
+  The chosen system default is stored in `audio.yaml` beside the PiDeck
+  configuration. Kodi is set to PulseAudio Default with 5.1 channels and
+  passthrough disabled so multichannel PCM plays over HDMI.
 - Bluetooth power, eight-second discovery, pairing and connecting or
   disconnecting devices through BlueZ. PiDeck uses the first available adapter
   and asks before authorizing a pairing or confirming a displayed code; it
