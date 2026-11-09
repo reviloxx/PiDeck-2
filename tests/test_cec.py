@@ -296,7 +296,7 @@ def test_cec_releases_process_and_restarts_after_resume(monkeypatch: pytest.Monk
         adapter.suspend()
         assert children[0].poll() is not None
         assert not adapter.accepts(old_generation)
-        assert commands[0] == ["cec-client", "-d", "31", "-t", "p", "-t", "r", "-o", "PiDeck"]
+        assert commands[0] == ["cec-client", "-d", "31", "-t", "p", "-o", "PiDeck"]
         sink.received.clear()
         adapter.resume()
         assert sink.received.wait(3)

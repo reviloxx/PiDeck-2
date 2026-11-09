@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.32
+
+- Fixed: HDMI-CEC registers as one Player again. Dual Player/Recorder from
+  v0.5.28 broke Anynet connection on Samsung TVs. TV wake reconnect remains.
+
 ## v0.5.30
 
 - Fixed: update checks honor GitHub rate-limit headers (`Retry-After` /

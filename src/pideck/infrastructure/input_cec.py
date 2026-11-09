@@ -305,9 +305,9 @@ class CecClientAdapter:
                         self._condition.wait(timeout=self._retry_interval)
                     continue
                 try:
-                    # Playback + recording: Samsung Anynet often withholds Stop unless
-                    # the sink looks like a recorder as well as a player.
-                    command = ["cec-client", "-d", "31", "-t", "p", "-t", "r", "-o", "PiDeck"]
+                    # Single playback type only: dual -t p/-t r makes Samsung Anynet
+                    # list Player and Recorder that neither connect.
+                    command = ["cec-client", "-d", "31", "-t", "p", "-o", "PiDeck"]
                     if port is not None:
                         command.append(port)
                     process = subprocess.Popen(
