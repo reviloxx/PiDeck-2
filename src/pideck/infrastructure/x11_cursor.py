@@ -13,10 +13,12 @@ import logging
 import os
 
 _LOGGER = logging.getLogger(__name__)
+# Button1Mask through Button5Mask from X.h (bits 8–12).
+_BUTTON_MASK = 0x1F00
 
 
 class _XLibraries:
-    """Typed ctypes bindings for XFixes cursor hide/show."""
+    """Typed ctypes bindings for XFixes cursor hide/show and pointer query."""
 
     def __init__(self) -> None:
         x11 = ctypes.CDLL(_library("X11", "libX11.so.6"))
@@ -31,6 +33,19 @@ class _XLibraries:
         self.default_root_window.restype = ctypes.c_ulong
         self.flush = x11.XFlush
         self.flush.argtypes = [ctypes.c_void_p]
+        self.query_pointer = x11.XQueryPointer
+        self.query_pointer.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_uint),
+        ]
+        self.query_pointer.restype = ctypes.c_int
         self.query_extension = xfixes.XFixesQueryExtension
         self.query_extension.argtypes = [
             ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int),
@@ -79,6 +94,32 @@ class X11CursorController:
         self._libraries.show_cursor(display, self._root)
         self._libraries.flush(display)
         self._hidden = False
+
+    def buttons_down(self) -> bool:
+        """Return whether any mouse button is pressed on the root window."""
+        display = self._connect()
+        if display is None or self._libraries is None:
+            return False
+        root = ctypes.c_ulong()
+        child = ctypes.c_ulong()
+        root_x = ctypes.c_int()
+        root_y = ctypes.c_int()
+        win_x = ctypes.c_int()
+        win_y = ctypes.c_int()
+        mask = ctypes.c_uint()
+        if not self._libraries.query_pointer(
+            display,
+            self._root,
+            ctypes.byref(root),
+            ctypes.byref(child),
+            ctypes.byref(root_x),
+            ctypes.byref(root_y),
+            ctypes.byref(win_x),
+            ctypes.byref(win_y),
+            ctypes.byref(mask),
+        ):
+            return False
+        return (mask.value & _BUTTON_MASK) != 0
 
     def close(self) -> None:
         """Show the pointer again and close the display connection."""

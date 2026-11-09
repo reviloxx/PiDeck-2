@@ -15,6 +15,7 @@ class FakeLibraries:
         self.shown: list[int] = []
         self.closed: list[int] = []
         self.flushes = 0
+        self.button_mask = 0
 
     def open_display(self, name: bytes | None) -> int:
         return self.display
@@ -28,6 +29,21 @@ class FakeLibraries:
     def query_extension(self, display: int, event_base: object, error_base: object) -> int:
         return int(self.xfixes)
 
+    def query_pointer(
+        self,
+        display: int,
+        window: int,
+        root_return: object,
+        child_return: object,
+        root_x: object,
+        root_y: object,
+        win_x: object,
+        win_y: object,
+        mask_return: object,
+    ) -> int:
+        mask_return._obj.value = self.button_mask  # type: ignore[attr-defined]
+        return 1
+
     def hide_cursor(self, display: int, root: int) -> None:
         self.hidden.append(root)
 
@@ -36,6 +52,17 @@ class FakeLibraries:
 
     def flush(self, display: int) -> None:
         self.flushes += 1
+
+
+def test_cursor_controller_reports_buttons_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    """XQueryPointer button mask is exposed while the display is connected."""
+    monkeypatch.setenv("DISPLAY", ":0")
+    libraries = FakeLibraries()
+    cursor = X11CursorController(libraries)  # type: ignore[arg-type]
+    assert cursor.buttons_down() is False
+    libraries.button_mask = 0x100  # Button1Mask
+    assert cursor.buttons_down() is True
+    cursor.close()
 
 
 def test_cursor_controller_hides_and_shows(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -60,6 +60,42 @@ def test_synthetic_move_without_pointer_motion_keeps_cursor_hidden(application: 
     assert QGuiApplication.overrideCursor() == before
 
 
+def test_pointer_click_outside_qt_restores_cursor(application: QApplication) -> None:
+    """A button press in another X client restores the pointer without movement."""
+
+    class FakeX11:
+        def __init__(self) -> None:
+            self._buttons = False
+            self.hidden = False
+
+        def hide(self) -> None:
+            self.hidden = True
+
+        def show(self) -> None:
+            self.hidden = False
+
+        def close(self) -> None:
+            self.hidden = False
+
+        def buttons_down(self) -> bool:
+            return self._buttons
+
+    x11 = FakeX11()
+    cursor = CursorVisibility(x11_cursor=x11)  # type: ignore[arg-type]
+    before = QGuiApplication.overrideCursor()
+    cursor.hide_cursor()
+    assert cursor.hidden and x11.hidden
+
+    cursor._restore_if_pointer_moved()
+    assert cursor.hidden
+
+    x11._buttons = True
+    cursor._restore_if_pointer_moved()
+    assert not cursor.hidden
+    assert not x11.hidden
+    assert QGuiApplication.overrideCursor() == before
+
+
 def test_toggle_switch_names_both_states(application: QApplication) -> None:
     """The switch reports Off when unchecked instead of a permanent On label."""
     switch = ToggleSwitch()

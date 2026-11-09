@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.45
+
+- Fixed: The mouse pointer shows again when you click inside a running app, and
+  when you return to the home screen after closing an app.
+- Changed: Aurora, Ember, Nordic, and Daylight backgrounds are brighter again
+  while staying flat (less banding). Midnight stays darker.
+
 ## v0.5.44
 
 - Changed: Aurora is the default theme for new installs and appears first in

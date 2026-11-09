@@ -93,8 +93,10 @@ class CursorVisibility(QObject):
         return False
 
     def _restore_if_pointer_moved(self) -> None:
-        """Show the pointer again when it moves while another client has focus."""
-        if self._hidden and QCursor.pos() != self._hidden_at:
+        """Show the pointer again when it moves or clicks while another client has focus."""
+        if not self._hidden:
+            return
+        if QCursor.pos() != self._hidden_at or self._x11.buttons_down():
             self.show_cursor()
 
     def _focus_from_pointer(self, widget: QWidget | None, position: QPoint) -> None:

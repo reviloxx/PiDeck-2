@@ -482,6 +482,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     def hide_session_overlay() -> None:
         """Destroy the current overlay when the application session ends."""
         clear_session_overlay()
+        cursor_visibility.show_cursor()
 
     session_observer: SessionObserver = _QtSessionObserver(window, hide_session_overlay)
     visibility_detector = X11WindowVisibilityDetector()
