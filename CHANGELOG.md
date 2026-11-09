@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.30
+
+- Fixed: update checks honor GitHub rate-limit headers (`Retry-After` /
+  `X-RateLimit-Reset`) and wait until that time instead of retrying early.
+- Fixed: while rate-limited, PiDeck uses the last successful check and shows
+  when the next check is allowed.
+
 ## v0.5.29
 
 - Fixed: installing a PiDeck update retries briefly when GitHub returns a

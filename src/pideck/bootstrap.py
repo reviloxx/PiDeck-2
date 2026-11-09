@@ -51,6 +51,7 @@ from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
 from pideck.infrastructure.platform_updates import NativeUpdateGateway
+from pideck.infrastructure.github_api_state import default_github_api_state_dir
 from pideck.infrastructure.http_retry import call_with_retries
 from pideck.infrastructure.image_update_client import ImageUpdateError, request as image_update_request
 from pideck.infrastructure.pideck_releases import find_latest_release, version_key
@@ -412,9 +413,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
                     raise
                 time.sleep(2)
 
+    github_api_state_dir = default_github_api_state_dir()
+
+    def discover_pideck_release():
+        return find_latest_release(github_api_state_dir)
+
     pideck_update_service = PiDeckUpdateService(
         release_version,
-        find_latest_release,
+        discover_pideck_release,
         version_key,
         update_bridge.status_received.emit,
         inspect=inspect_image_update,

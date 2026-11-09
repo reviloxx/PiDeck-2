@@ -215,3 +215,23 @@ def test_releases_without_notes_still_report_updates() -> None:
     assert finished.wait(5)
     assert service.state.release_notes == ()
     service.close()
+
+
+def test_cached_release_advisory_is_shown_while_rate_limited() -> None:
+    """A rate-limit advisory from discovery is surfaced on an available update."""
+    finished = threading.Event()
+    service = PiDeckUpdateService(
+        "1.0.0",
+        lambda: SimpleNamespace(
+            version="1.2.0",
+            notes=(),
+            advisory="GitHub rate limit; next check after 12:00 UTC",
+        ),
+        version_key,
+        lambda info: finished.set() if info.status is PiDeckUpdateStatus.AVAILABLE else None,
+    )
+    assert service.check_async()
+    assert finished.wait(5)
+    assert service.state.available_version == "1.2.0"
+    assert service.state.message == "GitHub rate limit; next check after 12:00 UTC"
+    service.close()

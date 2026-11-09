@@ -31,6 +31,11 @@ class Release(Protocol):
         """Return notes of recent releases, newest first."""
         ...
 
+    @property
+    def advisory(self) -> str | None:
+        """Optional notice such as a GitHub rate-limit wait message."""
+        ...
+
 
 class PiDeckUpdateStatus(StrEnum):
     """States of the PiDeck self-update workflow."""
@@ -179,13 +184,19 @@ class PiDeckUpdateService:
                 )
             else:
                 available = self._version_key(release.version) > self._version_key(current)
+                advisory = getattr(release, "advisory", None)
+                message = previous_failure
+                if previous_failure and advisory:
+                    message = f"{previous_failure}; {advisory}"
+                elif advisory:
+                    message = advisory
                 state = PiDeckUpdateInfo(
                     PiDeckUpdateStatus.AVAILABLE if available else (
                         PiDeckUpdateStatus.FAILED if previous_failure else PiDeckUpdateStatus.UP_TO_DATE
                     ),
                     current,
                     release.version if available else None,
-                    previous_failure,
+                    message,
                     self._newer_notes(release, current) if available else (),
                 )
         except Exception as error:
