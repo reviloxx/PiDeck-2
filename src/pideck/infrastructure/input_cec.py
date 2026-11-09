@@ -175,7 +175,7 @@ class CecClientAdapter:
         threading.Thread(target=stop, name="pideck-cec-stop", daemon=True).start()
 
     def _request_bus_reconnect(self, process: subprocess.Popen[str], generation: int) -> bool:
-        """Stop ``process`` so ``_run`` opens a fresh client after TV wake or link loss."""
+        """Stop ``process`` so ``_run`` opens a fresh client after the CEC link drops."""
         with self._condition:
             if (
                 self._closed or self._suspended or not self._desired
@@ -184,9 +184,20 @@ class CecClientAdapter:
                 return False
             self._generation += 1
         self._set_status("Reconnecting")
-        _LOGGER.info("Restarting CEC client after TV wake or connection loss")
+        _LOGGER.info("Restarting CEC client after connection loss")
         self._stop_async(process)
         return True
+
+    def _claim_active_source(self, process: subprocess.Popen[str]) -> None:
+        """Ask the TV to route Anynet / HDMI to PiDeck when switch-input is enabled."""
+        settings = self._settings
+        if settings is None or not settings.switch_input or process.stdin is None:
+            return
+        try:
+            process.stdin.write("as\n")
+            process.stdin.flush()
+        except OSError as error:
+            _LOGGER.warning("Unable to claim CEC active source: %s", error)
 
     @property
     def generation(self) -> int:
@@ -307,9 +318,9 @@ class CecClientAdapter:
                         self._condition.wait(timeout=self._retry_interval)
                     continue
                 try:
-                    # Single playback type only: dual -t p/-t r makes Samsung Anynet
-                    # list Player and Recorder that neither connect.
-                    command = ["cec-client", "-d", "31", "-t", "p", "-o", "PiDeck"]
+                    # Recording device matches Kodi's libCEC default so Samsung Anynet
+                    # forwards Stop; dual -t p/-t r listed two devices that neither connect.
+                    command = ["cec-client", "-d", "31", "-t", "r", "-o", "PiDeck"]
                     if port is not None:
                         command.append(port)
                     process = subprocess.Popen(
@@ -387,15 +398,16 @@ class CecClientAdapter:
                     if active:
                         connected = True
                         self._set_status("Connected")
-                        if self._settings.switch_input and process.stdin is not None:
-                            process.stdin.write("as\n")
-                            process.stdin.flush()
+                        self._claim_active_source(process)
                 continue
-            # Only after "waiting for input": startup always logs unknown→on and
-            # would otherwise restart the client in a loop.
-            if connected and (_CONNECTION_LOST.search(line) or _TV_POWER_ON.search(line)):
+            # Only after "waiting for input": startup always logs unknown→on.
+            if connected and _CONNECTION_LOST.search(line):
                 if self._request_bus_reconnect(process, generation):
                     return
+                continue
+            if connected and _TV_POWER_ON.search(line):
+                # Reclaim Anynet without restarting; Samsung often stays on Fernseher.
+                self._claim_active_source(process)
                 continue
             if _KEY_IDLE.search(line):
                 held.clear()

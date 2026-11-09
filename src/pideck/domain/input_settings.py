@@ -10,7 +10,7 @@ class CecSettings:
     enabled: bool = True
     auto_connect: bool = True
     hdmi_port: int | None = None
-    switch_input: bool = False
+    switch_input: bool = True
 
     def __post_init__(self) -> None:
         """Reject invalid settings rather than passing them to an adapter."""

@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.38
+
+- Fixed: Samsung Stop works again by registering as a CEC recording device
+  (same default as Kodi), not playback.
+- Fixed: after the TV wakes, PiDeck reclaims Anynet with active source when
+  Switch TV input is on (now the default for new installs). Enable it under
+  Settings > Input if an older config still has it off.
+
 ## v0.5.37
 
 - Fixed: Share on network works again when PiDeck cannot create

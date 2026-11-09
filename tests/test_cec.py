@@ -267,10 +267,12 @@ def test_cec_ignores_startup_power_on_and_standby(monkeypatch: pytest.MonkeyPatc
     assert [event.action for event in sink.events] == [InputAction.ACTIVATE]
 
 
-def test_cec_restarts_on_tv_power_on_but_not_standby(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TV wake after standby restarts the client; entering standby alone does not."""
+def test_cec_claims_active_source_on_tv_wake_without_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TV wake reclaims Anynet with as; standby alone and disabled switch do not."""
     stopped: list[object] = []
-    adapter = CecClientAdapter(settings=CecSettings())
+    adapter = CecClientAdapter(settings=CecSettings(switch_input=True))
     sink = RecordingSink()
     process = MagicMock(spec=subprocess.Popen)
     process.stdin = MagicMock()
@@ -289,6 +291,8 @@ def test_cec_restarts_on_tv_power_on_but_not_standby(monkeypatch: pytest.MonkeyP
     )
     assert stopped == []
     assert adapter.generation == generation
+    assert process.stdin.write.call_count == 1
+    process.stdin.write.reset_mock()
     adapter._read_output(
         io.StringIO(
             "waiting for input\n"
@@ -298,10 +302,27 @@ def test_cec_restarts_on_tv_power_on_but_not_standby(monkeypatch: pytest.MonkeyP
         process,
         generation,
     )
-    assert stopped == [process]
-    assert adapter.generation == generation + 1
-    assert adapter.status == "Reconnecting"
-    assert not sink.events
+    assert stopped == []
+    assert adapter.generation == generation
+    assert [call.args[0] for call in process.stdin.write.call_args_list] == ["as\n", "as\n"]
+    assert [event.action for event in sink.events] == [InputAction.ACTIVATE]
+
+    quiet = MagicMock(spec=subprocess.Popen)
+    quiet.stdin = MagicMock()
+    adapter_off = CecClientAdapter(settings=CecSettings(switch_input=False))
+    adapter_off._sink = RecordingSink()
+    adapter_off._suspended = False
+    adapter_off._process = quiet
+    monkeypatch.setattr(adapter_off, "_stop_async", stopped.append)
+    adapter_off._read_output(
+        io.StringIO(
+            "waiting for input\n"
+            "DEBUG: [1] TV (0): power status changed from 'standby' to 'on'\n"
+        ),
+        quiet,
+        adapter_off.generation,
+    )
+    quiet.stdin.write.assert_not_called()
 
 
 def test_cec_releases_process_and_restarts_after_resume(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -334,7 +355,7 @@ def test_cec_releases_process_and_restarts_after_resume(monkeypatch: pytest.Monk
         adapter.suspend()
         assert children[0].poll() is not None
         assert not adapter.accepts(old_generation)
-        assert commands[0] == ["cec-client", "-d", "31", "-t", "p", "-o", "PiDeck"]
+        assert commands[0] == ["cec-client", "-d", "31", "-t", "r", "-o", "PiDeck"]
         sink.received.clear()
         adapter.resume()
         assert sink.received.wait(3)
