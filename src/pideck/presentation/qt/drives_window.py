@@ -138,7 +138,7 @@ class DrivesWindow(WallpaperDialog):
         self.dialog, self._dialog_device = dialog, drive.device
         dialog.action_chosen.connect(self._handle_action)
         dialog.finished.connect(lambda _result: self._close_dialog(dialog))
-        # showFullScreen (not only open) so the menu appears above this modal window.
+        # showFullScreen so the menu appears above this already-modal window.
         dialog.showFullScreen()
         dialog.raise_()
         dialog.activateWindow()

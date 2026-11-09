@@ -1,7 +1,7 @@
 """Controller-friendly action menu for one drive in Settings > Drives."""
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtCore import QEvent, QObject, QTimer, Qt, Signal
+from PySide6.QtGui import QKeyEvent, QShowEvent
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from pideck.application.drive_items import DriveAction
@@ -12,6 +12,9 @@ from .localization import tr
 from .system_panel import create_system_panel
 from .theme import apply_theme
 from .wallpaper import WallpaperDialog
+
+
+_ENTER_KEYS = frozenset({Qt.Key.Key_Return, Qt.Key.Key_Enter})
 
 
 class DriveActionsDialog(WallpaperDialog):
@@ -30,6 +33,8 @@ class DriveActionsDialog(WallpaperDialog):
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setWindowState(Qt.WindowState.WindowFullScreen)
         self._language = language
+        # True until the Enter/OK that opened the menu has finished.
+        self._opening = True
         layout = create_system_panel(self, max_width=620, max_height=640)
         title = QLabel(name, self)
         title.setObjectName("settings_heading")
@@ -75,6 +80,8 @@ class DriveActionsDialog(WallpaperDialog):
         """Route controller and remote input to the menu buttons."""
         if not event.pressed:
             return
+        if self._opening and event.action is InputAction.ACTIVATE:
+            return
         if event.action is InputAction.BACK:
             self.reject()
         elif event.action is InputAction.ACTIVATE:
@@ -84,13 +91,27 @@ class DriveActionsDialog(WallpaperDialog):
         elif event.action in (InputAction.UP, InputAction.DOWN):
             self._move_focus(-1 if event.action is InputAction.UP else 1)
 
+    def showEvent(self, event: QShowEvent) -> None:
+        """Clear the opening guard after the current key event has settled."""
+        super().showEvent(event)
+        QTimer.singleShot(0, self._finish_opening)
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """Move between buttons with Up and Down."""
+        """Move between buttons; ignore leftover Enter; activate with Enter once ready."""
+        if isinstance(event, QKeyEvent) and event.key() in _ENTER_KEYS and not event.isAutoRepeat():
+            if self._opening:
+                return True
+            if event.type() == QEvent.Type.KeyPress and isinstance(watched, QPushButton):
+                watched.click()
+                return True
         if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
             if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
                 self._move_focus(-1 if event.key() == Qt.Key.Key_Up else 1)
                 return True
         return super().eventFilter(watched, event)
+
+    def _finish_opening(self) -> None:
+        self._opening = False
 
     def _move_focus(self, step: int) -> None:
         order = [*self.buttons, self.back]
@@ -102,6 +123,9 @@ class DriveActionsDialog(WallpaperDialog):
         button = QPushButton(text, self)
         button.setObjectName(name)
         button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # Avoid Qt treating Mount as the dialog default activated by Enter.
+        button.setAutoDefault(False)
+        button.setDefault(False)
         button.installEventFilter(self)
         return button
 

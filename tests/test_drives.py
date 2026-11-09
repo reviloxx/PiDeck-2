@@ -8,6 +8,7 @@ import subprocess
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -475,7 +476,36 @@ def test_drives_window_opens_options_on_single_click(application: QApplication) 
     assert window.dialog is not None
     assert window.dialog.actions() == ("mount",)
     assert window.dialog.isVisible()
+    assert not window.dialog.buttons[0].autoDefault()
     window.dialog.reject()
+    window.close()
+    parent.close()
+
+
+def test_drives_window_enter_does_not_auto_mount(application: QApplication) -> None:
+    """Enter that opens the menu must not also press Mount via Qt default-button handling."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeyEvent
+
+    parent = QWidget()
+    storage = Storage()
+    window = DrivesWindow(storage, DEFAULT_THEME, "en", parent, shares=Shares())
+    window.show()
+    _wait(application, lambda: window.drives.count() == 1 and window.drives.isEnabled())
+    window.drives.setFocus()
+    window.drives.itemActivated.emit(window.drives.item(0))
+    application.processEvents()
+    dialog = window.dialog
+    assert dialog is not None and dialog.isVisible()
+    assert not dialog.buttons[0].autoDefault() and not dialog.buttons[0].isDefault()
+    QApplication.sendEvent(
+        dialog.buttons[0],
+        QKeyEvent(QEvent.Type.KeyRelease, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier),
+    )
+    application.processEvents()
+    assert window.dialog is dialog and dialog.isVisible()
+    assert not storage.drives["/dev/sdb1"].mounted
+    dialog.reject()
     window.close()
     parent.close()
 

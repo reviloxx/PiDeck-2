@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.35
+
+- Fixed: Settings > Drives options menu stays open when activated with Enter or
+  OK. The key that opened the menu no longer immediately runs Mount.
+
 ## v0.5.34
 
 - Fixed: HDMI-CEC connects again. Auto-reconnect no longer restarts the client
