@@ -91,17 +91,39 @@ class X11WindowVisibilityDetector:
         while time.monotonic() < deadline and not watch.cancel.is_set():
             window_id = self._find_visible_window(watch.handle, main_only=managed)
             if window_id:
-                if window_mode is WindowMode.MAXIMIZED:
-                    _maximize_window(window_id, watch.cancel)
-                elif window_mode is WindowMode.FULLSCREEN:
-                    _fullscreen_window(window_id, watch.cancel)
+                self._apply_window_mode(window_id, window_mode, watch.cancel)
                 self._finish(watch.handle)
                 on_visible(watch.handle)
                 return
             watch.cancel.wait(self._poll_interval)
-        if not watch.cancel.is_set():
-            self._finish(watch.handle)
-            on_timeout(watch.handle)
+        if watch.cancel.is_set():
+            return
+        # Last chance: browsers/Flatpak often expose a usable window that failed
+        # the main-window filter. Still apply maximize/fullscreen before giving up.
+        window_id = None
+        if managed:
+            window_id = self._find_visible_window(watch.handle, main_only=True)
+            if window_id is None:
+                window_id = self._find_visible_window(watch.handle, main_only=False)
+            if window_id is not None:
+                self._apply_window_mode(window_id, window_mode, watch.cancel)
+                self._finish(watch.handle)
+                on_visible(watch.handle)
+                return
+        self._finish(watch.handle)
+        on_timeout(watch.handle)
+
+    @staticmethod
+    def _apply_window_mode(
+        window_id: str,
+        window_mode: WindowMode | None,
+        cancel: threading.Event,
+    ) -> None:
+        """Apply the configured presentation mode to one mapped window."""
+        if window_mode is WindowMode.MAXIMIZED:
+            _maximize_window(window_id, cancel)
+        elif window_mode is WindowMode.FULLSCREEN:
+            _fullscreen_window(window_id, cancel)
 
     def _finish(self, handle: ProcessHandle) -> None:
         """Remove a completed watch."""

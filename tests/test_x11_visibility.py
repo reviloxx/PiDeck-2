@@ -2,11 +2,14 @@
 
 import subprocess
 import threading
+import time
 
 import pytest
 
 from pideck.application.ports.process import ProcessHandle
+from pideck.domain.configuration import WindowMode
 from pideck.infrastructure.process import x11_visibility
+from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
 
 
 @pytest.mark.parametrize(("window_pid", "client_pid", "visible"), [(0, 552, True), (2, 552, True), (0, 999, False)])
@@ -103,3 +106,38 @@ def test_fullscreen_request_skips_already_fullscreen(monkeypatch: pytest.MonkeyP
     )
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("fullscreen was changed"))
     x11_visibility._fullscreen_window("0x123", threading.Event())
+
+
+def test_timeout_still_maximizes_when_a_window_appears_late(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Managed modes apply maximize on a last-chance lookup instead of giving up."""
+    handle = ProcessHandle(token="brave", pid=1, process_group_id=1)
+    visible = threading.Event()
+    timed_out = threading.Event()
+    maximized: list[str] = []
+
+    def find(watch_handle: ProcessHandle, *, main_only: bool = False) -> str | None:
+        del watch_handle
+        if main_only:
+            return None
+        return "0xabc"
+
+    monkeypatch.setattr(X11WindowVisibilityDetector, "_find_visible_window", staticmethod(find))
+    monkeypatch.setattr(
+        X11WindowVisibilityDetector,
+        "_apply_window_mode",
+        staticmethod(lambda window_id, mode, cancel: maximized.append(f"{window_id}:{mode}")),
+    )
+    detector = X11WindowVisibilityDetector(timeout=0.05, poll_interval=0.01)
+    detector.wait_until_visible(
+        handle,
+        lambda _handle: visible.set(),
+        lambda _handle: timed_out.set(),
+        WindowMode.MAXIMIZED,
+    )
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and not visible.is_set() and not timed_out.is_set():
+        time.sleep(0.01)
+    assert visible.is_set()
+    assert not timed_out.is_set()
+    assert maximized == ["0xabc:maximized"]
+    detector.close()

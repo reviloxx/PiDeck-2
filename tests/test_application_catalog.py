@@ -97,11 +97,12 @@ def test_unregistration_removes_application_and_visibility() -> None:
 
 
 def test_catalog_declares_window_defaults() -> None:
-    """Browsers start maximized unless a window-modes.yaml policy overrides it."""
+    """Browsers and YouTube start maximized unless a window-modes.yaml policy overrides it."""
     modes = catalog_window_modes(load_catalog(ROOT / "assets/catalog/applications.yaml"))
     assert modes["chrome"].value == "maximized"
+    assert modes["brave"].value == "maximized"
+    assert modes["youtube"].value == "maximized"
     assert modes["nomachine"].value == "fullscreen"
-    assert "youtube" not in modes
 
 
 @pytest.mark.parametrize("installed", [False, True])

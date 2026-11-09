@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.52
+
+- Fixed: YouTube and Brave open maximized again. When the main window was slow
+  to appear, PiDeck stepped aside without applying maximize; it now does a
+  last-chance maximize, and YouTube is configured for maximized windows.
+
 ## v0.5.51
 
 - Fixed: Settings, the home overlay, and other PiDeck panels fill the screen

@@ -32,6 +32,7 @@ applications:
     icon: ../assets/icons/youtube.svg
     preferred_input: cec
     cec: keyboard
+    window: maximized
     install:
       amd64: {method: flatpak, flatpak: com.ktechpit.red}
       arm64: {method: flatpak, flatpak: com.ktechpit.red}
