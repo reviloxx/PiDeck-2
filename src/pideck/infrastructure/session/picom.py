@@ -56,6 +56,7 @@ def apply_release_picom(
     binary = shutil.which("picom")
     if binary is None:
         return
+    _reap_child_zombies()
     if _picom_already_uses(conf):
         _LOGGER.info("picom already using %s", conf)
         return
@@ -74,6 +75,44 @@ def apply_release_picom(
         _LOGGER.warning("Unable to start picom with %s: %s", conf, error)
         return
     _LOGGER.info("Started picom with %s", conf)
+
+
+def _reap_child_zombies() -> None:
+    """Collect exited child processes so SIGTERM'd session helpers are not zombies."""
+    while True:
+        try:
+            pid, _status = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if pid == 0:
+            return
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Return whether *pid* is a live (non-zombie) process.
+
+    See ``openbox._pid_is_alive``: xsession helpers become zombies under bootstrap
+    after SIGTERM, and ``kill(pid, 0)`` still succeeds for them.
+    """
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    rparen = raw.rfind(")")
+    if rparen < 0:
+        return False
+    parts = raw[rparen + 2 :].split()
+    if not parts:
+        return False
+    if parts[0] == "Z":
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            pass
+        except OSError:
+            pass
+        return False
+    return True
 
 
 def _nvidia_driver_loaded() -> bool:
@@ -115,14 +154,21 @@ def _picom_already_uses(config: Path) -> bool:
     if result.returncode != 0:
         return False
     needle = str(config)
-    return any(needle in line for line in result.stdout.splitlines())
+    for line in result.stdout.splitlines():
+        if "<defunct>" in line or needle not in line:
+            continue
+        tokens = line.split()
+        if tokens and tokens[0].isdigit() and _pid_is_alive(int(tokens[0])):
+            return True
+    return False
 
 
 def _stop_picom() -> bool:
     """Terminate existing picom processes with SIGTERM only.
 
-    Returns True when no picom remains (or none was running), False when a
+    Returns True when no live picom remains (or none was running), False when a
     process is still alive after the wait so a second compositor is not started.
+    Zombie leftovers from the xsession ``exec`` hand-off count as stopped.
     """
     try:
         result = subprocess.run(  # noqa: S603
@@ -137,6 +183,10 @@ def _stop_picom() -> bool:
     if result.returncode != 0:
         return True
     pids = [int(line) for line in result.stdout.splitlines() if line.strip().isdigit()]
+    pids = [pid for pid in pids if _pid_is_alive(pid)]
+    if not pids:
+        _reap_child_zombies()
+        return True
     for pid in pids:
         try:
             os.kill(pid, signal.SIGTERM)
@@ -146,18 +196,15 @@ def _stop_picom() -> bool:
             _LOGGER.warning("Unable to stop picom pid %s: %s", pid, error)
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline and pids:
-        surviving: list[int] = []
-        for pid in pids:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                continue
-            surviving.append(pid)
+        _reap_child_zombies()
+        surviving = [pid for pid in pids if _pid_is_alive(pid)]
         if not surviving:
             return True
         pids = surviving
         time.sleep(0.05)
-    if pids:
-        _LOGGER.warning("picom still running after SIGTERM: %s", pids)
+    _reap_child_zombies()
+    surviving = [pid for pid in pids if _pid_is_alive(pid)]
+    if surviving:
+        _LOGGER.warning("picom still running after SIGTERM: %s", surviving)
         return False
     return True

@@ -48,9 +48,12 @@ def apply_release_openbox(*, config: Path | None = None) -> bool:
     binary = shutil.which("openbox")
     if binary is None:
         return False
+    _reap_child_zombies()
     if _openbox_already_uses(conf):
         _LOGGER.info("openbox already using %s", conf)
-        return False
+        if _wait_for_window_manager(attempts=5):
+            return False
+        _LOGGER.warning("openbox listed but window manager not ready; restarting")
     try:
         if not _stop_openbox():
             _LOGGER.error(
@@ -76,6 +79,46 @@ def apply_release_openbox(*, config: Path | None = None) -> bool:
     return True
 
 
+def _reap_child_zombies() -> None:
+    """Collect exited child processes so SIGTERM'd session helpers are not zombies."""
+    while True:
+        try:
+            pid, _status = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if pid == 0:
+            return
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Return whether *pid* is a live (non-zombie) process.
+
+    Bootstrap inherits ``openbox &`` / ``picom &`` from the xsession script via
+    ``exec``. After SIGTERM those become zombies under the launcher; ``kill(pid,
+    0)`` still succeeds for zombies, which previously made the restart abort and
+    left the session with no window manager.
+    """
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    rparen = raw.rfind(")")
+    if rparen < 0:
+        return False
+    parts = raw[rparen + 2 :].split()
+    if not parts:
+        return False
+    if parts[0] == "Z":
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            pass
+        except OSError:
+            pass
+        return False
+    return True
+
+
 def _sync_image_openbox(conf: Path) -> None:
     """Copy the release Openbox rc onto the image fallback path when writable."""
     try:
@@ -91,13 +134,13 @@ def _sync_image_openbox(conf: Path) -> None:
         )
 
 
-def _wait_for_window_manager() -> bool:
+def _wait_for_window_manager(*, attempts: int | None = None) -> bool:
     """Poll until ``wmctrl -m`` succeeds or the readiness timeout expires."""
     binary = shutil.which("wmctrl")
     if binary is None:
         time.sleep(_WM_READY_INTERVAL * 5)
         return True
-    for _ in range(_WM_READY_ATTEMPTS):
+    for _ in range(_WM_READY_ATTEMPTS if attempts is None else attempts):
         try:
             result = subprocess.run(  # noqa: S603
                 [binary, "-m"],
@@ -140,7 +183,13 @@ def _openbox_already_uses(config: Path) -> bool:
     except OSError:
         return False
     for line in result.stdout.splitlines():
+        if "<defunct>" in line:
+            continue
         tokens = line.split()
+        if len(tokens) < 2 or not tokens[0].isdigit():
+            continue
+        if not _pid_is_alive(int(tokens[0])):
+            continue
         candidates: list[Path] = []
         for index, token in enumerate(tokens):
             if token == "--config-file" and index + 1 < len(tokens):
@@ -167,8 +216,9 @@ def _openbox_already_uses(config: Path) -> bool:
 def _stop_openbox() -> bool:
     """Terminate existing openbox processes with SIGTERM only.
 
-    Returns True when no openbox remains (or none was running), False when a
-    process is still alive after the wait so a second WM is not started.
+    Returns True when no live openbox remains (or none was running), False when a
+    process is still alive after the wait so a second WM is not started. Zombie
+    leftovers from the xsession ``exec`` hand-off count as stopped.
     """
     try:
         result = subprocess.run(  # noqa: S603
@@ -183,6 +233,10 @@ def _stop_openbox() -> bool:
     if result.returncode != 0:
         return True
     pids = [int(line) for line in result.stdout.splitlines() if line.strip().isdigit()]
+    pids = [pid for pid in pids if _pid_is_alive(pid)]
+    if not pids:
+        _reap_child_zombies()
+        return True
     for pid in pids:
         try:
             os.kill(pid, signal.SIGTERM)
@@ -192,18 +246,15 @@ def _stop_openbox() -> bool:
             _LOGGER.warning("Unable to stop openbox pid %s: %s", pid, error)
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline and pids:
-        surviving: list[int] = []
-        for pid in pids:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                continue
-            surviving.append(pid)
+        _reap_child_zombies()
+        surviving = [pid for pid in pids if _pid_is_alive(pid)]
         if not surviving:
             return True
         pids = surviving
         time.sleep(0.05)
-    if pids:
-        _LOGGER.warning("openbox still running after SIGTERM: %s", pids)
+    _reap_child_zombies()
+    surviving = [pid for pid in pids if _pid_is_alive(pid)]
+    if surviving:
+        _LOGGER.warning("openbox still running after SIGTERM: %s", surviving)
         return False
     return True

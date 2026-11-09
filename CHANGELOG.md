@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.56
+
+- Fixed: After update, Openbox/picom no longer die as zombies under the launcher.
+  Without a window manager, Brave/YouTube stayed small and clicks/CEC focus failed;
+  the session now treats unreaped helpers as stopped and starts a live WM again.
+
 ## v0.5.55
 
 - Added: Settings > System > Remote support installs OpenSSH and authorizes a

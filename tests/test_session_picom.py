@@ -68,8 +68,12 @@ def test_apply_release_picom_stops_and_restarts(monkeypatch: pytest.MonkeyPatch,
 
     monkeypatch.setattr("pideck.infrastructure.session.picom.subprocess.run", fake_run)
     monkeypatch.setattr(
+        "pideck.infrastructure.session.picom._pid_is_alive",
+        lambda pid: pid == 4242 and not killed,
+    )
+    monkeypatch.setattr(
         "pideck.infrastructure.session.picom.os.kill",
-        lambda pid, sig: killed.append((pid, sig)) or (_ for _ in ()).throw(ProcessLookupError()),
+        lambda pid, sig: killed.append((pid, sig)),
     )
     monkeypatch.setattr(
         "pideck.infrastructure.session.picom.subprocess.Popen",
@@ -100,6 +104,10 @@ def test_apply_release_picom_skips_restart_when_config_matches(
         lambda *args, **kwargs: type(
             "Result", (), {"returncode": 0, "stdout": f"1111 picom --config {conf}\n"}
         )(),
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom._pid_is_alive",
+        lambda _pid: True,
     )
     monkeypatch.setattr(
         "pideck.infrastructure.session.picom.subprocess.Popen",

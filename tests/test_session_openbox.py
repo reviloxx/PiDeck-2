@@ -66,8 +66,12 @@ def test_apply_release_openbox_stops_and_restarts(
 
     monkeypatch.setattr("pideck.infrastructure.session.openbox.subprocess.run", fake_run)
     monkeypatch.setattr(
+        "pideck.infrastructure.session.openbox._pid_is_alive",
+        lambda pid: pid == 4242 and not killed,
+    )
+    monkeypatch.setattr(
         "pideck.infrastructure.session.openbox.os.kill",
-        lambda pid, sig: killed.append((pid, sig)) or (_ for _ in ()).throw(ProcessLookupError()),
+        lambda pid, sig: killed.append((pid, sig)),
     )
     monkeypatch.setattr(
         "pideck.infrastructure.session.openbox.subprocess.Popen",
@@ -105,6 +109,14 @@ def test_apply_release_openbox_skips_restart_when_config_matches(
         )(),
     )
     monkeypatch.setattr(
+        "pideck.infrastructure.session.openbox._pid_is_alive",
+        lambda _pid: True,
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.openbox._wait_for_window_manager",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
         "pideck.infrastructure.session.openbox.subprocess.Popen",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not restart")),
     )
@@ -133,11 +145,40 @@ def test_apply_release_openbox_skips_restart_when_config_bytes_match(
         )(),
     )
     monkeypatch.setattr(
+        "pideck.infrastructure.session.openbox._pid_is_alive",
+        lambda _pid: True,
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.openbox._wait_for_window_manager",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
         "pideck.infrastructure.session.openbox.subprocess.Popen",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not restart")),
     )
 
     assert apply_release_openbox(config=conf) is False
+
+
+def test_stop_openbox_treats_zombies_as_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unreaped xsession openbox zombies must not block starting a live WM."""
+    import pideck.infrastructure.session.openbox as openbox_mod
+
+    monkeypatch.setattr(
+        openbox_mod.subprocess,
+        "run",
+        lambda *args, **kwargs: type("Result", (), {"returncode": 0, "stdout": "790\n"})(),
+    )
+    monkeypatch.setattr(openbox_mod, "_pid_is_alive", lambda _pid: False)
+    killed: list[int] = []
+    monkeypatch.setattr(
+        openbox_mod.os,
+        "kill",
+        lambda pid, sig: killed.append(pid),
+    )
+
+    assert openbox_mod._stop_openbox() is True
+    assert killed == []
 
 
 def test_apply_release_openbox_noop_without_display(
