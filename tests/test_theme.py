@@ -61,9 +61,10 @@ def test_sample_configuration_resolves_bundled_theme_assets() -> None:
 
 
 def test_sample_configuration_loads_all_shipped_themes() -> None:
-    """Midnight plus Ember, Nordic, Aurora, and Daylight resolve with wallpapers."""
+    """Aurora is first and default; Midnight plus the other themes still resolve."""
     dependencies = build_dependencies(Path("config/pideck.yaml"), log_level="WARNING")
-    expected = ("default", "ember", "nordic", "aurora", "daylight")
+    expected = ("aurora", "default", "ember", "nordic", "daylight")
+    assert dependencies.configuration.home.theme == "aurora"
     assert tuple(theme.identifier for theme in dependencies.configuration.themes) == expected
     for identifier in expected:
         theme = dependencies.theme_repository.get(identifier)
@@ -82,7 +83,7 @@ def test_shipped_themes_fill_older_user_configuration(tmp_path: Path) -> None:
 
     dependencies = build_dependencies(path, asset_root=Path("config"), log_level="WARNING")
     assert tuple(theme.identifier for theme in dependencies.configuration.themes) == (
-        "default", "ember", "nordic", "aurora", "daylight",
+        "aurora", "default", "ember", "nordic", "daylight",
     )
     assert dependencies.theme_repository.get("ember").name == "Ember"
     dependencies.process_supervisor.close()

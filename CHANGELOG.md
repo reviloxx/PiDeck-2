@@ -4,6 +4,15 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.44
+
+- Changed: Aurora is the default theme for new installs and appears first in
+  Design. Existing installs keep their saved theme. Midnight is a little darker
+  so it differs more from Aurora. Theme backgrounds use flatter fills to reduce
+  banding on TVs.
+- Changed: When two drives share the same volume label, Settings and Samba use
+  numbered names (for example Volume1, Volume2) instead of Volume and Volume1.
+
 ## v0.5.43
 
 - Fixed: HDMI audio defaults to Surround PCM 5.1 for PC→AVR→TV again. Settings

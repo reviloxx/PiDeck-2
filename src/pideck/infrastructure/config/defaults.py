@@ -13,8 +13,8 @@ DEFAULT_THEME = ThemeDefinition(
     identifier="default",
     name="Midnight",
     colors={
-        "background": "#101214",
-        "surface": "#1b1f24",
+        "background": "#070809",
+        "surface": "#12151a",
         "primary": "#63d6c5",
         "text": "#f4f7f7",
         "muted_text": "#9ca8aa",

@@ -36,8 +36,8 @@ def export_path_for(mountpoint: str) -> str:
 
 
 def share_name_for(drive: Drive) -> str:
-    """Build a Samba-safe share name from the filesystem label or UUID."""
-    label = (drive.filesystem_label or drive.label or "").strip()
+    """Build a Samba-safe share name from the UI label or UUID."""
+    label = (drive.label or drive.filesystem_label or "").strip()
     cleaned = _SHARE_UNSAFE.sub("_", label).strip("._-") if label else ""
     if cleaned:
         return cleaned[:64]

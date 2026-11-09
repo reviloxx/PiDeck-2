@@ -1,9 +1,43 @@
 themes:
+- id: aurora
+  name: Aurora
+  colors:
+    background: '#0a0f18'
+    surface: '#121a28'
+    primary: '#6ec9a8'
+    text: '#eaf2f7'
+    muted_text: '#8a9bb0'
+    focus: '#6ec9a8'
+    running: '#b89be0'
+    error: '#e07a8a'
+  fonts:
+    family: DejaVu Sans
+    heading_size: 28
+    body_size: 18
+    settings_body_size: 22
+    settings_heading_size: 30
+  icons:
+    settings: ../assets/icons/settings.svg
+    power: ../assets/icons/power.svg
+    input_cec: ../assets/icons/input-cec.svg
+    input_gamepad: ../assets/icons/input-gamepad.svg
+    input_keyboard: ../assets/icons/input-keyboard.svg
+    input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
+  wallpaper: ../assets/themes/aurora/wallpaper.svg
+  tile:
+    width: 240
+    height: 135
+    gap: 32
+  animation:
+    duration_ms: 180
+    reduced_motion_duration_ms: 0
 - id: default
   name: Midnight
   colors:
-    background: '#101214'
-    surface: '#1b1f24'
+    background: '#070809'
+    surface: '#12151a'
     primary: '#63d6c5'
     text: '#f4f7f7'
     muted_text: '#9ca8aa'
@@ -94,40 +128,6 @@ themes:
     drive_mounted: ../assets/icons/drive-mounted.svg
     drive_shared: ../assets/icons/drive-shared.svg
   wallpaper: ../assets/themes/nordic/wallpaper.svg
-  tile:
-    width: 240
-    height: 135
-    gap: 32
-  animation:
-    duration_ms: 180
-    reduced_motion_duration_ms: 0
-- id: aurora
-  name: Aurora
-  colors:
-    background: '#0a0f18'
-    surface: '#121a28'
-    primary: '#6ec9a8'
-    text: '#eaf2f7'
-    muted_text: '#8a9bb0'
-    focus: '#6ec9a8'
-    running: '#b89be0'
-    error: '#e07a8a'
-  fonts:
-    family: DejaVu Sans
-    heading_size: 28
-    body_size: 18
-    settings_body_size: 22
-    settings_heading_size: 30
-  icons:
-    settings: ../assets/icons/settings.svg
-    power: ../assets/icons/power.svg
-    input_cec: ../assets/icons/input-cec.svg
-    input_gamepad: ../assets/icons/input-gamepad.svg
-    input_keyboard: ../assets/icons/input-keyboard.svg
-    input_mouse: ../assets/icons/input-mouse.svg
-    drive_mounted: ../assets/icons/drive-mounted.svg
-    drive_shared: ../assets/icons/drive-shared.svg
-  wallpaper: ../assets/themes/aurora/wallpaper.svg
   tile:
     width: 240
     height: 135

@@ -377,6 +377,8 @@ def test_duplicate_filesystem_labels_skip_by_label_symlink(tmp_path: Path) -> No
     }
     gateway = UDisksStorageGateway(Runner(document), media_root=media_root)
     drives = gateway.list_drives()
+    assert [drive.label for drive in drives] == ["SHARE1", "SHARE2"]
+    assert [drive.filesystem_label for drive in drives] == ["SHARE", "SHARE"]
     assert [drive.mountpoint for drive in drives] == [
         str(media_root / "by-uuid" / first),
         str(media_root / "by-uuid" / second),

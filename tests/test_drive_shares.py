@@ -70,6 +70,8 @@ def test_share_name_and_smb_url() -> None:
     assert share_name_for(_drive()) == "MEDIA"
     assert share_name_for(_drive(filesystem_label=None, label="Data HDD (sdc1)")) == "Data_HDD_sdc1"
     assert share_name_for(_drive(filesystem_label=None, label="???", uuid="ABCD-EF01")) == "ABCDEF01"
+    assert share_name_for(_drive(label="SHARE1", filesystem_label="SHARE")) == "SHARE1"
+    assert share_name_for(_drive(label="SHARE2", filesystem_label="SHARE")) == "SHARE2"
     assert smb_url("MEDIA", host="pideck") == "smb://pideck/MEDIA"
 
 

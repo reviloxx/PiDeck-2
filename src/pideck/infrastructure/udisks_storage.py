@@ -113,6 +113,24 @@ def _sanitize_label(label: str) -> str | None:
     return cleaned
 
 
+def _with_numbered_labels(drives: tuple[Drive, ...]) -> tuple[Drive, ...]:
+    """Number UI labels when multiple drives share the same filesystem label."""
+    counts: dict[str, int] = {}
+    for drive in drives:
+        if drive.filesystem_label is not None:
+            counts[drive.filesystem_label] = counts.get(drive.filesystem_label, 0) + 1
+    indexes: dict[str, int] = {}
+    numbered: list[Drive] = []
+    for drive in drives:
+        label = drive.filesystem_label
+        if label is None or counts[label] < 2:
+            numbered.append(drive)
+            continue
+        indexes[label] = indexes.get(label, 0) + 1
+        numbered.append(replace(drive, label=f"{label}{indexes[label]}"))
+    return tuple(numbered)
+
+
 def parse_drives(document: object) -> tuple[Drive, ...]:
     """Convert ``lsblk --json`` output into mountable non-system drives."""
     if not isinstance(document, dict) or not isinstance(document.get("blockdevices"), list):
@@ -157,7 +175,7 @@ def parse_drives(document: object) -> tuple[Drive, ...]:
                 uuid=_filesystem_uuid(node.get("uuid")),
                 filesystem_label=filesystem_label,
             ))
-    return tuple(drives)
+    return _with_numbered_labels(tuple(drives))
 
 
 class DrivePreferences:
