@@ -382,9 +382,9 @@ def application() -> QApplication:
 class Storage:
     """In-memory storage gateway."""
 
-    def __init__(self, available: bool = True) -> None:
+    def __init__(self, available: bool = True, drives: dict[str, Drive] | None = None) -> None:
         self.is_available = available
-        self.drives = {
+        self.drives = drives or {
             "/dev/sdb1": Drive(
                 "/dev/sdb1", "MEDIA", "exfat", 32_000_000_000, None, True, "/dev/sdb", MEDIA_UUID, "MEDIA",
             ),
@@ -528,7 +528,6 @@ def test_drives_window_mounts_and_unmounts_with_controller(application: QApplica
     window.dialog.choose(DriveAction.MOUNT)
     _wait(application, lambda: storage.drives["/dev/sdb1"].mounted and window.drives.isEnabled())
     assert "/media/pideck/by-uuid/" in window.drives.item(0).text()
-    assert "mounted at" in window.status.text()
     window.drives.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     application.processEvents()
@@ -537,18 +536,53 @@ def test_drives_window_mounts_and_unmounts_with_controller(application: QApplica
     assert "share" in window.dialog.actions()
     window.dialog.choose(DriveAction.SHARE)
     _wait(application, lambda: MEDIA_UUID in shares.shared and window.drives.isEnabled())
-    assert "smb://pideck/MEDIA" in window.status.text()
+    assert "smb://" in window.status.text() and "MEDIA" in window.status.text()
     assert "shared as MEDIA" in window.drives.item(0).text()
     window.drives.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     application.processEvents()
     window.dialog.choose(DriveAction.UNMOUNT)
     _wait(application, lambda: not storage.drives["/dev/sdb1"].mounted and window.drives.isEnabled())
-    assert "removed safely" in window.status.text()
+    assert "smb://" not in window.status.text()
     assert shares.released == [MEDIA_UUID]
     assert MEDIA_UUID in shares.shared
     window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
     assert not window.isVisible()
+    parent.close()
+
+
+def test_drives_window_share_status_follows_selection(application: QApplication) -> None:
+    from pideck.application.drive_items import DriveAction
+
+    parent = QWidget()
+    other = "BBBB-CCCC"
+    storage = Storage(drives={
+        "/dev/sdb1": Drive(
+            "/dev/sdb1", "MEDIA", "exfat", 1, "/media/pideck/by-uuid/A1B2-C3D4", True,
+            "/dev/sdb", MEDIA_UUID, "MEDIA",
+        ),
+        "/dev/sdc1": Drive(
+            "/dev/sdc1", "DATA", "ext4", 1, "/media/pideck/by-uuid/BBBB-CCCC", False,
+            "/dev/sdc", other, "DATA",
+        ),
+    })
+    shares = Shares()
+    window = DrivesWindow(storage, DEFAULT_THEME, "en", parent, shares=shares)
+    window.show()
+    _wait(application, lambda: window.drives.count() == 2 and window.drives.isEnabled())
+    window.drives.setCurrentRow(0)
+    window.activate_selected()
+    application.processEvents()
+    window.dialog.choose(DriveAction.SHARE)
+    _wait(application, lambda: MEDIA_UUID in shares.shared and window.drives.isEnabled())
+    assert "smb://" in window.status.text() and "/MEDIA" in window.status.text()
+    window.drives.setCurrentRow(1)
+    application.processEvents()
+    assert "smb://" not in window.status.text()
+    window.drives.setCurrentRow(0)
+    application.processEvents()
+    assert "smb://" in window.status.text() and "/MEDIA" in window.status.text()
+    window.close()
     parent.close()
 
 

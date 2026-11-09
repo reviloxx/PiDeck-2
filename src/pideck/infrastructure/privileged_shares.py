@@ -40,6 +40,18 @@ def _safe_path(path: str) -> Path:
     return candidate
 
 
+def _resolved_share_path(path: str) -> Path:
+    """Resolve symlinks and require a real directory under a data mount root."""
+    candidate = _safe_path(path)
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as error:
+        raise ValueError(f"Share path is missing: {error}") from error
+    if not resolved.is_dir():
+        raise ValueError("Share path must be a directory")
+    return _safe_path(str(resolved))
+
+
 def _media_user(path: Path) -> str:
     """Derive the appliance username from ``/media/<user>/...`` when present."""
     parts = path.parts
@@ -97,7 +109,7 @@ class ShareOperations:
             raise ValueError("Invalid share UUID")
         if _SHARE_NAME.fullmatch(name) is None:
             raise ValueError("Invalid share name")
-        target = _safe_path(path)
+        target = _resolved_share_path(path)
         shares = self._load()
         for other_uuid, entry in shares.items():
             if other_uuid != cleaned_uuid and entry.get("name") == name:

@@ -15,7 +15,9 @@ from pideck.infrastructure.image_update_client import ImageUpdateError
 from pideck.infrastructure.image_update_daemon import UpdateServer
 from pideck.infrastructure.image_update_store import ImageUpdateStore
 from pideck.infrastructure.privileged_shares import ShareOperations, render_shares_conf
-from pideck.infrastructure.samba_shares import SambaShareGateway, share_name_for, smb_url
+from pideck.infrastructure.samba_shares import (
+    SambaShareGateway, export_path_for, share_name_for, smb_url,
+)
 from pideck.infrastructure.udisks_storage import DrivePreferences
 
 
@@ -36,6 +38,17 @@ def _drive(**overrides: object) -> Drive:
     }
     values.update(overrides)
     return Drive(**values)  # type: ignore[arg-type]
+
+
+def _media_tree(tmp_path: Path) -> tuple[Path, Path, str]:
+    """Create a real udisks-style mount and a by-uuid symlink to it."""
+    media_root = tmp_path / "media"
+    real = media_root / "pideck" / "MEDIA"
+    real.mkdir(parents=True)
+    link = media_root / "pideck" / "by-uuid" / MEDIA_UUID
+    link.parent.mkdir(parents=True)
+    link.symlink_to(real)
+    return real, link, str(media_root) + "/"
 
 
 def test_available_actions_for_mount_share_and_busy_states() -> None:
@@ -60,26 +73,46 @@ def test_share_name_and_smb_url() -> None:
     assert smb_url("MEDIA", host="pideck") == "smb://pideck/MEDIA"
 
 
-def test_share_operations_write_conf_and_reject_unsafe_paths(tmp_path: Path) -> None:
+def test_export_path_resolves_by_uuid_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pideck.infrastructure.samba_shares as samba_shares
+
+    real, link, media_root = _media_tree(tmp_path)
+    monkeypatch.setattr(samba_shares, "_DATA_MOUNT_ROOTS", (media_root,))
+    assert export_path_for(str(link)) == str(real.resolve())
+    with pytest.raises(ShareError, match="missing"):
+        export_path_for(str(tmp_path / "media" / "pideck" / "by-uuid" / "missing"))
+
+
+def test_share_operations_write_conf_and_reject_unsafe_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pideck.infrastructure.privileged_shares as privileged_shares
+
     commands: list[list[str]] = []
 
     def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
         commands.append(command)
         return subprocess.CompletedProcess(command, 0, "", "")
 
+    real, link, media_root = _media_tree(tmp_path)
+    monkeypatch.setattr(privileged_shares, "_DATA_MOUNT_ROOTS", (media_root,))
     shares = ShareOperations(root=tmp_path / "samba", runner=runner)
-    path = "/media/pideck/by-uuid/A1B2-C3D4"
-    assert shares.enable(MEDIA_UUID, path, "MEDIA") == {
-        "uuid": MEDIA_UUID, "name": "MEDIA", "path": path,
+    assert shares.enable(MEDIA_UUID, str(link), "MEDIA") == {
+        "uuid": MEDIA_UUID, "name": "MEDIA", "path": str(real.resolve()),
     }
     conf = (tmp_path / "samba" / "shares.conf").read_text(encoding="utf-8")
-    assert "[MEDIA]" in conf and path in conf and "guest ok = yes" in conf
+    assert "[MEDIA]" in conf and str(real.resolve()) in conf and "guest ok = yes" in conf
     assert "force user = pideck" in conf
+    assert "by-uuid" not in conf
     assert commands == [["systemctl", "reload", "smbd.service"]]
     with pytest.raises(ValueError, match="data mount"):
         shares.enable(MEDIA_UUID, "/etc/passwd", "MEDIA")
     with pytest.raises(ValueError, match="Invalid share name"):
-        shares.enable(MEDIA_UUID, path, "../evil")
+        shares.enable(MEDIA_UUID, str(real), "../evil")
+    with pytest.raises(ValueError, match="missing"):
+        shares.enable(MEDIA_UUID, str(tmp_path / "media" / "pideck" / "gone"), "MEDIA")
     shares.disable(MEDIA_UUID)
     assert "shares" in (tmp_path / "samba" / "shares.json").read_text(encoding="utf-8")
     assert "[MEDIA]" not in (tmp_path / "samba" / "shares.conf").read_text(encoding="utf-8")
@@ -93,8 +126,14 @@ def test_render_shares_conf_orders_by_uuid() -> None:
     assert text.index("[First]") < text.index("[Second]")
 
 
-def test_samba_share_gateway_remembers_and_restores(tmp_path: Path) -> None:
+def test_samba_share_gateway_remembers_and_restores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pideck.infrastructure.samba_shares as samba_shares
+
     preferences = DrivePreferences(tmp_path / "drives.yaml")
+    real, link, media_root = _media_tree(tmp_path)
+    monkeypatch.setattr(samba_shares, "_DATA_MOUNT_ROOTS", (media_root,))
     calls: list[tuple[str, dict[str, str]]] = []
 
     def request(action: str, **fields: str) -> dict[str, object]:
@@ -103,7 +142,7 @@ def test_samba_share_gateway_remembers_and_restores(tmp_path: Path) -> None:
             return {"applications": 1, "shares": 1}
         return {"ok": True}
 
-    mounted = _drive()
+    mounted = _drive(mountpoint=str(link))
     gateway = SambaShareGateway(
         preferences=preferences,
         request=request,
@@ -114,7 +153,7 @@ def test_samba_share_gateway_remembers_and_restores(tmp_path: Path) -> None:
     assert gateway.share(mounted) == "smb://pideck/MEDIA"
     assert preferences.load_shared() == frozenset({MEDIA_UUID})
     assert ("share_enable", {
-        "uuid": MEDIA_UUID, "path": mounted.mountpoint, "name": "MEDIA",
+        "uuid": MEDIA_UUID, "path": str(real.resolve()), "name": "MEDIA",
     }) in [(action, fields) for action, fields in calls if action == "share_enable"]
     gateway.release(mounted)
     assert preferences.load_shared() == frozenset({MEDIA_UUID})
@@ -138,6 +177,8 @@ def test_samba_share_gateway_unavailable_without_capability() -> None:
 
 
 def test_broker_enables_and_disables_shares(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import pideck.infrastructure.privileged_shares as privileged_shares
+
     root = tmp_path / "image"
     (root / "releases/1.0.0").mkdir(parents=True)
     (root / "current").symlink_to("releases/1.0.0")
@@ -148,6 +189,8 @@ def test_broker_enables_and_disables_shares(tmp_path: Path, monkeypatch: pytest.
         commands.append(command)
         return subprocess.CompletedProcess(command, 0, "", "")
 
+    real, link, media_root = _media_tree(tmp_path)
+    monkeypatch.setattr(privileged_shares, "_DATA_MOUNT_ROOTS", (media_root,))
     shares = ShareOperations(root=tmp_path / "samba", runner=runner)
     broker = UpdateServer(
         path, ImageUpdateStore(root), allowed_uid=os.getuid(), shares=shares,
@@ -156,10 +199,9 @@ def test_broker_enables_and_disables_shares(tmp_path: Path, monkeypatch: pytest.
     thread = threading.Thread(target=broker.serve_forever)
     thread.start()
     try:
-        mount = "/media/pideck/by-uuid/A1B2-C3D4"
         assert image_update_client.request(
-            "share_enable", uuid=MEDIA_UUID, path=mount, name="MEDIA",
-        ) == {"uuid": MEDIA_UUID, "name": "MEDIA", "path": mount}
+            "share_enable", uuid=MEDIA_UUID, path=str(link), name="MEDIA",
+        ) == {"uuid": MEDIA_UUID, "name": "MEDIA", "path": str(real.resolve())}
         with pytest.raises(ImageUpdateError, match="data mount"):
             image_update_client.request(
                 "share_enable", uuid=MEDIA_UUID, path="/root/secret", name="MEDIA",

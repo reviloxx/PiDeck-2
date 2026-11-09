@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 import logging
+from pathlib import Path
 import re
 import socket
 import threading
@@ -15,8 +16,23 @@ from pideck.infrastructure.udisks_storage import DrivePreferences
 
 _LOGGER = logging.getLogger(__name__)
 _SHARE_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+_DATA_MOUNT_ROOTS = ("/media/", "/mnt/", "/run/media/")
 
 Request = Callable[..., dict[str, Any]]
+
+
+def export_path_for(mountpoint: str) -> str:
+    """Resolve ``mountpoint`` to a real data-drive directory for Samba ``path``."""
+    try:
+        resolved = Path(mountpoint).resolve(strict=True)
+    except OSError as error:
+        raise ShareError(f"The mount path is missing: {error}") from error
+    if not resolved.is_dir():
+        raise ShareError("The mount path is not a directory")
+    text = str(resolved)
+    if text != "/mnt" and not any(text.startswith(root) for root in _DATA_MOUNT_ROOTS):
+        raise ShareError("The mount path must be under a data mount location")
+    return text
 
 
 def share_name_for(drive: Drive) -> str:
@@ -156,7 +172,8 @@ class SambaShareGateway:
             raise ShareError("The drive has no filesystem UUID to share")
         if not self.available():
             raise ShareError("Network sharing requires a newer PiDeck image")
-        return drive.uuid, drive.mountpoint, share_name_for(drive)
+        # Samba rejects share roots that are by-uuid symlinks (BAD_NETWORK_NAME).
+        return drive.uuid, export_path_for(drive.mountpoint), share_name_for(drive)
 
     def _remember(self, uuid: str) -> None:
         if self._preferences is None:

@@ -14,6 +14,8 @@ from pideck.application.ports.sharing import ShareError, ShareGateway
 from pideck.application.ports.storage import Drive, StorageError, StorageGateway
 from pideck.domain.theme import ThemeDefinition
 
+from pideck.infrastructure.samba_shares import smb_url
+
 from .drive_actions_dialog import DriveActionsDialog
 from .localization import tr
 from .system_panel import add_action_button, build_system_window, set_status
@@ -273,13 +275,9 @@ class DrivesWindow(WallpaperDialog):
             _LOGGER.exception("Unexpected drive operation failure")
             drives, message = (), (tr(self._language, "drives_error", message=tr(self._language, "drives_unavailable")), True)
         self._show_drives(drives)
-        if message is not None:
-            set_status(self.status, message[0], error=message[1])
-        elif drives:
-            set_status(self.status, "")
-        else:
-            set_status(self.status, tr(self._language, "drives_none"))
         self._update_controls()
+        if message is not None and message[1]:
+            set_status(self.status, message[0], error=True)
         self._refresh_dialog()
         if self.dialog is None:
             if self.drives.count():
@@ -311,6 +309,23 @@ class DrivesWindow(WallpaperDialog):
         ready = not self._busy and self._gateway.available()
         self.drives.setEnabled(ready)
         self.refresh.setEnabled(ready)
+        if not self._busy and self._gateway.available():
+            self._sync_status_for_selection()
+
+    def _sync_status_for_selection(self) -> None:
+        """Show the SMB URL only while a shared drive is highlighted."""
+        if self.drives.count() == 0:
+            set_status(self.status, tr(self._language, "drives_none"))
+            return
+        drive = self.selected()
+        if drive is not None and drive.mounted and self._shares.is_shared(drive.uuid):
+            url = smb_url(self._shares.share_name(drive))
+            set_status(
+                self.status,
+                tr(self._language, "drives_shared", name=drive.label, url=url),
+            )
+            return
+        set_status(self.status, "")
 
     def _refresh_dialog(self) -> None:
         dialog = self.dialog

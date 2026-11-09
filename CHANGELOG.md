@@ -4,6 +4,15 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.36
+
+- Fixed: LAN drive shares open from other computers again. Samba now exports the
+  real mount directory instead of the by-uuid symlink. After updating, stop
+  sharing the drive and share it once more (or reboot) so the share is
+  rewritten.
+- Fixed: the SMB URL status line above the drive list appears only while a
+  shared drive is highlighted.
+
 ## v0.5.35
 
 - Fixed: Settings > Drives options menu stays open when activated with Enter or
