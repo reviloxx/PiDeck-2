@@ -197,6 +197,7 @@ class LauncherWindow(QMainWindow):
         self._dialog: ConfirmationDialog | None = None
         self.setObjectName("launcher_window")
         self.setWindowTitle("PiDeck")
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._root = WallpaperWidget(self)
         self._root.setObjectName("launcher_root")
@@ -228,9 +229,11 @@ class LauncherWindow(QMainWindow):
         if not self._has_been_shown:
             self._controller.reset_focus()
             self._has_been_shown = True
+        self._apply_fullscreen_geometry()
         self.showFullScreen()
         self._focus_current_tile()
         QTimer.singleShot(0, self._enforce_fullscreen)
+        QTimer.singleShot(250, self._enforce_fullscreen)
 
     def resizeEvent(self, event: object) -> None:
         """Reflow tiles when the available screen geometry changes."""
@@ -435,12 +438,19 @@ class LauncherWindow(QMainWindow):
         geometry = screen.availableGeometry()
         return max(geometry.width() - 96, 1), max(geometry.height() - 180, 1)
 
+    def _apply_fullscreen_geometry(self) -> None:
+        """Size the launcher to the screen before asking the WM for fullscreen."""
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return
+        self.setGeometry(screen.geometry())
+
     def _enforce_fullscreen(self) -> None:
         """Reassert fullscreen after the window manager maps the launcher."""
         if not self.isVisible():
             return
-        if not self.isFullScreen():
-            self.showFullScreen()
+        self._apply_fullscreen_geometry()
+        self.showFullScreen()
         self.raise_()
         self.activateWindow()
         self._focus_current_tile()

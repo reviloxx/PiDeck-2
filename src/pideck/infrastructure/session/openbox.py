@@ -30,7 +30,8 @@ def apply_release_openbox(*, config: Path | None = None) -> bool:
 
     Failures are logged and never raised so a missing window manager cannot
     block the launcher. No-op when openbox is absent, DISPLAY is unset, or
-    openbox is already running with the chosen config. Never SIGKILL openbox.
+    openbox is already running with the chosen config (same resolved path or
+    identical file contents). Never SIGKILL openbox.
 
     Returns True when Openbox was restarted with the release config.
     """
@@ -51,7 +52,7 @@ def apply_release_openbox(*, config: Path | None = None) -> bool:
             _LOGGER.warning("Leaving existing openbox running; new config not applied")
             return False
         subprocess.Popen(  # noqa: S603 — fixed binary from PATH, fixed config path
-            [binary, "--config-file", str(conf)],
+            [binary, "--config-file", str(conf.resolve())],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -92,7 +93,12 @@ def _wait_for_window_manager() -> bool:
 
 
 def _openbox_already_uses(config: Path) -> bool:
-    """Return whether a user openbox process was started with ``config``."""
+    """Return whether running openbox already has an equivalent config loaded.
+
+    Compares resolved paths so ``/usr/lib/pideck/current/...`` matches the
+    release directory Path(__file__) resolves to, and compares file bytes so a
+    fixed image rc is not restarted needlessly.
+    """
     try:
         result = subprocess.run(  # noqa: S603
             ["pgrep", "-u", str(os.getuid()), "-ax", "openbox"],
@@ -105,8 +111,34 @@ def _openbox_already_uses(config: Path) -> bool:
         return False
     if result.returncode != 0:
         return False
-    needle = str(config)
-    return any(needle in line for line in result.stdout.splitlines())
+    try:
+        want = config.resolve()
+        want_bytes = want.read_bytes()
+    except OSError:
+        return False
+    for line in result.stdout.splitlines():
+        tokens = line.split()
+        candidates: list[Path] = []
+        for index, token in enumerate(tokens):
+            if token == "--config-file" and index + 1 < len(tokens):
+                candidates.append(Path(tokens[index + 1]))
+            elif token.endswith(".xml"):
+                candidates.append(Path(token))
+        for candidate in candidates:
+            if not candidate.is_absolute():
+                continue
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                continue
+            if resolved == want:
+                return True
+            try:
+                if resolved.is_file() and resolved.read_bytes() == want_bytes:
+                    return True
+            except OSError:
+                continue
+    return False
 
 
 def _stop_openbox() -> bool:

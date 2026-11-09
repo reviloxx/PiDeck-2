@@ -89,6 +89,10 @@ def test_apply_release_openbox_skips_restart_when_config_matches(
     """Do not bounce openbox when it already uses the selected config."""
     conf = tmp_path / "openbox-rc.xml"
     conf.write_text("<openbox_config/>\n", encoding="utf-8")
+    linked = tmp_path / "current"
+    linked.mkdir()
+    link = linked / "openbox-rc.xml"
+    link.symlink_to(conf)
     binary = tmp_path / "openbox"
     binary.write_text("#!/bin/sh\n", encoding="utf-8")
     binary.chmod(0o755)
@@ -97,7 +101,35 @@ def test_apply_release_openbox_skips_restart_when_config_matches(
     monkeypatch.setattr(
         "pideck.infrastructure.session.openbox.subprocess.run",
         lambda *args, **kwargs: type(
-            "Result", (), {"returncode": 0, "stdout": f"1111 openbox --config-file {conf}\n"}
+            "Result", (), {"returncode": 0, "stdout": f"1111 openbox --config-file {link}\n"}
+        )(),
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.openbox.subprocess.Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not restart")),
+    )
+
+    assert apply_release_openbox(config=conf) is False
+
+
+def test_apply_release_openbox_skips_restart_when_config_bytes_match(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Identical rc contents under another path still count as already applied."""
+    conf = tmp_path / "openbox-rc.xml"
+    other = tmp_path / "image-rc.xml"
+    body = "<openbox_config><applications/></openbox_config>\n"
+    conf.write_text(body, encoding="utf-8")
+    other.write_text(body, encoding="utf-8")
+    binary = tmp_path / "openbox"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr("pideck.infrastructure.session.openbox.shutil.which", lambda _: str(binary))
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.openbox.subprocess.run",
+        lambda *args, **kwargs: type(
+            "Result", (), {"returncode": 0, "stdout": f"1111 openbox --config-file {other}\n"}
         )(),
     )
     monkeypatch.setattr(

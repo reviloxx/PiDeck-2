@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.48
+
+- Fixed: PiDeck stays fullscreen. Openbox was restarted on every launch because
+  the config path under ``current`` did not match the resolved release path;
+  the launcher also forces screen-sized frameless fullscreen.
+
 ## v0.5.47
 
 - Fixed: PiDeck fills the whole screen again after an update that refreshes
