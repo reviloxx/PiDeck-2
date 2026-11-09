@@ -233,13 +233,22 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert [app.identifier for app in config.applications] == ["kodi", "youtube"]
     assert {"kodi", "flatpak"} <= packages
     assert config.settings.language == "de"
-    assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "cec-utils", "inputattach"} <= packages
+    assert {
+        "bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "alsa-utils",
+        "cec-utils", "inputattach",
+    } <= packages
     assert (tmp_path / "etc/udev/rules.d/71-pideck-cec-attach.rules").is_file()
     assert (tmp_path / "etc/systemd/system/pideck-cec-attach@.service").is_file()
     assert "cec" in config.input.enabled_sources
     assert (tmp_path / "etc/udev/rules.d/70-pideck-cec.rules").read_text() == (
         x86_build.PI_FILES / "70-pideck-cec.rules"
     ).read_text()
+    assert (tmp_path / "etc/udev/rules.d/91-pideck-oxygen-pulse.rules").read_text() == (
+        x86_build.INPUTS / "91-pideck-oxygen-pulse.rules"
+    ).read_text()
+    assert (
+        tmp_path / "usr/share/pulseaudio/alsa-mixer/profile-sets/pideck-oxygen.conf"
+    ).read_text() == (x86_build.INPUTS / "pulse-pideck-oxygen.conf").read_text()
     assert {"firmware-nvidia-graphics", "zstd"} <= packages
     assert (tmp_path / "usr/lib/pideck/python/pideck/bootstrap.py").is_file()
     metadata = tmp_path / "usr/lib/pideck/python/pideck/_build_info.json"

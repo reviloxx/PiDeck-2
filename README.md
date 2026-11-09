@@ -188,9 +188,12 @@ able to replace both the release and its manifest can distribute altered code.
 - System default audio output and volume through `pactl` and a PulseAudio-compatible
   server, including PipeWire's PulseAudio compatibility service. Inactive card
   profiles such as Digital Stereo (IEC958 / S/PDIF) appear beside active sinks.
-  Each configured application can override the output; selections are stored in
-  `audio.yaml` beside the PiDeck configuration and applied at launch with
-  `PULSE_SINK` (Kodi is kept on PulseAudio Default so that routing applies).
+  When PulseAudio omits IEC958 for oxygen/Virtuoso cards (for example ASUS Xonar
+  DX), PiDeck also lists ALSA Digital PCMs and opens them with
+  `module-alsa-sink`. Each configured application can override the output;
+  selections are stored in `audio.yaml` beside the PiDeck configuration and
+  applied at launch with `PULSE_SINK` (Kodi is kept on PulseAudio Default so that
+  routing applies).
 - Bluetooth power, eight-second discovery, pairing and connecting or
   disconnecting devices through BlueZ. PiDeck uses the first available adapter
   and asks before authorizing a pairing or confirming a displayed code; it

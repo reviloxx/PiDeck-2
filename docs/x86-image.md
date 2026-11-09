@@ -428,10 +428,13 @@ passwords and may still be required.
 Common non-free firmware is included for hardware compatibility, but no
 particular graphics, Wi-Fi, audio or controller chipset is guaranteed.
 Settings includes X11 display modes with timed rollback, PulseAudio-compatible
-audio controls (system default, inactive digital profiles such as IEC958, and
-per-application outputs) and BlueZ Bluetooth pairing; these require compatible
-hardware and an authorized active session. See [Settings](../README.md#settings)
-for backend limitations and behavior.
+audio controls (system default, inactive digital profiles such as IEC958,
+ALSA Digital PCM fallback for oxygen/Xonar S/PDIF, and per-application outputs)
+and BlueZ Bluetooth pairing; these require compatible hardware and an
+authorized active session. Images install an oxygen PulseAudio profile set and
+`alsa-utils` so Xonar DX Digital Stereo (IEC958) can appear as a native card
+profile. See [Settings](../README.md#settings) for backend limitations and
+behavior.
 Network setup is authorized only for the active local appliance account.
 Third-party app updates use the existing apt/Flatpak integration when
 available; NoMachine Player has no update repository and is reported as
@@ -473,8 +476,9 @@ partition and package manifests, and test:
   Link and YouTube start with GPU rendering; YouTube playback at 1080p does not
   drop frames; a kernel upgrade rebuilds the module; System information shows
   the expected hardware, drivers and audio devices (for example an ASUS Xonar DX
-  with `snd_virtuoso`); Settings → Audio lists Digital Stereo (IEC958) for that
-  card and can route Kodi to S/PDIF while another application uses HDMI.
+  with `snd_virtuoso`); Settings → Audio lists Digital Stereo (IEC958) or the
+  ALSA Digital (S/PDIF) fallback for that card and can route Kodi to S/PDIF
+  while another application uses HDMI.
 
 These are release gates, not claims that the current experimental builder
 has already passed them.

@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.39
+
+- Fixed: ASUS Xonar DX S/PDIF appears in Settings > Audio when PulseAudio only
+  shows analog. PiDeck detects the ALSA Digital PCM and opens it with
+  `module-alsa-sink`. New x86 images also ship an oxygen PulseAudio profile set
+  and `alsa-utils` so Digital Stereo (IEC958) can appear as a native profile.
+
 ## v0.5.38
 
 - Fixed: Samsung Stop works again by registering as a CEC recording device

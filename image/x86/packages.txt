@@ -50,6 +50,7 @@ dbus-x11
 libglib2.0-bin
 pulseaudio
 pulseaudio-utils
+alsa-utils
 network-manager
 bluez
 wpasupplicant

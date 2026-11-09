@@ -4,17 +4,27 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from pideck.application.ports.audio import AudioError, AudioOutput, AudioState
 
 _SINK_PREFIX = "sink:"
 _PROFILE_PREFIX = "profile:"
+_ALSA_PREFIX = "alsa:"
+_SPDIF_SINK_PREFIX = "pideck.spdif."
+_CARD = re.compile(r"^\s*(\d+)\s+\[[^\]]*\]:\s*.*?\s-\s(.+?)\s*$")
+_PCM_PLAYBACK = re.compile(r"^pcm(\d+)p$")
 
 
 class PulseAudioGateway:
     """Operate a PulseAudio or PipeWire PulseAudio-compatible server."""
+
+    def __init__(self, *, proc: Path | None = None) -> None:
+        """Create a gateway; ``proc`` overrides ``/proc`` for ALSA discovery tests."""
+        self._proc = proc or Path("/proc")
 
     def _run(self, *arguments: str) -> str:
         try:
@@ -40,7 +50,7 @@ class PulseAudioGateway:
             raise AudioError("The audio service returned invalid data") from error
 
     def inspect(self) -> AudioState:
-        """Read sinks, inactive output profiles, and the default sink volume."""
+        """Read sinks, inactive output profiles, ALSA Digital PCMs, and volume."""
         info = self._load_json("info")
         sinks = self._load_json("list", "sinks")
         cards = self._load_json("list", "cards")
@@ -58,6 +68,7 @@ class PulseAudioGateway:
                 current_volume = volume
         for card in cards:
             outputs.extend(self._inactive_output_profiles(card))
+        outputs.extend(self._alsa_digital_outputs(sinks, cards, outputs))
         if current is None or current_volume is None:
             raise AudioError("No active audio output is available")
         return AudioState(tuple(outputs), current, current_volume)
@@ -88,6 +99,8 @@ class PulseAudioGateway:
             if sink_name is None:
                 raise AudioError("The selected audio output is unavailable")
             return sink_name
+        if identifier.startswith(_ALSA_PREFIX):
+            return self._ensure_alsa_digital(identifier)
         raise AudioError("Invalid audio output")
 
     def set_volume(self, volume: int) -> None:
@@ -149,6 +162,157 @@ class PulseAudioGateway:
             identifier = f"{_PROFILE_PREFIX}{card_name}:{profile_name}"
             outputs.append(AudioOutput(identifier, profile_name, description))
         return outputs
+
+    def _alsa_digital_outputs(
+        self,
+        sinks: list[object],
+        cards: list[object],
+        existing: list[AudioOutput],
+    ) -> list[AudioOutput]:
+        """Expose ALSA Digital PCMs when PulseAudio has no IEC958 route for the card."""
+        covered_cards = self._cards_with_iec958(sinks, cards)
+        for output in existing:
+            if output.name.startswith(_SPDIF_SINK_PREFIX):
+                suffix = output.name.removeprefix(_SPDIF_SINK_PREFIX)
+                if suffix.isdigit():
+                    covered_cards.add(int(suffix))
+            if output.identifier.startswith(_ALSA_PREFIX):
+                card_index, _device = self._parse_alsa_identifier(output.identifier)
+                covered_cards.add(card_index)
+        outputs: list[AudioOutput] = []
+        for card_index, device, card_name in self._read_digital_pcms():
+            if card_index in covered_cards:
+                continue
+            identifier = f"{_ALSA_PREFIX}hw:{card_index},{device}"
+            description = f"{card_name} Digital Stereo (S/PDIF)"
+            outputs.append(AudioOutput(identifier, f"hw:{card_index},{device}", description))
+        return outputs
+
+    def _cards_with_iec958(self, sinks: list[object], cards: list[object]) -> set[int]:
+        covered: set[int] = set()
+        for sink in sinks:
+            if not isinstance(sink, dict):
+                continue
+            name = sink.get("name")
+            properties = sink.get("properties") if isinstance(sink.get("properties"), dict) else {}
+            if isinstance(name, str) and "iec958" in name.lower():
+                alsa_card = properties.get("alsa.card")
+                if str(alsa_card).isdigit():
+                    covered.add(int(alsa_card))
+            profile = properties.get("device.profile.name")
+            if isinstance(profile, str) and "iec958" in profile.lower():
+                alsa_card = properties.get("alsa.card")
+                if str(alsa_card).isdigit():
+                    covered.add(int(alsa_card))
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            index = card.get("index")
+            profiles = card.get("profiles")
+            if type(index) is not int or not isinstance(profiles, dict):
+                continue
+            for profile_name in profiles:
+                if isinstance(profile_name, str) and "iec958" in profile_name.lower():
+                    covered.add(index)
+                    break
+        return covered
+
+    def _read_digital_pcms(self) -> list[tuple[int, int, str]]:
+        cards_path = self._proc / "asound" / "cards"
+        try:
+            cards_text = cards_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+        card_names = {index: name for index, name in self._parse_cards(cards_text)}
+        found: list[tuple[int, int, str]] = []
+        for card_index, card_name in sorted(card_names.items()):
+            card_dir = self._proc / "asound" / f"card{card_index}"
+            try:
+                entries = list(card_dir.iterdir())
+            except OSError:
+                continue
+            for entry in entries:
+                match = _PCM_PLAYBACK.match(entry.name)
+                if match is None:
+                    continue
+                device = int(match.group(1))
+                if not self._pcm_is_digital(entry / "info"):
+                    continue
+                found.append((card_index, device, card_name))
+        return found
+
+    def _pcm_is_digital(self, info_path: Path) -> bool:
+        try:
+            text = info_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        values: dict[str, str] = {}
+        for line in text.splitlines():
+            key, separator, value = line.partition(":")
+            if separator:
+                values[key.strip().lower()] = value.strip()
+        stream = values.get("stream", "").lower()
+        if stream and stream != "playback":
+            return False
+        for key in ("id", "name"):
+            if values.get(key, "").lower() == "digital":
+                return True
+        return False
+
+    @staticmethod
+    def _parse_cards(text: str) -> list[tuple[int, str]]:
+        cards: list[tuple[int, str]] = []
+        for line in text.splitlines():
+            match = _CARD.match(line)
+            if match:
+                cards.append((int(match.group(1)), match.group(2)))
+        return cards
+
+    def _ensure_alsa_digital(self, identifier: str) -> str:
+        card_index, device = self._parse_alsa_identifier(identifier)
+        sink_name = f"{_SPDIF_SINK_PREFIX}{card_index}"
+        if self._sink_exists(sink_name):
+            self._unmute_iec958(card_index)
+            return sink_name
+        description = f"Digital Stereo (S/PDIF) card {card_index}"
+        for card_index_name, device_name, card_name in self._read_digital_pcms():
+            if card_index_name == card_index and device_name == device:
+                description = f"{card_name} Digital Stereo (S/PDIF)"
+                break
+        self._run(
+            "load-module",
+            "module-alsa-sink",
+            f"device=hw:{card_index},{device}",
+            f"sink_name={sink_name}",
+            f"sink_properties=device.description={description}",
+        )
+        if not self._sink_exists(sink_name):
+            raise AudioError("The selected audio output is unavailable")
+        self._unmute_iec958(card_index)
+        return sink_name
+
+    def _parse_alsa_identifier(self, identifier: str) -> tuple[int, int]:
+        remainder = identifier[len(_ALSA_PREFIX) :]
+        if not remainder.startswith("hw:"):
+            raise AudioError("Invalid audio output")
+        card_text, separator, device_text = remainder.removeprefix("hw:").partition(",")
+        if not separator or not card_text.isdigit() or not device_text.isdigit():
+            raise AudioError("Invalid audio output")
+        return int(card_text), int(device_text)
+
+    def _unmute_iec958(self, card_index: int) -> None:
+        try:
+            subprocess.run(
+                ["amixer", "-c", str(card_index), "set", "IEC958", "unmute"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+                env={**os.environ, "LC_ALL": "C"},
+            )
+        except (OSError, subprocess.SubprocessError):
+            return
 
     def _parse_profile_identifier(self, identifier: str) -> tuple[str, str]:
         remainder = identifier[len(_PROFILE_PREFIX) :]
@@ -228,7 +392,6 @@ class PulseAudioGateway:
             suffix = card_name.removeprefix("alsa_card.")
             if not sink_name.startswith(f"alsa_output.{suffix}"):
                 continue
-            # Prefer an inactive output profile whose name appears in the sink name.
             candidates: list[str] = []
             for profile_name in profiles:
                 if not isinstance(profile_name, str) or profile_name == "off":
