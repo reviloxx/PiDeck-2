@@ -53,6 +53,8 @@ def test_input_settings_are_accessible_and_immediate(application: QApplication) 
     requests: list[bool] = []
     window.input_settings_changed.connect(changes.append)
     window.cec_connection_requested.connect(requests.append)
+    debug_opens: list[bool] = []
+    window.cec_debug_requested.connect(lambda: debug_opens.append(True))
     window.show()
     application.processEvents()
     assert window._input_page is not None
@@ -65,6 +67,9 @@ def test_input_settings_are_accessible_and_immediate(application: QApplication) 
     window._input_rows["cec_connect"].setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert requests == [True]
+    window._input_rows["cec_debug"].setFocus()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert debug_opens == [True]
     window.apply_language("de")
     window.set_cec_status("Connected")
     assert window._input_status.text() == "Verbunden"

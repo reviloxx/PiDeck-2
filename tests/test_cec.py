@@ -11,7 +11,7 @@ import pytest
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.domain.input_settings import CecSettings
 from pideck.infrastructure.cec_kernel import CecKernelError
-from pideck.infrastructure.input_cec import CecClientAdapter
+from pideck.infrastructure.input_cec import CecClientAdapter, CecKeyObservation
 
 
 class RecordingSink:
@@ -169,6 +169,29 @@ def test_cec_logs_unmapped_key_codes_once(caplog: pytest.LogCaptureFixture) -> N
     assert [event.action for event in sink.events] == [InputAction.BACK]
     messages = [record.getMessage() for record in caplog.records]
     assert sum("Unmapped CEC key code 0xa5" in message for message in messages) == 1
+
+
+def test_cec_records_mapped_and_unmapped_keys_for_debug() -> None:
+    """Debug history and callbacks see Stop Function plus unmapped codes."""
+    observed: list[CecKeyObservation] = []
+    adapter = CecClientAdapter(key_observed=observed.append)
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    output = io.StringIO(
+        "DEBUG: [1] key pressed: stop function (64, 0)\n"
+        "DEBUG: [2] key pressed: unknown (a5, 0)\n"
+        "DEBUG: [3] key pressed: unknown (a5, 0)\n"
+    )
+    adapter._read_output(output, process, adapter.generation)
+    assert [event.action for event in sink.events] == [InputAction.STOP]
+    assert adapter.recent_keys() == (
+        CecKeyObservation(0x64, "stop function", InputAction.STOP),
+        CecKeyObservation(0xA5, "unknown", None),
+    )
+    assert observed == list(adapter.recent_keys())
 
 
 def test_cec_rejects_old_client_output_after_handoff() -> None:

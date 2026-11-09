@@ -122,6 +122,7 @@ class SettingsWindow(QDialog):
     input_settings_changed = Signal(object)
     keyboard_layout_changed = Signal(object)
     cec_connection_requested = Signal(bool)
+    cec_debug_requested = Signal()
 
     def __init__(
         self,
@@ -539,7 +540,7 @@ class SettingsWindow(QDialog):
             self._input_rows[key] = row
             self._input_labels[key] = row.findChildren(QLabel)
             layout.addWidget(row)
-        for key in ("cec_connect", "cec_disconnect"):
+        for key in ("cec_connect", "cec_disconnect", "cec_debug"):
             row = self._action_row(page, tr(self._language, key), tr(self._language, f"{key}_hint"))
             self._input_rows[key] = row
             self._input_labels[key] = row.findChildren(QLabel)
@@ -878,6 +879,8 @@ class SettingsWindow(QDialog):
                 self.cec_connection_requested.emit(True)
             elif row is self._input_rows["cec_disconnect"]:
                 self.cec_connection_requested.emit(False)
+            elif row is self._input_rows["cec_debug"]:
+                self.cec_debug_requested.emit()
         elif self._network_enabled and row is self._network_row:
             self.network_requested.emit()
         elif self._system_page is not None and row is self._audio_row:

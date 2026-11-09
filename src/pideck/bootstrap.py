@@ -79,6 +79,7 @@ if TYPE_CHECKING:
     from pideck.presentation.qt.display_window import DisplayWindow
     from pideck.presentation.qt.timezone_window import TimezoneWindow
     from pideck.presentation.qt.system_info_window import SystemInfoWindow
+    from pideck.presentation.qt.cec_debug_window import CecDebugWindow
     from pideck.presentation.qt.bluetooth_window import BluetoothWindow
     from pideck.presentation.qt.drives_window import DrivesWindow
 
@@ -321,9 +322,17 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         status_received = Signal(str)
 
+    class CecKeyBridge(QObject):
+        """Forward CEC key observations to the Qt thread for the debug window."""
+
+        key_received = Signal(object)
+
     cec_status_bridge = CecStatusBridge()
+    cec_key_bridge = CecKeyBridge()
     cec_adapter = CecClientAdapter(
-        settings=input_settings, status_changed=cec_status_bridge.status_received.emit,
+        settings=input_settings,
+        status_changed=cec_status_bridge.status_received.emit,
+        key_observed=cec_key_bridge.key_received.emit,
     )
     power = SystemPower() if parsed_arguments.power_off_on_shutdown else None
     settings_window: SettingsWindow | None = None
@@ -339,6 +348,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     audio_window: AudioWindow | None = None
     drives_window: DrivesWindow | None = None
     system_info_window: SystemInfoWindow | None = None
+    cec_debug_window: CecDebugWindow | None = None
     display_window: DisplayWindow | None = None
     timezone_window: TimezoneWindow | None = None
     bluetooth_window: BluetoothWindow | None = None
@@ -348,7 +358,15 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if settings_window is not None:
             settings_window.set_cec_status(status)
 
+    def handle_cec_key(observation: object) -> None:
+        if cec_debug_window is not None and cec_debug_window.isVisible():
+            from pideck.infrastructure.input_cec import CecKeyObservation
+
+            if isinstance(observation, CecKeyObservation):
+                cec_debug_window.append(observation)
+
     cec_status_bridge.status_received.connect(handle_cec_status, Qt.ConnectionType.QueuedConnection)
+    cec_key_bridge.key_received.connect(handle_cec_key, Qt.ConnectionType.QueuedConnection)
     display_gateway = X11DisplayGateway(DisplayPreferences(parsed_arguments.config.parent / "display.yaml"))
     storage_gateway = UDisksStorageGateway(
         preferences=DrivePreferences(parsed_arguments.config.parent / "drives.yaml"),
@@ -475,6 +493,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             or (audio_window is not None and audio_window.isVisible())
             or (drives_window is not None and drives_window.isVisible())
             or (system_info_window is not None and system_info_window.isVisible())
+            or (cec_debug_window is not None and cec_debug_window.isVisible())
             or (network_window is not None and network_window.isVisible())
             or (settings_window is not None and settings_window.isVisible())
             or window.has_open_dialog()
@@ -565,6 +584,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             drives_window.handle_input(event)
         elif system_info_window is not None and system_info_window.isVisible():
             system_info_window.handle_input(event)
+        elif cec_debug_window is not None and cec_debug_window.isVisible():
+            cec_debug_window.handle_input(event)
         elif network_window is not None and network_window.isVisible():
             network_window.handle_input(event)
         elif settings_window is not None and settings_window.isVisible():
@@ -804,6 +825,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.cec_connection_requested.connect(
             lambda connect: cec_adapter.connect() if connect else cec_adapter.disconnect()
         )
+        settings_window.cec_debug_requested.connect(open_cec_debug_window)
         def handle_pideck_update_request() -> None:
             if pideck_update_service.state.status is PiDeckUpdateStatus.FAILED:
                 pideck_update_service.check_async()
@@ -1023,6 +1045,19 @@ def main(arguments: Sequence[str] | None = None) -> int:
             LinuxSystemInfoGateway(), theme, current_configuration.settings.language, parent,
         )
         system_info_window.showFullScreen()
+
+    def open_cec_debug_window() -> None:
+        """Open the live CEC remote key log for diagnosing unmapped buttons."""
+        nonlocal cec_debug_window
+        if cec_debug_window is not None and cec_debug_window.isVisible():
+            return
+        from pideck.presentation.qt.cec_debug_window import CecDebugWindow
+
+        parent = settings_window if settings_window is not None and settings_window.isVisible() else window
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        cec_debug_window = CecDebugWindow(theme, current_configuration.settings.language, parent)
+        cec_debug_window.set_history(cec_adapter.recent_keys())
+        cec_debug_window.showFullScreen()
 
     def open_display_window() -> None:
         """Open guarded display settings using the X11 platform adapter."""

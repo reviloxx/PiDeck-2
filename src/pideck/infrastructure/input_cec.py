@@ -7,7 +7,9 @@ import signal
 import subprocess
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import IO
 
 from pideck.application.ports.input import InputAction, InputEvent, InputSink
@@ -16,7 +18,7 @@ from pideck.domain.input_settings import CecSettings
 from pideck.infrastructure.cec_kernel import CecKernelError, prepare_kernel_cec
 
 _LOGGER = logging.getLogger(__name__)
-_KEY_PRESS = re.compile(r"\bkey pressed: .* \(([0-9a-f]+), (\d+)\)$")
+_KEY_PRESS = re.compile(r"\bkey pressed: (.*) \(([0-9a-f]+), (\d+)\)$")
 _KEY_RELEASE = re.compile(r"\bkey released: .* \(([0-9a-f]+)\) D:\d+ms$")
 _KEY_IDLE = re.compile(r"\bKey .*: idle \(duration:\d+\) \(ff\) timeout:")
 _ACTIONS = {
@@ -43,6 +45,16 @@ _DIRECTIONS = {InputAction.UP, InputAction.DOWN, InputAction.LEFT, InputAction.R
 _REARM_WITHOUT_RELEASE = {InputAction.BACK, InputAction.STOP}
 _DIRECTION_REPEAT = 0.18
 _BUTTON_REARM = 0.25
+_HISTORY_LIMIT = 40
+
+
+@dataclass(frozen=True, slots=True)
+class CecKeyObservation:
+    """One delivered or unmapped CEC key press for on-screen diagnosis."""
+
+    code: int
+    label: str
+    action: InputAction | None
 
 
 class CecClientAdapter:
@@ -51,6 +63,7 @@ class CecClientAdapter:
     def __init__(
         self, retry_interval: float = 3.0, *, settings: CecSettings | None = None,
         status_changed: Callable[[str], None] | None = None,
+        key_observed: Callable[[CecKeyObservation], None] | None = None,
     ) -> None:
         """Create an adapter with bounded retry intervals for missing hardware."""
         self._retry_interval = retry_interval
@@ -65,9 +78,11 @@ class CecClientAdapter:
         self._settings = settings
         self._desired = settings is None or (settings.enabled and settings.auto_connect)
         self._status_changed = status_changed
+        self._key_observed = key_observed
         self._status = "Disconnected"
         self._stop_lock = threading.Lock()
         self._logged_unmapped: set[int] = set()
+        self._history: deque[CecKeyObservation] = deque(maxlen=_HISTORY_LIMIT)
 
     @property
     def status(self) -> str:
@@ -83,6 +98,18 @@ class CecClientAdapter:
             self._status = status
         if self._status_changed is not None:
             self._status_changed(status)
+
+    def recent_keys(self) -> tuple[CecKeyObservation, ...]:
+        """Return recent key presses, oldest first, for seeding the debug window."""
+        with self._condition:
+            return tuple(self._history)
+
+    def _observe(self, observation: CecKeyObservation) -> None:
+        """Record one key press for diagnosis and notify any live listener."""
+        with self._condition:
+            self._history.append(observation)
+        if self._key_observed is not None:
+            self._key_observed(observation)
 
     def configure(self, settings: CecSettings) -> None:
         """Apply saved preferences and reconnect without blocking the caller."""
@@ -355,13 +382,9 @@ class CecClientAdapter:
                         if self._process is process and generation == self._generation:
                             self._set_status(f"CEC error: {line}")
                 continue
-            code = int(match.group(1), 16)
+            label = match.group(1).strip()
+            code = int(match.group(2), 16)
             action = _ACTIONS.get(code)
-            if action is None:
-                if code not in self._logged_unmapped:
-                    self._logged_unmapped.add(code)
-                    _LOGGER.warning("Unmapped CEC key code 0x%02x from: %s", code, line)
-                continue
             now = time.monotonic()
             previous = held.get(code)
             if previous is not None:
@@ -373,9 +396,15 @@ class CecClientAdapter:
                     if gap < _BUTTON_REARM:
                         continue
                 else:
-                    # Media and other discrete keys stay one-shot until release/idle.
+                    # Media, unmapped, and other discrete keys stay one-shot until release/idle.
                     continue
             held[code] = now
+            self._observe(CecKeyObservation(code, label, action))
+            if action is None:
+                if code not in self._logged_unmapped:
+                    self._logged_unmapped.add(code)
+                    _LOGGER.warning("Unmapped CEC key code 0x%02x from: %s", code, line)
+                continue
             with self._condition:
                 if (
                     self._closed or self._suspended or self._process is not process
