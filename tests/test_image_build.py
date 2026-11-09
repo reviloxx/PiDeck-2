@@ -134,7 +134,10 @@ def test_image_configuration_and_assets(tmp_path: Path) -> None:
     config = YamlConfigurationParser().load(FILES / "pideck.yaml")
     applications = {app.identifier: app for app in config.applications}
     assert list(applications) == ["kodi", "youtube"]
-    assert applications["youtube"].arguments == ("run", "com.ktechpit.red", "--tv")
+    youtube_args = applications["youtube"].arguments
+    assert youtube_args[0] == "run"
+    assert "--env=LIBVA_DRIVER_NAME=nvidia" in youtube_args
+    assert youtube_args[-2:] == ("com.ktechpit.red", "--tv")
     assert not config.home.visible_applications or set(config.home.visible_applications) == set(applications)
     assert config.settings.language == "de"
     packages = (STAGE / "00-pideck" / "00-packages-nr").read_text().split()

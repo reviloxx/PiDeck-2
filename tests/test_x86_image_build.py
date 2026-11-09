@@ -348,7 +348,10 @@ def test_x86_image_uses_proprietary_nvidia_driver_with_video_decoding(tmp_path: 
     assert "LIBVA_DRIVER_NAME=nvidia" in profile.read_text()
     firefox = (tmp_path / "etc/firefox-esr/pideck-video.js").read_text()
     assert 'pref("media.ffmpeg.vaapi.enabled", true);' in firefox
-    assert "VaapiVideoDecoder" in (tmp_path / "etc/chromium.d/pideck-video").read_text()
+    chromium_flags = (tmp_path / "etc/chromium.d/pideck-video").read_text()
+    assert "AcceleratedVideoDecodeLinuxGL" in chromium_flags
+    assert "VaapiOnNvidiaGPUs" in chromium_flags
+    assert "UseChromeOSDirectVideoDecoder" in chromium_flags
 
 
 @pytest.mark.parametrize("name", ["pideck-video-profile.sh", "chromium-pideck"])

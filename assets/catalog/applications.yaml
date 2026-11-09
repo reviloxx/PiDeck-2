@@ -28,7 +28,15 @@ applications:
   - id: youtube
     name: YouTube
     executable: flatpak
-    arguments: [run, com.ktechpit.red, --tv]
+    # Best-effort NVIDIA VA-API for QtWebEngine; Red may still force software decode.
+    arguments: [
+      run,
+      --env=LIBVA_DRIVER_NAME=nvidia,
+      --env=NVD_BACKEND=direct,
+      "--env=QTWEBENGINE_CHROMIUM_FLAGS=--ignore-gpu-blocklist --enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
+      com.ktechpit.red,
+      --tv,
+    ]
     icon: ../assets/icons/youtube.svg
     preferred_input: cec
     cec: keyboard
@@ -83,7 +91,8 @@ applications:
         packages: [google-chrome-stable]
         arguments: [
           --no-first-run, --no-default-browser-check, --password-store=basic, --start-maximized, --ignore-gpu-blocklist,
-          "--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,VaapiVideoDecodeLinuxGL",
+          "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
+          "--disable-features=UseChromeOSDirectVideoDecoder",
         ]
       arm64: {method: apt, packages: [google-chrome-stable]}
   - id: brave
@@ -99,7 +108,8 @@ applications:
         packages: [brave-browser]
         arguments: [
           --no-first-run, --no-default-browser-check, --password-store=basic, --start-maximized, --ignore-gpu-blocklist,
-          "--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,VaapiVideoDecodeLinuxGL",
+          "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
+          "--disable-features=UseChromeOSDirectVideoDecoder",
         ]
       arm64: {method: apt, packages: [brave-browser]}
   - id: firefox

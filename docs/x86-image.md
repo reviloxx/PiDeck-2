@@ -140,10 +140,10 @@ Hardware video decoding per application:
 |---|---|---|
 | Kodi | VDPAU | On NVIDIA, PiDeck forces VDPAU and disables VA-API in `~/.kodi/userdata/guisettings.xml` at each launch, and clears browser `LIBVA_DRIVER_NAME` / `NVD_BACKEND` for the Kodi process. |
 | Firefox ESR | VA-API via `nvidia-vaapi-driver` | Enabled by `/etc/firefox-esr/pideck-video.js`; AV1 is disabled so sites choose VP9 or H.264. |
-| Chromium | VA-API | Best effort, through `/etc/chromium.d/pideck-video`. Chromium falls back to software decoding when the driver is unusable. |
-| Chrome, Brave | VA-API | Best effort, through decoder flags in the catalog's launch arguments. |
+| Chromium | VA-API | Best effort, through `/etc/chromium.d/pideck-video` with `AcceleratedVideoDecodeLinuxGL`, `AcceleratedVideoDecodeLinuxZeroCopyGL`, and `VaapiOnNvidiaGPUs`. Chromium falls back to software decoding when the driver is unusable. |
+| Chrome, Brave | VA-API | Same modern feature flags via the catalog's amd64 launch arguments (OTA migration rewrites older `VaapiVideoDecoder` / `VaapiVideoDecodeLinuxGL` tiles). |
 | Steam Link (Flatpak) | NVIDIA GL extension | GPU rendering; stream decoding follows Steam Link's own settings. |
-| YouTube (Flatpak, QtWebEngine) | NVIDIA GL extension | GPU rendering; video decoding is expected to use the CPU. |
+| YouTube (Flatpak, QtWebEngine) | NVIDIA GL + Flatpak env | GPU rendering via the NVIDIA Flatpak GL extension. Launch passes `LIBVA_DRIVER_NAME`, `NVD_BACKEND`, and `QTWEBENGINE_CHROMIUM_FLAGS` for VA-API. Red's own `QtWebEngineProcess` still starts with `--disable-accelerated-video-decode` / `--disable-features=AcceleratedVideoDecoder`, so video decode remains on the CPU until upstream Red removes those disables. |
 
 `/etc/profile.d/10-pideck-video.sh` sets `LIBVA_DRIVER_NAME=nvidia`,
 `NVD_BACKEND=direct` and `MOZ_DISABLE_RDD_SANDBOX=1` only when the NVIDIA

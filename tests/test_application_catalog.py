@@ -43,7 +43,10 @@ def test_catalog_is_launchable_in_tv_mode() -> None:
     assert app.identifier == "youtube"
     assert app.name == "YouTube"
     assert app.executable == "flatpak"
-    assert app.arguments == ("run", "com.ktechpit.red", "--tv")
+    assert app.arguments[0] == "run"
+    assert "--env=LIBVA_DRIVER_NAME=nvidia" in app.arguments
+    assert any(arg.startswith("--env=QTWEBENGINE_CHROMIUM_FLAGS=") for arg in app.arguments)
+    assert app.arguments[-2:] == ("com.ktechpit.red", "--tv")
     assert app.icon is not None and (ROOT / "config" / app.icon).is_file()
 
 

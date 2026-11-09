@@ -10,7 +10,14 @@ applications:
   - id: youtube
     name: YouTube
     executable: flatpak
-    arguments: [run, com.ktechpit.red, --tv]
+    arguments: [
+      run,
+      --env=LIBVA_DRIVER_NAME=nvidia,
+      --env=NVD_BACKEND=direct,
+      "--env=QTWEBENGINE_CHROMIUM_FLAGS=--ignore-gpu-blocklist --enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
+      com.ktechpit.red,
+      --tv,
+    ]
     profiles: []
     icon: ../assets/icons/youtube.svg
     preferred_input: cec

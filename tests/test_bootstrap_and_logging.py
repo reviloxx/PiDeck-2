@@ -118,6 +118,74 @@ def test_migrate_catalog_launch_arguments_adds_start_maximized() -> None:
     assert youtube.arguments == ("run", "com.ktechpit.red")
 
 
+def test_migrate_catalog_launch_arguments_upgrades_legacy_vaapi_flags() -> None:
+    """Chrome tiles with VaapiVideoDecoder pick up the modern NVIDIA feature set."""
+    legacy = (
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--start-maximized",
+        "--ignore-gpu-blocklist",
+        "--enable-features=VaapiVideoDecoder,VaapiIgnoreDriverChecks,VaapiVideoDecodeLinuxGL",
+    )
+    modern = (
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--start-maximized",
+        "--ignore-gpu-blocklist",
+        "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,"
+        "VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
+        "--disable-features=UseChromeOSDirectVideoDecoder",
+    )
+    saved = replace(
+        default_configuration(),
+        applications=(ApplicationDefinition("chrome", "Chrome", "google-chrome-stable", arguments=legacy),),
+    )
+    catalog = (
+        CatalogEntry(
+            application=ApplicationDefinition(
+                "chrome", "Chrome", "google-chrome-stable", arguments=modern,
+            ),
+        ),
+    )
+    migrated = _migrate_catalog_launch_arguments(saved, catalog, "amd64")
+    chrome = next(app for app in migrated.applications if app.identifier == "chrome")
+    assert chrome.arguments == modern
+
+
+def test_migrate_catalog_launch_arguments_adds_youtube_vaapi_env() -> None:
+    """YouTube tiles without Flatpak VA-API envs pick them up from the catalog."""
+    catalog_args = (
+        "run",
+        "--env=LIBVA_DRIVER_NAME=nvidia",
+        "--env=NVD_BACKEND=direct",
+        "--env=QTWEBENGINE_CHROMIUM_FLAGS=--ignore-gpu-blocklist --enable-features="
+        "AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,"
+        "VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
+        "com.ktechpit.red",
+        "--tv",
+    )
+    saved = replace(
+        default_configuration(),
+        applications=(
+            ApplicationDefinition(
+                "youtube", "YouTube", "flatpak", arguments=("run", "com.ktechpit.red", "--tv"),
+            ),
+        ),
+    )
+    catalog = (
+        CatalogEntry(
+            application=ApplicationDefinition(
+                "youtube", "YouTube", "flatpak", arguments=catalog_args,
+            ),
+        ),
+    )
+    migrated = _migrate_catalog_launch_arguments(saved, catalog, "amd64")
+    youtube = next(app for app in migrated.applications if app.identifier == "youtube")
+    assert youtube.arguments == catalog_args
+
+
 def test_migrate_catalog_launch_arguments_is_noop_when_present() -> None:
     """Already-migrated browser tiles are left unchanged."""
     args = (
@@ -125,6 +193,10 @@ def test_migrate_catalog_launch_arguments_is_noop_when_present() -> None:
         "--no-default-browser-check",
         "--password-store=basic",
         "--start-maximized",
+        "--ignore-gpu-blocklist",
+        "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,"
+        "VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
+        "--disable-features=UseChromeOSDirectVideoDecoder",
     )
     saved = replace(
         default_configuration(),
@@ -133,7 +205,7 @@ def test_migrate_catalog_launch_arguments_is_noop_when_present() -> None:
     catalog = (
         CatalogEntry(
             application=ApplicationDefinition(
-                "brave", "Brave", "brave-browser", arguments=args + ("--ignore-gpu-blocklist",),
+                "brave", "Brave", "brave-browser", arguments=args,
             ),
         ),
     )

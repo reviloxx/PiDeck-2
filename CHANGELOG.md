@@ -4,6 +4,16 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.57
+
+- Fixed: Chrome and Brave use NVIDIA hardware video decoding again (NVDEC via
+  VA-API). Launch flags now enable ``AcceleratedVideoDecodeLinuxGL``,
+  ``AcceleratedVideoDecodeLinuxZeroCopyGL`` and ``VaapiOnNvidiaGPUs``; existing
+  installs pick them up after update.
+- Changed: YouTube (Red) gets Flatpak VA-API environment overrides. Red still
+  disables accelerated decode in QtWebEngine, so its video path remains software
+  until upstream removes that.
+
 ## v0.5.56
 
 - Fixed: After update, Openbox/picom no longer die as zombies under the launcher.

@@ -167,6 +167,41 @@ def _apply_catalog_preferred_inputs(
 
 
 _BROWSER_LAUNCH_IDS = frozenset({"brave", "chrome", "chromium"})
+_LEGACY_VAAPI_MARKERS = ("VaapiVideoDecoder", "VaapiVideoDecodeLinuxGL")
+_MODERN_VAAPI_MARKER = "AcceleratedVideoDecodeLinuxGL"
+_YOUTUBE_VAAPI_ENV_MARKER = "--env=QTWEBENGINE_CHROMIUM_FLAGS="
+
+
+def _arguments_text(arguments: tuple[str, ...]) -> str:
+    """Join launch arguments for substring checks against feature flag blobs."""
+    return "\x00".join(arguments)
+
+
+def _browser_launch_needs_migration(
+    saved: tuple[str, ...],
+    catalog_arguments: tuple[str, ...],
+) -> bool:
+    """Detect missing maximize or outdated NVIDIA VA-API Chromium feature flags."""
+    if "--start-maximized" in catalog_arguments and "--start-maximized" not in saved:
+        return True
+    saved_text = _arguments_text(saved)
+    catalog_text = _arguments_text(catalog_arguments)
+    if any(marker in saved_text for marker in _LEGACY_VAAPI_MARKERS):
+        return True
+    if _MODERN_VAAPI_MARKER in catalog_text and _MODERN_VAAPI_MARKER not in saved_text:
+        return True
+    return False
+
+
+def _youtube_launch_needs_migration(
+    saved: tuple[str, ...],
+    catalog_arguments: tuple[str, ...],
+) -> bool:
+    """Detect missing Flatpak VA-API / QtWebEngine env overrides for Red."""
+    catalog_text = _arguments_text(catalog_arguments)
+    if _YOUTUBE_VAAPI_ENV_MARKER not in catalog_text:
+        return False
+    return _YOUTUBE_VAAPI_ENV_MARKER not in _arguments_text(saved)
 
 
 def _migrate_catalog_launch_arguments(
@@ -174,25 +209,31 @@ def _migrate_catalog_launch_arguments(
     catalog: tuple[CatalogEntry, ...],
     architecture: str,
 ) -> Configuration:
-    """Persist catalog browser launch flags missing from older installs.
+    """Persist catalog launch flags missing from older installs.
 
-    OTA updates ship catalog ``--start-maximized`` but never rewrite saved
-    ``pideck.yaml`` arguments. Existing Brave/Chrome/Chromium tiles keep the
-    pre-maximize argv until this migration runs once on appliance start.
+    OTA updates ship catalog argv (maximize, modern VA-API features, Red Flatpak
+    envs) but never rewrite saved ``pideck.yaml`` arguments. Existing tiles keep
+    the pre-OTA argv until this migration runs on appliance start.
     """
     by_id = {entry.identifier: entry for entry in catalog}
     updated: list[ApplicationDefinition] = []
     changed = False
     for application in configuration.applications:
         entry = by_id.get(application.identifier)
-        if entry is None or application.identifier not in _BROWSER_LAUNCH_IDS:
+        if entry is None:
             updated.append(application)
             continue
         catalog_arguments = entry.definition_for(architecture).arguments
-        if "--start-maximized" not in catalog_arguments:
-            updated.append(application)
-            continue
-        if "--start-maximized" in application.arguments:
+        needs_migration = False
+        if application.identifier in _BROWSER_LAUNCH_IDS:
+            needs_migration = _browser_launch_needs_migration(
+                application.arguments, catalog_arguments,
+            )
+        elif application.identifier == "youtube":
+            needs_migration = _youtube_launch_needs_migration(
+                application.arguments, catalog_arguments,
+            )
+        if not needs_migration:
             updated.append(application)
             continue
         updated.append(replace(application, arguments=catalog_arguments))
