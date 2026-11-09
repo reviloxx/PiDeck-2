@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pideck.application.ports.audio import AudioError, AudioGateway, AudioOutput, AudioState
+from pideck.application.ports.audio import AudioError, AudioGateway, AudioOutput, AudioState, HdmiAudioMode
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.domain.theme import ThemeDefinition
 from pideck.infrastructure.audio_preferences import AudioPreferencesStore
@@ -47,6 +47,7 @@ class AudioWindow(WallpaperDialog):
         self._gateway = gateway
         self._preferences = preferences
         self._language = language
+        self._hdmi_mode = HdmiAudioMode.SURROUND
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pideck-audio")
         self._closed = False
         self._popup_combo: SettingsComboBox | None = None
@@ -58,6 +59,17 @@ class AudioWindow(WallpaperDialog):
         frame = build_system_window(self, tr(language, "audio"), tr(language, "audio_description"))
         self.status = frame.status
         layout = frame.content
+
+        mode_label = QLabel(tr(language, "audio_hdmi_mode"), self)
+        mode_label.setObjectName("settings_label")
+        layout.addWidget(mode_label)
+        self.mode = SettingsComboBox(self)
+        self.mode.setObjectName("settings_control")
+        configure_combo_box(self.mode)
+        self.mode.addItem(tr(language, "audio_hdmi_mode_surround"), HdmiAudioMode.SURROUND.value)
+        self.mode.addItem(tr(language, "audio_hdmi_mode_bitstream"), HdmiAudioMode.BITSTREAM.value)
+        self.mode.installEventFilter(self)
+        layout.addWidget(self.mode)
 
         output_label = QLabel(tr(language, "audio_output"), self)
         output_label.setObjectName("settings_label")
@@ -87,6 +99,7 @@ class AudioWindow(WallpaperDialog):
         self._volume_timer.setSingleShot(True)
         self._volume_timer.setInterval(200)
         self._volume_timer.timeout.connect(self._apply_volume)
+        self.mode.activated.connect(self._apply_mode)
         self.output.activated.connect(self._apply_output)
         self.volume.valueChanged.connect(self._volume_changed)
         self.refresh.clicked.connect(self._refresh)
@@ -97,13 +110,14 @@ class AudioWindow(WallpaperDialog):
         self._refresh()
 
     def _controls(self) -> list[QWidget]:
-        controls: list[QWidget] = [self.output, self.volume]
+        controls: list[QWidget] = [self.mode, self.output, self.volume]
         controls.extend(control for control in (self.refresh, self.back) if control.isEnabled())
         return [control for control in controls if control.isEnabled() or control is self.volume]
 
     def _submit(self, operation: Callable[[], AudioState]) -> None:
         self._focus_before_operation = self.focusWidget()
         set_status(self.status, tr(self._language, "wifi_working"))
+        self.mode.setEnabled(False)
         self.output.setEnabled(False)
         self.volume.setEnabled(False)
         self.refresh.setEnabled(False)
@@ -117,7 +131,15 @@ class AudioWindow(WallpaperDialog):
 
     def _refresh(self) -> None:
         self._volume_timer.stop()
-        self._submit(self._gateway.inspect)
+
+        def inspect() -> AudioState:
+            try:
+                self._hdmi_mode = self._preferences.load().hdmi_mode
+            except AudioError:
+                self._hdmi_mode = HdmiAudioMode.SURROUND
+            return self._gateway.inspect(hdmi_mode=self._hdmi_mode)
+
+        self._submit(inspect)
 
     def _finish_operation(self, future: Future[AudioState]) -> None:
         if self._closed:
@@ -144,10 +166,14 @@ class AudioWindow(WallpaperDialog):
         except AudioError as error:
             set_status(self.status, tr(self._language, "audio_error", message=str(error)), error=True)
             saved_default = None
+            self._hdmi_mode = HdmiAudioMode.SURROUND
         else:
             saved_default = saved.default
+            self._hdmi_mode = saved.hdmi_mode
             set_status(self.status, "")
-        with QSignalBlocker(self.output), QSignalBlocker(self.volume):
+        with QSignalBlocker(self.mode), QSignalBlocker(self.output), QSignalBlocker(self.volume):
+            mode_index = self.mode.findData(self._hdmi_mode.value)
+            self.mode.setCurrentIndex(mode_index if mode_index >= 0 else 0)
             self.output.clear()
             for output in state.outputs:
                 self.output.addItem(output.description, output.identifier)
@@ -159,12 +185,37 @@ class AudioWindow(WallpaperDialog):
             self.output.setCurrentIndex(max(0, self.output.findData(current)))
             self.volume.setValue(state.volume)
         self.volume_label.setText(tr(self._language, "audio_volume", volume=state.volume))
+        self.mode.setEnabled(True)
         self.output.setEnabled(True)
         self.volume.setEnabled(True)
         focus = self._focus_before_operation
         if focus not in self._controls():
-            focus = self.output
+            focus = self.mode
         focus.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _apply_mode(self, index: int) -> None:
+        value = self.mode.itemData(index)
+        if not isinstance(value, str):
+            set_status(self.status, tr(self._language, "audio_unavailable"), error=True)
+            return
+        try:
+            mode = HdmiAudioMode(value)
+        except ValueError:
+            set_status(self.status, tr(self._language, "audio_unavailable"), error=True)
+            return
+        self._volume_timer.stop()
+
+        def change() -> AudioState:
+            self._preferences.set_hdmi_mode(mode)
+            self._hdmi_mode = mode
+            current = self.output.currentData()
+            if isinstance(current, str) and current:
+                self._gateway.set_output(current, hdmi_mode=mode)
+            else:
+                self._gateway.ensure_hdmi(hdmi_mode=mode)
+            return self._gateway.inspect(hdmi_mode=mode)
+
+        self._submit(change)
 
     def _apply_output(self, index: int) -> None:
         identifier = self.output.itemData(index)
@@ -172,11 +223,12 @@ class AudioWindow(WallpaperDialog):
             set_status(self.status, tr(self._language, "audio_unavailable"), error=True)
             return
         self._volume_timer.stop()
+        mode = self._hdmi_mode
 
         def change() -> AudioState:
-            self._gateway.set_output(identifier)
+            self._gateway.set_output(identifier, hdmi_mode=mode)
             self._preferences.set_default(identifier)
-            return self._gateway.inspect()
+            return self._gateway.inspect(hdmi_mode=mode)
 
         self._submit(change)
 
@@ -186,10 +238,11 @@ class AudioWindow(WallpaperDialog):
 
     def _apply_volume(self) -> None:
         value = self.volume.value()
+        mode = self._hdmi_mode
 
         def change() -> AudioState:
             self._gateway.set_volume(value)
-            return self._gateway.inspect()
+            return self._gateway.inspect(hdmi_mode=mode)
 
         self._submit(change)
 
@@ -209,7 +262,10 @@ class AudioWindow(WallpaperDialog):
                 self._popup_initial_index = None
                 combo.hidePopup()
                 if index != initial:
-                    self._apply_output(index)
+                    if combo is self.mode:
+                        self._apply_mode(index)
+                    else:
+                        self._apply_output(index)
             elif event.action is InputAction.BACK:
                 with QSignalBlocker(combo):
                     combo.setCurrentIndex(self._popup_initial_index)

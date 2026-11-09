@@ -1,4 +1,4 @@
-"""Configure Kodi for PulseAudio HDMI bitstream passthrough (TV ARC)."""
+"""Configure Kodi audio for HDMI surround PCM or bitstream passthrough."""
 
 from __future__ import annotations
 
@@ -6,11 +6,26 @@ import logging
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+from pideck.application.ports.audio import HdmiAudioMode
+
 _LOGGER = logging.getLogger(__name__)
 _GUISETTINGS = Path(".kodi") / "userdata" / "guisettings.xml"
-_SETTINGS = {
+
+_SURROUND_SETTINGS = {
     "audiooutput.audiodevice": "PULSE:Default",
-    # 2.0 channels — required for PulseAudio passthrough mode.
+    # Kodi Omega option value for 5.1 (1=2.0 … 8=5.1).
+    "audiooutput.channels": "8",
+    "audiooutput.passthrough": "false",
+    "audiooutput.ac3passthrough": "false",
+    "audiooutput.dtspassthrough": "false",
+    "audiooutput.eac3passthrough": "false",
+    "audiooutput.ac3transcode": "false",
+    "audiooutput.truehdpassthrough": "false",
+    "audiooutput.dtshdpassthrough": "false",
+}
+
+_BITSTREAM_SETTINGS = {
+    "audiooutput.audiodevice": "PULSE:Default",
     "audiooutput.channels": "1",
     "audiooutput.passthrough": "true",
     "audiooutput.passthroughdevice": "PULSE:Default",
@@ -20,16 +35,20 @@ _SETTINGS = {
     "audiooutput.ac3transcode": "true",
     "audiooutput.truehdpassthrough": "false",
     "audiooutput.dtshdpassthrough": "false",
-    # Sync-to-display silently disables passthrough.
     "videoplayer.usedisplayasclock": "false",
 }
 
 
-def configure_kodi_audio(*, home: Path | None = None) -> None:
-    """Force Kodi onto Pulse Default with ARC-friendly bitstream passthrough.
+def configure_kodi_audio(
+    *,
+    home: Path | None = None,
+    hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND,
+) -> None:
+    """Apply Kodi HDMI settings for surround PCM or ARC bitstream passthrough.
 
     Failures are logged and never raised.
     """
+    settings = _BITSTREAM_SETTINGS if hdmi_mode is HdmiAudioMode.BITSTREAM else _SURROUND_SETTINGS
     path = (home or Path.home()) / _GUISETTINGS
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -37,7 +56,7 @@ def configure_kodi_audio(*, home: Path | None = None) -> None:
             text = path.read_text(encoding="utf-8")
         else:
             text = '<settings version="2">\n</settings>\n'
-        updated = _apply_audio_settings(text)
+        updated = _apply_settings(text, settings)
         if updated == text and path.exists():
             return
         path.write_text(updated, encoding="utf-8")
@@ -47,16 +66,16 @@ def configure_kodi_audio(*, home: Path | None = None) -> None:
     except ET.ParseError as error:
         _LOGGER.warning("Unable to parse Kodi guisettings %s: %s", path, error)
         return
-    _LOGGER.info("Configured Kodi HDMI ARC passthrough settings at %s", path)
+    _LOGGER.info("Configured Kodi HDMI %s settings at %s", hdmi_mode.value, path)
 
 
-def _apply_audio_settings(text: str) -> str:
-    """Return guisettings XML with PiDeck Pulse passthrough values."""
+def _apply_settings(text: str, settings: dict[str, str]) -> str:
+    """Return guisettings XML with the given setting values applied."""
     root = ET.fromstring(text)
     if root.tag != "settings":
         raise ET.ParseError(f"expected <settings> root, found <{root.tag}>")
     changed = False
-    for setting_id, value in _SETTINGS.items():
+    for setting_id, value in settings.items():
         setting = next(
             (
                 child

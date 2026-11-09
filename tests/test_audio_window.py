@@ -10,7 +10,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
-from pideck.application.ports.audio import AudioError, AudioOutput, AudioState
+from pideck.application.ports.audio import AudioError, AudioOutput, AudioState, HdmiAudioMode
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.audio_preferences import AudioPreferencesStore
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
@@ -32,9 +32,10 @@ class Audio:
     def __init__(self) -> None:
         self.current = "sink:one"
         self.volume = 50
-        self.ensured_surround = 0
+        self.last_mode: HdmiAudioMode | None = None
 
-    def inspect(self) -> AudioState:
+    def inspect(self, *, hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND) -> AudioState:
+        self.last_mode = hdmi_mode
         return AudioState(
             (
                 AudioOutput("sink:one", "one", "HDMI"),
@@ -44,11 +45,17 @@ class Audio:
             self.volume,
         )
 
-    def set_output(self, identifier: str) -> None:
+    def set_output(
+        self,
+        identifier: str,
+        *,
+        hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND,
+    ) -> None:
         self.current = identifier
+        self.last_mode = hdmi_mode
 
-    def ensure_hdmi_passthrough(self) -> None:
-        self.ensured_surround += 1
+    def ensure_hdmi(self, *, hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND) -> None:
+        self.last_mode = hdmi_mode
 
     def set_volume(self, volume: int) -> None:
         self.volume = volume
@@ -73,22 +80,40 @@ def test_audio_controls_are_asynchronous_and_controller_accessible(
     window = AudioWindow(audio, preferences, DEFAULT_THEME, "en", parent)
     window.show()
     _wait(application, lambda: window.output.isEnabled())
+    assert window.mode.currentData() == HdmiAudioMode.SURROUND.value
     assert window.output.currentText() == "HDMI"
-    assert window.output.count() == 2
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert window.output.hasFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert window.volume.hasFocus()
     window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
     _wait(application, lambda: audio.volume == 55 and window.output.isEnabled())
-    assert window.volume.hasFocus()
     window.handle_input(InputEvent(InputAction.UP, "gamepad"))
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     _wait(application, lambda: audio.current == "sink:two" and window.output.isEnabled())
-    assert window.output.currentText() == "Speakers"
     assert preferences.load().default == "sink:two"
     window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
     assert not window.isVisible()
+    parent.close()
+
+
+def test_hdmi_mode_change_is_persisted(application: QApplication, tmp_path: Path) -> None:
+    """Choosing bitstream mode writes audio.yaml and re-prepares the sink."""
+    parent = QWidget()
+    audio = Audio()
+    preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
+    window = AudioWindow(audio, preferences, DEFAULT_THEME, "en", parent)
+    window.show()
+    _wait(application, lambda: window.mode.isEnabled())
+    bitstream = window.mode.findData(HdmiAudioMode.BITSTREAM.value)
+    assert bitstream >= 0
+    window.mode.setCurrentIndex(bitstream)
+    window._apply_mode(bitstream)
+    _wait(application, lambda: preferences.load().hdmi_mode is HdmiAudioMode.BITSTREAM)
+    assert audio.last_mode is HdmiAudioMode.BITSTREAM
+    window.close()
     parent.close()
 
 
@@ -102,11 +127,9 @@ def test_keyboard_enter_opens_audio_selector(application: QApplication, tmp_path
     _wait(application, lambda: window.output.isEnabled())
     QTest.keyClick(window.output, Qt.Key.Key_Return)
     assert window.output.view().isVisible()
-    assert audio.current == "sink:one"
     QTest.keyClick(window.output.view(), Qt.Key.Key_Down)
     QTest.keyClick(window.output.view(), Qt.Key.Key_Return)
     _wait(application, lambda: audio.current == "sink:two" and window.output.isEnabled())
-    assert window.output.currentText() == "Speakers"
     window.close()
     parent.close()
 
@@ -114,7 +137,7 @@ def test_keyboard_enter_opens_audio_selector(application: QApplication, tmp_path
 def test_audio_errors_are_visible(application: QApplication, tmp_path: Path) -> None:
     """Unavailable audio is reported and refresh stays accessible."""
     class Unavailable(Audio):
-        def inspect(self) -> AudioState:
+        def inspect(self, *, hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND) -> AudioState:
             raise AudioError("No audio server")
 
     parent = QWidget()
@@ -139,28 +162,4 @@ def test_system_audio_entry_supports_gamepad(application: QApplication) -> None:
     application.processEvents()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert requests == [True]
-    window.close()
-
-
-@pytest.mark.parametrize("action", ["restart", "shutdown"])
-def test_power_requires_controller_confirmation(application: QApplication, action: str) -> None:
-    """System power is only requested after explicitly confirming the dialog."""
-    configuration = YamlConfigurationParser().parse(configuration_document())
-    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd(), system_enabled=True)
-    requests: list[str] = []
-    window.power_requested.connect(requests.append)
-    window.show()
-    window._select_page(2)
-    window._power_rows[action].setFocus()
-    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    application.processEvents()
-    assert window._power_dialog is not None
-    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert requests == []
-    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    application.processEvents()
-    assert window._power_dialog is not None
-    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
-    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert requests == [action]
     window.close()

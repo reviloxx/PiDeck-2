@@ -428,10 +428,10 @@ passwords and may still be required.
 Common non-free firmware is included for hardware compatibility, but no
 particular graphics, Wi-Fi, audio or controller chipset is guaranteed.
 Settings includes X11 display modes with timed rollback, PulseAudio-compatible
-audio controls (system output and volume; HDMI Digital Stereo for ARC
-passthrough when the card exposes it) and BlueZ Bluetooth pairing; these require
-compatible hardware and an authorized active session. See
-[Settings](../README.md#settings) for backend limitations and behavior.
+audio controls (system output, volume, and HDMI surround-PCM vs bitstream mode)
+and BlueZ Bluetooth pairing; these require compatible hardware and an
+authorized active session. See [Settings](../README.md#settings) for backend
+limitations and behavior.
 Network setup is authorized only for the active local appliance account.
 Third-party app updates use the existing apt/Flatpak integration when
 available; NoMachine Player has no update repository and is reported as
@@ -450,9 +450,9 @@ partition and package manifests, and test:
 - Offline Wi-Fi prompt, skip, Settings entry, WPA connection and reconnect;
   Ethernet; keyboard, mouse and controller navigation.
 - Display mode confirmation, timeout rollback, and restoration after reboot;
-  audio device selection and volume, including HDMI Digital Stereo (passthrough)
-  when the card exposes it; Bluetooth discovery, pairing confirmation,
-  connect/disconnect and cancellation; restart and shutdown authorization.
+  audio device selection, HDMI mode (surround PCM vs bitstream), and volume;
+  Bluetooth discovery, pairing confirmation, connect/disconnect and cancellation;
+  restart and shutdown authorization.
 - Installing, launching and removing every catalog application from Settings,
   its external window, return to PiDeck, audio, video, updates, German user
   interface, and persistence across reboot and reinstallation.
@@ -472,9 +472,8 @@ partition and package manifests, and test:
   Link and YouTube start with GPU rendering; YouTube playback at 1080p does not
   drop frames; a kernel upgrade rebuilds the module; System information shows
   the expected hardware, drivers and audio devices; Settings → Audio lists each
-  HDMI port (including inactive NVIDIA HDMI vs HDMI 2) and promotes Digital
-  Stereo for bitstream passthrough; Kodi plays surround via AC3/DTS over HDMI
-  (suitable for TV ARC to an AVR).
+  HDMI port and offers Surround PCM 5.1 (AVR) or Bitstream (TV ARC); Kodi follows
+  that mode on launch.
 
 These are release gates, not claims that the current experimental builder
 has already passed them.

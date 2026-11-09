@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.43
+
+- Fixed: HDMI audio defaults to Surround PCM 5.1 for PC→AVR→TV again. Settings
+  adds an HDMI mode: Surround PCM 5.1 (AVR) or Bitstream (TV ARC). Launching
+  Kodi applies the selected mode.
+
 ## v0.5.42
 
 - Changed: HDMI audio targets TV ARC passthrough. Settings prefers Digital

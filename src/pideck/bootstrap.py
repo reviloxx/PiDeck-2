@@ -47,7 +47,7 @@ from pideck.infrastructure.audio_preferences import AudioPreferencesStore
 from pideck.infrastructure.kodi_acceleration import configure_kodi_acceleration
 from pideck.infrastructure.kodi_audio import configure_kodi_audio
 from pideck.infrastructure.kodi_cec import disable_kodi_cec
-from pideck.application.ports.audio import AudioError
+from pideck.application.ports.audio import AudioError, HdmiAudioMode
 from pideck.infrastructure.session.picom import apply_release_picom
 from pideck.infrastructure.user_defaults import UserDefaultsInstaller
 from pideck.infrastructure.config.window_modes import load_window_modes
@@ -664,10 +664,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
             disable_kodi_cec()
             configure_kodi_acceleration()
             try:
-                audio_gateway.ensure_hdmi_passthrough()
+                hdmi_mode = audio_preferences.load().hdmi_mode
+            except AudioError:
+                hdmi_mode = HdmiAudioMode.SURROUND
+            try:
+                audio_gateway.ensure_hdmi(hdmi_mode=hdmi_mode)
             except AudioError as error:
-                dependencies.logger.warning("Unable to enable HDMI passthrough for Kodi: %s", error)
-            configure_kodi_audio()
+                dependencies.logger.warning("Unable to prepare HDMI audio for Kodi: %s", error)
+            configure_kodi_audio(hdmi_mode=hdmi_mode)
         result = session_service.request_launch(application_definition)
         if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
             selected_profile = window.choose_profile(result.profiles)
