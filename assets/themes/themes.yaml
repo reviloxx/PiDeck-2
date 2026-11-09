@@ -23,6 +23,8 @@ themes:
     input_gamepad: ../assets/icons/input-gamepad.svg
     input_keyboard: ../assets/icons/input-keyboard.svg
     input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
   wallpaper: ../assets/themes/default/wallpaper.svg
   tile:
     width: 240
@@ -55,6 +57,8 @@ themes:
     input_gamepad: ../assets/icons/input-gamepad.svg
     input_keyboard: ../assets/icons/input-keyboard.svg
     input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
   wallpaper: ../assets/themes/ember/wallpaper.svg
   tile:
     width: 240
@@ -87,6 +91,8 @@ themes:
     input_gamepad: ../assets/icons/input-gamepad.svg
     input_keyboard: ../assets/icons/input-keyboard.svg
     input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
   wallpaper: ../assets/themes/nordic/wallpaper.svg
   tile:
     width: 240
@@ -119,6 +125,8 @@ themes:
     input_gamepad: ../assets/icons/input-gamepad.svg
     input_keyboard: ../assets/icons/input-keyboard.svg
     input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
   wallpaper: ../assets/themes/aurora/wallpaper.svg
   tile:
     width: 240
@@ -151,6 +159,8 @@ themes:
     input_gamepad: ../assets/icons/input-gamepad.svg
     input_keyboard: ../assets/icons/input-keyboard.svg
     input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
   wallpaper: ../assets/themes/daylight/wallpaper.svg
   tile:
     width: 240

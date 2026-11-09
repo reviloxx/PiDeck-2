@@ -6,7 +6,15 @@ import logging
 
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication, QListWidget, QListWidgetItem, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QWidget,
+)
 
 from pideck.application.drive_items import DriveAction, available_actions
 from pideck.application.ports.input import InputAction, InputEvent
@@ -16,14 +24,15 @@ from pideck.domain.theme import ThemeDefinition
 
 from pideck.infrastructure.samba_shares import smb_url
 
-from .drive_actions_dialog import DriveActionsDialog
+from .drive_actions_dialog import DriveActionsDialog, format_size
 from .localization import tr
 from .system_panel import add_action_button, build_system_window, set_status
-from .theme import apply_theme
+from .theme import apply_theme, icon_for_path
 from .wallpaper import WallpaperDialog
 
 
 _LOGGER = logging.getLogger(__name__)
+_STATUS_ICON_SIZE = 24
 
 
 class _UnavailableShares:
@@ -54,14 +63,76 @@ class _UnavailableShares:
         return None
 
 
-def format_size(size: int) -> str:
-    """Format a byte count with decimal units as drive vendors label them."""
-    value = float(size)
-    for unit in ("B", "KB", "MB", "GB"):
-        if value < 1000:
-            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-        value /= 1000
-    return f"{value:.1f} TB"
+class DriveRowWidget(QWidget):
+    """List row with drive identity text and mount/share status icons."""
+
+    def __init__(
+        self,
+        text: str,
+        *,
+        mounted: bool,
+        shared: bool,
+        mounted_label: str,
+        shared_label: str,
+        theme: ThemeDefinition,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(10)
+        self.label = QLabel(text, self)
+        self.label.setObjectName("settings_body")
+        layout.addWidget(self.label, stretch=1)
+        self.mounted_icon = QLabel(self)
+        self.mounted_icon.setObjectName("drive_status_icon")
+        self.mounted_icon.setFixedSize(_STATUS_ICON_SIZE, _STATUS_ICON_SIZE)
+        self.shared_icon = QLabel(self)
+        self.shared_icon.setObjectName("drive_status_icon")
+        self.shared_icon.setFixedSize(_STATUS_ICON_SIZE, _STATUS_ICON_SIZE)
+        layout.addWidget(self.mounted_icon)
+        layout.addWidget(self.shared_icon)
+        self._apply_status(
+            mounted=mounted,
+            shared=shared,
+            mounted_label=mounted_label,
+            shared_label=shared_label,
+            theme=theme,
+        )
+
+    def _apply_status(
+        self,
+        *,
+        mounted: bool,
+        shared: bool,
+        mounted_label: str,
+        shared_label: str,
+        theme: ThemeDefinition,
+    ) -> None:
+        if mounted:
+            self.mounted_icon.setPixmap(
+                icon_for_path(theme.icons.get("drive_mounted")).pixmap(
+                    _STATUS_ICON_SIZE, _STATUS_ICON_SIZE
+                )
+            )
+            self.mounted_icon.setAccessibleName(mounted_label)
+            self.mounted_icon.show()
+        else:
+            self.mounted_icon.hide()
+            self.mounted_icon.clear()
+            self.mounted_icon.setAccessibleName("")
+        if shared:
+            self.shared_icon.setPixmap(
+                icon_for_path(theme.icons.get("drive_shared")).pixmap(
+                    _STATUS_ICON_SIZE, _STATUS_ICON_SIZE
+                )
+            )
+            self.shared_icon.setAccessibleName(shared_label)
+            self.shared_icon.show()
+        else:
+            self.shared_icon.hide()
+            self.shared_icon.clear()
+            self.shared_icon.setAccessibleName("")
 
 
 class DrivesWindow(WallpaperDialog):
@@ -128,15 +199,27 @@ class DrivesWindow(WallpaperDialog):
         drive = self.selected()
         if drive is None or self._busy or self.dialog is not None:
             return
+        shared = self._shares.is_shared(drive.uuid)
         actions = available_actions(
             drive,
             busy=self._busy,
             share_available=self._shares.available(),
-            shared=self._shares.is_shared(drive.uuid),
+            shared=shared,
         )
         if not actions:
             return
-        dialog = DriveActionsDialog(drive.label, actions, self._theme, self._language, self)
+        share_name = self._shares.share_name(drive) if shared else None
+        share_url = smb_url(share_name) if share_name else None
+        dialog = DriveActionsDialog(
+            drive,
+            actions,
+            self._theme,
+            self._language,
+            self,
+            shared=shared,
+            share_name=share_name,
+            share_url=share_url,
+        )
         self.dialog, self._dialog_device = dialog, drive.device
         dialog.action_chosen.connect(self._handle_action)
         dialog.finished.connect(lambda _result: self._close_dialog(dialog))
@@ -290,16 +373,31 @@ class DrivesWindow(WallpaperDialog):
         with QSignalBlocker(self.drives):
             self.drives.clear()
             for drive in drives:
-                if drive.mounted:
-                    state = tr(self._language, "drives_state_mounted", path=drive.mountpoint)
-                    if self._shares.is_shared(drive.uuid):
-                        name = self._shares.share_name(drive)
-                        state = f"{state}; {tr(self._language, 'drives_state_shared', name=name)}"
-                else:
-                    state = tr(self._language, "drives_state_unmounted")
-                text = f"{drive.label} · {format_size(drive.size)} · {drive.filesystem} — {state}"
+                text = f"{drive.label} · {format_size(drive.size)} · {drive.filesystem}"
+                shared = drive.mounted and self._shares.is_shared(drive.uuid)
+                mounted_label = (
+                    tr(self._language, "drives_state_mounted", path=drive.mountpoint or "")
+                    if drive.mounted
+                    else ""
+                )
+                shared_label = (
+                    tr(self._language, "drives_state_shared", name=self._shares.share_name(drive))
+                    if shared
+                    else ""
+                )
                 item = QListWidgetItem(text, self.drives)
                 item.setData(Qt.ItemDataRole.UserRole, drive)
+                row = DriveRowWidget(
+                    text,
+                    mounted=drive.mounted,
+                    shared=shared,
+                    mounted_label=mounted_label,
+                    shared_label=shared_label,
+                    theme=self._theme,
+                    parent=self.drives,
+                )
+                item.setSizeHint(row.sizeHint())
+                self.drives.setItemWidget(item, row)
                 if previous is not None and drive.device == previous.device:
                     self.drives.setCurrentItem(item)
             if self.drives.currentRow() < 0 and drives:
@@ -313,17 +411,9 @@ class DrivesWindow(WallpaperDialog):
             self._sync_status_for_selection()
 
     def _sync_status_for_selection(self) -> None:
-        """Show the SMB URL only while a shared drive is highlighted."""
+        """Keep the list status free of per-drive share details."""
         if self.drives.count() == 0:
             set_status(self.status, tr(self._language, "drives_none"))
-            return
-        drive = self.selected()
-        if drive is not None and drive.mounted and self._shares.is_shared(drive.uuid):
-            url = smb_url(self._shares.share_name(drive))
-            set_status(
-                self.status,
-                tr(self._language, "drives_shared", name=drive.label, url=url),
-            )
             return
         set_status(self.status, "")
 
@@ -346,15 +436,19 @@ class DrivesWindow(WallpaperDialog):
         if drive is None:
             dialog.reject()
             return
+        shared = self._shares.is_shared(drive.uuid)
         actions = available_actions(
             drive,
             busy=self._busy,
             share_available=self._shares.available(),
-            shared=self._shares.is_shared(drive.uuid),
+            shared=shared,
         )
         if not actions:
             dialog.reject()
             return
+        share_name = self._shares.share_name(drive) if shared else None
+        share_url = smb_url(share_name) if share_name else None
+        dialog.set_details(drive, shared=shared, share_name=share_name, share_url=share_url)
         dialog.set_actions(actions)
 
     def handle_input(self, event: InputEvent) -> None:

@@ -439,12 +439,12 @@ class UDisksStorageGateway:
         real_mount: str,
         all_drives: tuple[Drive, ...],
     ) -> str:
-        """Create by-uuid (and unique by-label) symlinks; return the by-uuid path."""
+        """Create by-uuid/by-label symlinks; return by-uuid only when it exists."""
         if drive.uuid is None:
             return real_mount
         target = Path(real_mount)
         uuid_link = self._user_media_root() / "by-uuid" / drive.uuid
-        self._replace_symlink(uuid_link, target)
+        published = self._replace_symlink(uuid_link, target)
         sanitized = (
             _sanitize_label(drive.filesystem_label)
             if drive.filesystem_label is not None
@@ -458,7 +458,7 @@ class UDisksStorageGateway:
             )
             if same_label == 1:
                 self._replace_symlink(self._user_media_root() / "by-label" / sanitized, target)
-        return str(uuid_link)
+        return str(uuid_link) if published else real_mount
 
     def _remove_stable_links(self, drive: Drive) -> None:
         """Remove published symlinks for ``drive`` before unmounting."""
@@ -471,20 +471,22 @@ class UDisksStorageGateway:
                 self._unlink_if_symlink(root / "by-label" / sanitized)
 
     @staticmethod
-    def _replace_symlink(link: Path, target: Path) -> None:
-        """Point ``link`` at ``target``, replacing a previous symlink if present."""
+    def _replace_symlink(link: Path, target: Path) -> bool:
+        """Point ``link`` at ``target``; return True only when the symlink is ready."""
         try:
             link.parent.mkdir(parents=True, exist_ok=True)
             if link.is_symlink() or link.is_file():
                 if link.is_symlink() and os.readlink(link) == str(target):
-                    return
+                    return True
                 link.unlink()
             elif link.exists():
                 _LOGGER.warning("Stable mount path is not a symlink path=%s", link)
-                return
+                return False
             link.symlink_to(target)
+            return True
         except OSError as error:
             _LOGGER.warning("Unable to publish stable mount path=%s error=%s", link, error)
+            return False
 
     @staticmethod
     def _unlink_if_symlink(path: Path) -> None:

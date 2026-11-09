@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.37
+
+- Fixed: Share on network works again when PiDeck cannot create
+  `/media/pideck/by-uuid` links. The real mount path is used instead.
+- Changed: Settings > Drives shows mount and share status as icons in the list.
+  Mount path and SMB URL details are in the drive options menu.
+
 ## v0.5.36
 
 - Fixed: LAN drive shares open from other computers again. Samba now exports the

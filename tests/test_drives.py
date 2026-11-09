@@ -17,7 +17,8 @@ from pideck.application.ports.storage import Drive, StorageError
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.infrastructure.udisks_storage import DrivePreferences, UDisksStorageGateway, parse_drives
-from pideck.presentation.qt.drives_window import DrivesWindow, format_size
+from pideck.presentation.qt.drive_actions_dialog import format_size
+from pideck.presentation.qt.drives_window import DriveRowWidget, DrivesWindow
 from pideck.presentation.qt.settings_window import SettingsWindow
 from tests.test_configuration import configuration_document
 
@@ -240,6 +241,24 @@ def test_mount_without_uuid_does_not_write_preferences(tmp_path: Path) -> None:
     gateway = UDisksStorageGateway(Runner(document), preferences=preferences, media_root=media_root)
     assert gateway.mount(gateway.list_drives()[0]) == "/media/pideck/MEDIA"
     assert not preferences.path.exists()
+    assert not (media_root / "by-uuid").exists()
+
+
+def test_list_drives_keeps_real_mount_when_stable_link_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    media_root = tmp_path / "media" / "pideck"
+    gateway = UDisksStorageGateway(
+        Runner(), which=lambda name: f"/usr/bin/{name}", media_root=media_root,
+    )
+    monkeypatch.setattr(
+        UDisksStorageGateway,
+        "_replace_symlink",
+        staticmethod(lambda _link, _target: False),
+    )
+    drives = {drive.device: drive for drive in gateway.list_drives()}
+    assert drives["/dev/sdc1"].mountpoint == "/media/pideck/Data"
+    assert gateway.mount(drives["/dev/sdb1"]) == "/media/pideck/MEDIA"
     assert not (media_root / "by-uuid").exists()
 
 
@@ -510,6 +529,13 @@ def test_drives_window_enter_does_not_auto_mount(application: QApplication) -> N
     parent.close()
 
 
+def _row_widget(window: DrivesWindow, row: int = 0) -> DriveRowWidget:
+    item = window.drives.item(row)
+    widget = window.drives.itemWidget(item)
+    assert isinstance(widget, DriveRowWidget)
+    return widget
+
+
 def test_drives_window_mounts_and_unmounts_with_controller(application: QApplication) -> None:
     from pideck.application.drive_items import DriveAction
 
@@ -519,31 +545,42 @@ def test_drives_window_mounts_and_unmounts_with_controller(application: QApplica
     window = DrivesWindow(storage, DEFAULT_THEME, "en", parent, shares=shares)
     window.show()
     _wait(application, lambda: window.drives.count() == 1 and window.drives.isEnabled())
-    assert "not mounted" in window.drives.item(0).text()
+    assert window.drives.item(0).text() == "MEDIA · 32.0 GB · exfat"
+    assert not _row_widget(window).mounted_icon.isVisible()
+    assert not _row_widget(window).shared_icon.isVisible()
     window.drives.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     application.processEvents()
     assert window.dialog is not None
     assert window.dialog.actions() == ("mount",)
+    assert "not mounted" in window.dialog.mount_state.text()
     window.dialog.choose(DriveAction.MOUNT)
     _wait(application, lambda: storage.drives["/dev/sdb1"].mounted and window.drives.isEnabled())
-    assert "/media/pideck/by-uuid/" in window.drives.item(0).text()
+    assert window.drives.item(0).text() == "MEDIA · 32.0 GB · exfat"
+    assert _row_widget(window).mounted_icon.isVisible()
+    assert not _row_widget(window).shared_icon.isVisible()
     window.drives.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     application.processEvents()
     assert window.dialog is not None
+    assert "/media/pideck/by-uuid/" in window.dialog.mount_state.text()
     assert "unmount" in window.dialog.actions()
     assert "share" in window.dialog.actions()
     window.dialog.choose(DriveAction.SHARE)
     _wait(application, lambda: MEDIA_UUID in shares.shared and window.drives.isEnabled())
-    assert "smb://" in window.status.text() and "MEDIA" in window.status.text()
-    assert "shared as MEDIA" in window.drives.item(0).text()
+    assert "smb://" not in window.status.text()
+    assert _row_widget(window).shared_icon.isVisible()
     window.drives.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     application.processEvents()
+    assert window.dialog is not None
+    assert "shared as MEDIA" in window.dialog.share_state.text()
+    assert "smb://" in window.dialog.share_url_label.text()
+    assert "/MEDIA" in window.dialog.share_url_label.text()
     window.dialog.choose(DriveAction.UNMOUNT)
     _wait(application, lambda: not storage.drives["/dev/sdb1"].mounted and window.drives.isEnabled())
-    assert "smb://" not in window.status.text()
+    assert not _row_widget(window).mounted_icon.isVisible()
+    assert not _row_widget(window).shared_icon.isVisible()
     assert shares.released == [MEDIA_UUID]
     assert MEDIA_UUID in shares.shared
     window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
@@ -551,7 +588,7 @@ def test_drives_window_mounts_and_unmounts_with_controller(application: QApplica
     parent.close()
 
 
-def test_drives_window_share_status_follows_selection(application: QApplication) -> None:
+def test_drives_window_share_details_live_in_dialog(application: QApplication) -> None:
     from pideck.application.drive_items import DriveAction
 
     parent = QWidget()
@@ -575,16 +612,25 @@ def test_drives_window_share_status_follows_selection(application: QApplication)
     application.processEvents()
     window.dialog.choose(DriveAction.SHARE)
     _wait(application, lambda: MEDIA_UUID in shares.shared and window.drives.isEnabled())
-    assert "smb://" in window.status.text() and "/MEDIA" in window.status.text()
-    window.drives.setCurrentRow(1)
-    application.processEvents()
     assert "smb://" not in window.status.text()
-    window.drives.setCurrentRow(0)
+    assert _row_widget(window, 0).shared_icon.isVisible()
+    assert not _row_widget(window, 1).shared_icon.isVisible()
+    window.drives.setCurrentRow(1)
+    window.activate_selected()
     application.processEvents()
-    assert "smb://" in window.status.text() and "/MEDIA" in window.status.text()
+    assert window.dialog is not None
+    assert "shared as" not in window.dialog.share_state.text()
+    assert not window.dialog.share_url_label.isVisible()
+    window.dialog.reject()
+    application.processEvents()
+    window.drives.setCurrentRow(0)
+    window.activate_selected()
+    application.processEvents()
+    assert window.dialog is not None
+    assert "shared as MEDIA" in window.dialog.share_state.text()
+    assert "smb://" in window.dialog.share_url_label.text()
     window.close()
     parent.close()
-
 
 def test_drives_window_reports_errors_and_old_images(application: QApplication) -> None:
     from pideck.application.drive_items import DriveAction

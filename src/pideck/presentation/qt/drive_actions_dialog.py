@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from pideck.application.drive_items import DriveAction
 from pideck.application.ports.input import InputAction, InputEvent
+from pideck.application.ports.storage import Drive
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
@@ -17,28 +18,63 @@ from .wallpaper import WallpaperDialog
 _ENTER_KEYS = frozenset({Qt.Key.Key_Return, Qt.Key.Key_Enter})
 
 
+def format_size(size: int) -> str:
+    """Format a byte count with decimal units as drive vendors label them."""
+    value = float(size)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1000:
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1000
+    return f"{value:.1f} TB"
+
+
 class DriveActionsDialog(WallpaperDialog):
     """List the actions available for one drive as focusable buttons."""
 
     action_chosen = Signal(str)
 
     def __init__(
-        self, name: str, actions: tuple[DriveAction, ...], theme: ThemeDefinition,
-        language: str, parent: QWidget,
+        self,
+        drive: Drive,
+        actions: tuple[DriveAction, ...],
+        theme: ThemeDefinition,
+        language: str,
+        parent: QWidget,
+        *,
+        shared: bool = False,
+        share_name: str | None = None,
+        share_url: str | None = None,
     ) -> None:
         """Build a fullscreen menu whose last entry closes it."""
         super().__init__(parent)
         self.setModal(True)
-        self.setWindowTitle(name)
+        self.setWindowTitle(drive.label)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setWindowState(Qt.WindowState.WindowFullScreen)
         self._language = language
         # True until the Enter/OK that opened the menu has finished.
         self._opening = True
         layout = create_system_panel(self, max_width=620, max_height=640)
-        title = QLabel(name, self)
-        title.setObjectName("settings_heading")
-        layout.addWidget(title)
+        self.title = QLabel(drive.label, self)
+        self.title.setObjectName("settings_heading")
+        layout.addWidget(self.title)
+        self.summary = QLabel(self)
+        self.summary.setObjectName("settings_hint")
+        self.summary.setWordWrap(True)
+        layout.addWidget(self.summary)
+        self.mount_state = QLabel(self)
+        self.mount_state.setObjectName("settings_hint")
+        self.mount_state.setWordWrap(True)
+        layout.addWidget(self.mount_state)
+        self.share_state = QLabel(self)
+        self.share_state.setObjectName("settings_hint")
+        self.share_state.setWordWrap(True)
+        layout.addWidget(self.share_state)
+        self.share_url_label = QLabel(self)
+        self.share_url_label.setObjectName("settings_hint")
+        self.share_url_label.setWordWrap(True)
+        self.share_url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(self.share_url_label)
         self._buttons_layout = QVBoxLayout()
         self._buttons_layout.setSpacing(10)
         layout.addLayout(self._buttons_layout)
@@ -48,7 +84,41 @@ class DriveActionsDialog(WallpaperDialog):
         self.back.clicked.connect(self.reject)
         layout.addWidget(self.back)
         apply_theme(self, theme)
+        self.set_details(drive, shared=shared, share_name=share_name, share_url=share_url)
         self.set_actions(actions)
+
+    def set_details(
+        self,
+        drive: Drive,
+        *,
+        shared: bool = False,
+        share_name: str | None = None,
+        share_url: str | None = None,
+    ) -> None:
+        """Refresh the drive identity and mount/share detail lines."""
+        self.setWindowTitle(drive.label)
+        self.title.setText(drive.label)
+        self.summary.setText(f"{format_size(drive.size)} · {drive.filesystem}")
+        if drive.mounted and drive.mountpoint:
+            self.mount_state.setText(
+                tr(self._language, "drives_state_mounted", path=drive.mountpoint)
+            )
+        else:
+            self.mount_state.setText(tr(self._language, "drives_state_unmounted"))
+        if shared and share_name:
+            self.share_state.setText(tr(self._language, "drives_state_shared", name=share_name))
+            self.share_state.show()
+            if share_url:
+                self.share_url_label.setText(share_url)
+                self.share_url_label.show()
+            else:
+                self.share_url_label.hide()
+                self.share_url_label.clear()
+        else:
+            self.share_state.hide()
+            self.share_state.clear()
+            self.share_url_label.hide()
+            self.share_url_label.clear()
 
     def set_actions(self, actions: tuple[DriveAction, ...], focus: DriveAction | None = None) -> None:
         """Replace the offered actions, keeping focus on ``focus`` when still offered."""
