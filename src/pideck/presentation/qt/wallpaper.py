@@ -6,10 +6,15 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPaintEvent, QPainter, QPixmap, QShowEvent
+from PySide6.QtGui import QColor, QHideEvent, QPaintEvent, QPainter, QPixmap, QShowEvent
 from PySide6.QtWidgets import QDialog, QWidget
 
 from .blurred_backdrop import capture_blurred_screen, compose_backdrop
+from .fullscreen import (
+    apply_fullscreen_geometry,
+    cancel_fullscreen_reassert,
+    present_fullscreen,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -81,6 +86,7 @@ class WallpaperDialog(QDialog):
         super().__init__(parent)
         self._background_image = _Wallpaper()
         self._blurred_backdrop = QPixmap()
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
 
     def set_wallpaper(self, path: Path | None, background: str) -> None:
@@ -95,16 +101,30 @@ class WallpaperDialog(QDialog):
             fill = QColor("#101214")
         self._blurred_backdrop = compose_backdrop(capture_blurred_screen(), fill)
 
+    def showFullScreen(self) -> None:
+        """Present as a frameless fullscreen window and reassert after map."""
+        present_fullscreen(self)
+
     def exec(self) -> int:  # noqa: A003 - Qt API
-        """Capture a blurred backdrop, then run the modal dialog loop."""
+        """Capture a blurred backdrop, then run the modal dialog loop fullscreen."""
         self._prepare_blurred_backdrop()
+        present_fullscreen(self)
         return int(super().exec())
 
     def showEvent(self, event: QShowEvent) -> None:
-        """Capture before the first paint when shown without ``exec``."""
+        """Capture before the first paint and keep geometry when already fullscreen."""
         if self._blurred_backdrop.isNull():
             self._prepare_blurred_backdrop()
         super().showEvent(event)
+        if self.windowState() & Qt.WindowState.WindowFullScreen:
+            apply_fullscreen_geometry(self)
+            if not self.isFullScreen():
+                QWidget.showFullScreen(self)
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        """Drop pending fullscreen reasserts when the dialog hides."""
+        cancel_fullscreen_reassert(self)
+        super().hideEvent(event)
 
     def paintEvent(self, event: QPaintEvent) -> None:
         """Paint the blurred screen (or theme wallpaper) behind child controls."""

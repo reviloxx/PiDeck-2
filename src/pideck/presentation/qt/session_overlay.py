@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QKeyEvent, QPixmap, QResizeEvent
+from PySide6.QtGui import QColor, QHideEvent, QKeyEvent, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -24,6 +24,7 @@ from .blurred_backdrop import (
     compose_backdrop,
     grab_is_useful,
 )
+from .fullscreen import cancel_fullscreen_reassert, present_fullscreen
 from .localization import clock_text, tr
 from .theme import apply_theme
 
@@ -53,9 +54,9 @@ class SessionOverlay(QDialog):
         self.setModal(True)
         self.setWindowTitle("PiDeck")
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Dialog
         )
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setAutoFillBackground(True)
@@ -139,14 +140,17 @@ class SessionOverlay(QDialog):
         self._backdrop = compose_backdrop(capture_blurred_screen(), fill)
         self._backdrop_label.setPixmap(self._backdrop)
         self._update_clock()
-        self.showFullScreen()
+        present_fullscreen(self, stays_on_top=True)
         self._backdrop_label.setGeometry(self.rect())
         self._backdrop_label.lower()
         self._backdrop_label.show()
-        self.raise_()
-        self.activateWindow()
         self.cancel_button.setFocus(Qt.FocusReason.OtherFocusReason)
         self._clock_timer.start()
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        """Cancel pending fullscreen reasserts when the overlay hides."""
+        cancel_fullscreen_reassert(self)
+        super().hideEvent(event)
 
     def dismiss(self) -> None:
         """Hide the overlay without stopping the application."""

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from PySide6.QtCore import QEvent, QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QResizeEvent
+from PySide6.QtGui import QHideEvent, QKeyEvent, QMouseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QBoxLayout,
     QComboBox,
@@ -31,6 +31,7 @@ from pideck.domain.input_settings import CecSettings
 from pideck.domain.keyboard_layout import KeyboardLayout
 from pideck.domain.theme import ThemeDefinition
 
+from .fullscreen import cancel_fullscreen_reassert, present_fullscreen
 from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperWidget
 from .localization import format_timestamp, tr
@@ -174,6 +175,7 @@ class SettingsWindow(QDialog):
         self.setWindowTitle(tr(self._language, "settings"))
         self.setObjectName("settings_window")
         self.setModal(True)
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self._build_ui()
         apply_theme(self, theme)
         self._theme_combo.currentIndexChanged.connect(self._emit_current_settings)
@@ -1222,10 +1224,13 @@ class SettingsWindow(QDialog):
 
     def show_fullscreen(self) -> None:
         """Open the settings surface fullscreen and focus its category rail."""
-        self.showFullScreen()
-        self.raise_()
-        self.activateWindow()
+        present_fullscreen(self)
         self._nav_buttons[0].setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        """Cancel pending fullscreen reasserts when settings closes."""
+        cancel_fullscreen_reassert(self)
+        super().hideEvent(event)
 
     def show_error(self, message: str) -> None:
         """Display a recoverable error inside the settings content area."""

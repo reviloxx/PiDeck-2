@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.51
+
+- Fixed: Settings, the home overlay, and other PiDeck panels fill the screen
+  again. They were being recentered as small dialogs after Openbox mapped them
+  fullscreen; they now use the same frameless screen geometry as the launcher.
+
 ## v0.5.50
 
 - Fixed: The home screen no longer jumps back over a running app after a while.

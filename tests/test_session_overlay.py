@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication
 
@@ -101,6 +102,17 @@ def test_overlay_shows_home_chrome_and_confirmation(application: QApplication) -
     assert overlay.cancel_button.text() == "Cancel"
     assert overlay._clock_label.text()
     overlay.hide()
+
+
+def test_open_overlay_enters_fullscreen(application: QApplication) -> None:
+    """The session overlay fills the screen like the launcher."""
+    overlay = SessionOverlay(DEFAULT_THEME, "en")
+    overlay.open_overlay()
+    application.processEvents()
+    assert overlay.isFullScreen()
+    assert overlay.geometry() == overlay.screen().geometry()
+    assert overlay.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+    overlay.dismiss()
 
 
 def test_open_overlay_tolerates_empty_screen_grab(

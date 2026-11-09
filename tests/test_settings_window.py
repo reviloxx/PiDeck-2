@@ -346,6 +346,17 @@ def test_install_status_texts(progress: InstallProgress, text: str) -> None:
     assert install_status_text("en", progress) == text
 
 
+def test_settings_show_fullscreen_fills_screen(application: QApplication) -> None:
+    """Settings opens as a frameless fullscreen window, not a centered panel."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(configuration, DEFAULT_THEME, Path.cwd())
+    window.show_fullscreen()
+    application.processEvents()
+    assert window.isFullScreen()
+    assert window.geometry() == window.screen().geometry()
+    window.close()
+
+
 @pytest.mark.parametrize(("width", "height"), [(1280, 720), (1920, 1080)])
 def test_settings_wallpaper_covers_dialog(
     application: QApplication, tmp_path: Path, width: int, height: int,
