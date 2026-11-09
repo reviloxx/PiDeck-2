@@ -23,6 +23,9 @@ def test_openbox_rc_omits_frame_left_press_and_keeps_client() -> None:
         assert 'button="Left" action="Press"' in text
         assert 'name="Frame"' not in text
         assert "Do not bind Left Press on Frame" in text
+        assert 'class="PiDeck"' in text
+        assert "<fullscreen>yes</fullscreen>" in text
+        assert "<decor>no</decor>" in text
 
 
 def test_select_openbox_config_prefers_release_file() -> None:
@@ -43,13 +46,22 @@ def test_apply_release_openbox_stops_and_restarts(
     binary.chmod(0o755)
     calls: list[object] = []
     killed: list[tuple[int, int]] = []
+    wmctrl_calls: list[list[str]] = []
 
     monkeypatch.setenv("DISPLAY", ":0")
-    monkeypatch.setattr("pideck.infrastructure.session.openbox.shutil.which", lambda _: str(binary))
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.openbox.shutil.which",
+        lambda name: str(binary) if name == "openbox" else "/usr/bin/wmctrl",
+    )
 
     def fake_run(args, **kwargs):
         if args[:1] == ["pgrep"] and "-ax" in args:
             return type("Result", (), {"returncode": 0, "stdout": "1111 openbox --config-file /other.xml\n"})()
+        if args[:1] == ["pgrep"] and "-x" in args:
+            return type("Result", (), {"returncode": 0, "stdout": "4242\n"})()
+        if args == ["/usr/bin/wmctrl", "-m"] or (len(args) >= 2 and args[1] == "-m"):
+            wmctrl_calls.append(list(args))
+            return type("Result", (), {"returncode": 0, "stdout": "Name: Openbox\n"})()
         return type("Result", (), {"returncode": 0, "stdout": "4242\n"})()
 
     monkeypatch.setattr("pideck.infrastructure.session.openbox.subprocess.run", fake_run)
@@ -62,12 +74,13 @@ def test_apply_release_openbox_stops_and_restarts(
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
 
-    apply_release_openbox(config=conf)
+    assert apply_release_openbox(config=conf) is True
 
     assert killed and killed[0][0] == 4242
     assert all(sig != 9 for _, sig in killed)
     assert len(calls) == 1
     assert calls[0][0][0] == [str(binary), "--config-file", str(conf)]
+    assert wmctrl_calls
 
 
 def test_apply_release_openbox_skips_restart_when_config_matches(
@@ -92,7 +105,7 @@ def test_apply_release_openbox_skips_restart_when_config_matches(
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not restart")),
     )
 
-    apply_release_openbox(config=conf)
+    assert apply_release_openbox(config=conf) is False
 
 
 def test_apply_release_openbox_noop_without_display(
@@ -107,4 +120,4 @@ def test_apply_release_openbox_noop_without_display(
         lambda _: (_ for _ in ()).throw(AssertionError("should not look up openbox")),
     )
 
-    apply_release_openbox(config=conf)
+    assert apply_release_openbox(config=conf) is False

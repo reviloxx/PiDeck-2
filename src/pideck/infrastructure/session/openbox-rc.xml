@@ -81,5 +81,10 @@
     </context>
   </mouse>
   <menu/>
-  <applications/>
+  <applications>
+    <application class="PiDeck">
+      <fullscreen>yes</fullscreen>
+      <decor>no</decor>
+    </application>
+  </applications>
 </openbox_config>

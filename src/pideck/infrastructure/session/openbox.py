@@ -13,6 +13,8 @@ import time
 _LOGGER = logging.getLogger(__name__)
 _SESSION_DIR = Path(__file__).resolve().parent
 _IMAGE_OPENBOX_RC = Path("/usr/share/pideck/openbox/rc.xml")
+_WM_READY_ATTEMPTS = 100
+_WM_READY_INTERVAL = 0.1
 
 
 def select_openbox_config(*, directory: Path | None = None) -> Path:
@@ -23,29 +25,31 @@ def select_openbox_config(*, directory: Path | None = None) -> Path:
     return _IMAGE_OPENBOX_RC
 
 
-def apply_release_openbox(*, config: Path | None = None) -> None:
+def apply_release_openbox(*, config: Path | None = None) -> bool:
     """Restart Openbox with the release rc when a display is available.
 
     Failures are logged and never raised so a missing window manager cannot
     block the launcher. No-op when openbox is absent, DISPLAY is unset, or
     openbox is already running with the chosen config. Never SIGKILL openbox.
+
+    Returns True when Openbox was restarted with the release config.
     """
     conf = config or select_openbox_config()
     if not conf.is_file():
         _LOGGER.warning("PiDeck openbox config missing at %s", conf)
-        return
+        return False
     if not os.environ.get("DISPLAY"):
-        return
+        return False
     binary = shutil.which("openbox")
     if binary is None:
-        return
+        return False
     if _openbox_already_uses(conf):
         _LOGGER.info("openbox already using %s", conf)
-        return
+        return False
     try:
         if not _stop_openbox():
             _LOGGER.warning("Leaving existing openbox running; new config not applied")
-            return
+            return False
         subprocess.Popen(  # noqa: S603 — fixed binary from PATH, fixed config path
             [binary, "--config-file", str(conf)],
             stdin=subprocess.DEVNULL,
@@ -55,8 +59,36 @@ def apply_release_openbox(*, config: Path | None = None) -> None:
         )
     except OSError as error:
         _LOGGER.warning("Unable to start openbox with %s: %s", conf, error)
-        return
-    _LOGGER.info("Started openbox with %s", conf)
+        return False
+    if not _wait_for_window_manager():
+        _LOGGER.warning("Openbox started with %s but did not become ready", conf)
+    else:
+        _LOGGER.info("Started openbox with %s", conf)
+    return True
+
+
+def _wait_for_window_manager() -> bool:
+    """Poll until ``wmctrl -m`` succeeds or the readiness timeout expires."""
+    binary = shutil.which("wmctrl")
+    if binary is None:
+        time.sleep(_WM_READY_INTERVAL * 5)
+        return True
+    for _ in range(_WM_READY_ATTEMPTS):
+        try:
+            result = subprocess.run(  # noqa: S603
+                [binary, "-m"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=1,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            time.sleep(_WM_READY_INTERVAL)
+            continue
+        if result.returncode == 0:
+            return True
+        time.sleep(_WM_READY_INTERVAL)
+    return False
 
 
 def _openbox_already_uses(config: Path) -> bool:

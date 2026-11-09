@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.47
+
+- Fixed: PiDeck fills the whole screen again after an update that refreshes
+  Openbox. The session waits for the window manager and re-applies fullscreen.
+
 ## v0.5.46
 
 - Fixed: Mouse clicks work again in PiDeck and in apps. Openbox was keeping
