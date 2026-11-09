@@ -21,10 +21,12 @@ _LOGGER = logging.getLogger(__name__)
 _KEY_PRESS = re.compile(r"\bkey pressed: (.*) \(([0-9a-f]+), (\d+)\)$")
 _KEY_RELEASE = re.compile(r"\bkey released: .* \(([0-9a-f]+)\) D:\d+ms$")
 _KEY_IDLE = re.compile(r"\bKey .*: idle \(duration:\d+\) \(ff\) timeout:")
-# Restart after TV wake or a dropped link; ignore transitions into standby.
+# Restart after TV wake or a dropped link. Ignore unknown→on (normal startup)
+# and transitions into standby.
 _CONNECTION_LOST = re.compile(r"connection lost", re.IGNORECASE)
 _TV_POWER_ON = re.compile(
-    r"power status changed from .+ to '(?:on|in transition standby to on)'",
+    r"\bTV\b.*power status changed from '(?:standby|in transition[^']*)' "
+    r"to '(?:on|in transition standby to on)'",
     re.IGNORECASE,
 )
 _ACTIONS = {
@@ -389,7 +391,9 @@ class CecClientAdapter:
                             process.stdin.write("as\n")
                             process.stdin.flush()
                 continue
-            if _CONNECTION_LOST.search(line) or _TV_POWER_ON.search(line):
+            # Only after "waiting for input": startup always logs unknown→on and
+            # would otherwise restart the client in a loop.
+            if connected and (_CONNECTION_LOST.search(line) or _TV_POWER_ON.search(line)):
                 if self._request_bus_reconnect(process, generation):
                     return
                 continue

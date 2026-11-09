@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.34
+
+- Fixed: HDMI-CEC connects again. Auto-reconnect no longer restarts the client
+  on normal startup power-status lines (unknown to on).
+
 ## v0.5.33
 
 - Added: in Settings > Drives, select a drive for options (mount, unmount, and

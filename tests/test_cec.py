@@ -214,15 +214,19 @@ def test_cec_restarts_on_connection_lost(monkeypatch: pytest.MonkeyPatch) -> Non
     """A dropped CEC link stops the client so the worker can open a fresh one."""
     statuses: list[str] = []
     stopped: list[object] = []
-    adapter = CecClientAdapter(status_changed=statuses.append)
+    adapter = CecClientAdapter(
+        settings=CecSettings(), status_changed=statuses.append,
+    )
     sink = RecordingSink()
     process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
     adapter._sink = sink
     adapter._suspended = False
     adapter._process = process
     monkeypatch.setattr(adapter, "_stop_async", stopped.append)
     generation = adapter.generation
     output = io.StringIO(
+        "waiting for input\n"
         "Connection lost - trying to reconnect\n"
         "DEBUG: [1] key pressed: select (0, 0)\n"
     )
@@ -234,19 +238,52 @@ def test_cec_restarts_on_connection_lost(monkeypatch: pytest.MonkeyPatch) -> Non
     assert not sink.events
 
 
-def test_cec_restarts_on_tv_power_on_but_not_standby(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TV wake restarts the client; entering standby alone does not."""
+def test_cec_ignores_startup_power_on_and_standby(monkeypatch: pytest.MonkeyPatch) -> None:
+    """unknown→on during registration must not restart; standby alone must not."""
     stopped: list[object] = []
-    adapter = CecClientAdapter()
+    adapter = CecClientAdapter(settings=CecSettings())
     sink = RecordingSink()
     process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
     adapter._sink = sink
     adapter._suspended = False
     adapter._process = process
     monkeypatch.setattr(adapter, "_stop_async", stopped.append)
     generation = adapter.generation
     adapter._read_output(
-        io.StringIO("DEBUG: [1] TV (0): power status changed from 'on' to 'standby'\n"),
+        io.StringIO(
+            "DEBUG: [1] Playback 1 (4): power status changed from 'unknown' to 'on'\n"
+            "DEBUG: [2] TV (0): power status changed from 'unknown' to 'on'\n"
+            "waiting for input\n"
+            "DEBUG: [3] TV (0): power status changed from 'on' to 'standby'\n"
+            "DEBUG: [4] key pressed: select (0, 0)\n"
+        ),
+        process,
+        generation,
+    )
+    assert stopped == []
+    assert adapter.generation == generation
+    assert adapter.status == "Connected"
+    assert [event.action for event in sink.events] == [InputAction.ACTIVATE]
+
+
+def test_cec_restarts_on_tv_power_on_but_not_standby(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TV wake after standby restarts the client; entering standby alone does not."""
+    stopped: list[object] = []
+    adapter = CecClientAdapter(settings=CecSettings())
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    monkeypatch.setattr(adapter, "_stop_async", stopped.append)
+    generation = adapter.generation
+    adapter._read_output(
+        io.StringIO(
+            "waiting for input\n"
+            "DEBUG: [1] TV (0): power status changed from 'on' to 'standby'\n"
+        ),
         process,
         generation,
     )
@@ -254,6 +291,7 @@ def test_cec_restarts_on_tv_power_on_but_not_standby(monkeypatch: pytest.MonkeyP
     assert adapter.generation == generation
     adapter._read_output(
         io.StringIO(
+            "waiting for input\n"
             "DEBUG: [2] TV (0): power status changed from 'standby' to 'on'\n"
             "DEBUG: [3] key pressed: select (0, 0)\n"
         ),
