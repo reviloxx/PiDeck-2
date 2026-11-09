@@ -34,12 +34,13 @@ _ACTIONS = {
     0x49: InputAction.FAST_FORWARD,
     0x60: InputAction.PLAY,
     0x61: InputAction.PLAY_PAUSE,
+    0x64: InputAction.STOP,  # stop function (Samsung media Stop)
     0x91: InputAction.BACK,  # Samsung Anynet+ Return / libCEC AN_RETURN
 }
 _DIRECTIONS = {InputAction.UP, InputAction.DOWN, InputAction.LEFT, InputAction.RIGHT}
-# Samsung Return (0x91) often never emits key-released / idle; without a re-arm
-# the first Back works and every later press is dropped until PiDeck restarts.
-_REARM_WITHOUT_RELEASE = {InputAction.BACK}
+# Samsung Return (0x91) and Stop often never emit key-released / idle; without a
+# re-arm the first press works and every later press is dropped until PiDeck restarts.
+_REARM_WITHOUT_RELEASE = {InputAction.BACK, InputAction.STOP}
 _DIRECTION_REPEAT = 0.18
 _BUTTON_REARM = 0.25
 

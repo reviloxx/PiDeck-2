@@ -84,6 +84,7 @@ def test_cec_translates_media_keys_without_repeating_held_presses() -> None:
         "DEBUG: [7] key pressed: Fast forward (49, 0)\n"
         "DEBUG: [8] key pressed: pause-play function (61, 0)\n"
         "DEBUG: [9] key pressed: play function (60, 0)\n"
+        "DEBUG: [10] key pressed: stop function (64, 0)\n"
     )
 
     adapter._read_output(output, process, adapter.generation)
@@ -91,6 +92,7 @@ def test_cec_translates_media_keys_without_repeating_held_presses() -> None:
     assert [event.action for event in sink.events] == [
         InputAction.PLAY, InputAction.PAUSE, InputAction.STOP, InputAction.REWIND,
         InputAction.FAST_FORWARD, InputAction.PLAY_PAUSE, InputAction.PLAY,
+        InputAction.STOP,
     ]
 
 def test_cec_rearms_back_without_release(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,6 +121,34 @@ def test_cec_rearms_back_without_release(monkeypatch: pytest.MonkeyPatch) -> Non
 
     adapter._read_output(timed_lines(), process, adapter.generation)  # type: ignore[arg-type]
     assert [event.action for event in sink.events] == [InputAction.BACK, InputAction.BACK]
+
+
+def test_cec_rearms_stop_without_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Samsung Stop often omits key-released; Stop must still work more than once."""
+    adapter = CecClientAdapter()
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    clock = {"now": 100.0}
+    monkeypatch.setattr("pideck.infrastructure.input_cec.time.monotonic", lambda: clock["now"])
+    lines = [
+        "DEBUG: [1] key pressed: stop function (64, 0)\n",
+        "DEBUG: [2] key pressed: stop function (64, 0)\n",
+        "DEBUG: [3] key pressed: stop function (64, 0)\n",
+    ]
+
+    def timed_lines():
+        for index, line in enumerate(lines):
+            if index == 1:
+                clock["now"] = 100.1  # within debounce → ignored
+            elif index == 2:
+                clock["now"] = 100.4  # after re-arm → delivered
+            yield line
+
+    adapter._read_output(timed_lines(), process, adapter.generation)  # type: ignore[arg-type]
+    assert [event.action for event in sink.events] == [InputAction.STOP, InputAction.STOP]
 
 
 def test_cec_logs_unmapped_key_codes_once(caplog: pytest.LogCaptureFixture) -> None:
