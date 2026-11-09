@@ -7,6 +7,7 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from pideck.application.pideck_updates import ReleaseNote
+from pideck.infrastructure.http_retry import call_with_retries
 
 
 _RELEASES_URL = "https://api.github.com/repos/reviloxx/PiDeck-2/releases"
@@ -50,15 +51,24 @@ def version_key(version: str) -> tuple[int, int, int]:
     return int(match[1]), int(match[2]), int(match[3])
 
 
-def _read_page(page: int) -> list[object]:
-    """Read one bounded GitHub API page or raise a useful error."""
+def _fetch_page(page: int) -> bytes:
+    """Fetch one GitHub releases page body, retrying transient failures."""
     request = Request(
         f"{_RELEASES_URL}?per_page={_PAGE_SIZE}&page={page}",
         headers={"Accept": "application/vnd.github+json", "User-Agent": "PiDeck"},
     )
-    try:
+
+    def once() -> bytes:
         with urlopen(request, timeout=15) as response:
-            data = response.read(_MAX_RESPONSE_BYTES + 1)
+            return response.read(_MAX_RESPONSE_BYTES + 1)
+
+    return call_with_retries(once, label=f"GitHub releases page {page}")
+
+
+def _read_page(page: int) -> list[object]:
+    """Read one bounded GitHub API page or raise a useful error."""
+    try:
+        data = _fetch_page(page)
     except (OSError, URLError) as error:
         raise ReleaseCheckError(f"Unable to check GitHub releases: {error}") from error
     if len(data) > _MAX_RESPONSE_BYTES:

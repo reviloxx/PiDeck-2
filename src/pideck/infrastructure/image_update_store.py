@@ -12,6 +12,7 @@ from typing import Iterator
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from pideck.infrastructure.http_retry import call_with_retries
 from pideck.infrastructure.pideck_releases import version_key
 from pideck.infrastructure.image_update_bundle import InvalidUpdate, unpack_bundle, verify_bundle
 
@@ -66,8 +67,8 @@ class _ReleaseRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _download(version: str, name: str, target: Path) -> None:
-    """Download a bounded fixed-name GitHub release asset."""
+def _download_once(version: str, name: str, target: Path) -> None:
+    """Download one release asset without retrying transient failures."""
     limit = _ARTIFACT_LIMITS[name]
     request = Request(f"{_DOWNLOAD_BASE}/v{version}/{name}", headers={"User-Agent": "PiDeck"})
     with build_opener(_ReleaseRedirectHandler()).open(request, timeout=30) as response:
@@ -83,6 +84,16 @@ def _download(version: str, name: str, target: Path) -> None:
                 remaining -= len(data)
             output.flush()
             os.fsync(output.fileno())
+
+
+def _download(version: str, name: str, target: Path) -> None:
+    """Download a bounded fixed-name GitHub release asset, retrying transient failures."""
+
+    def once() -> None:
+        target.unlink(missing_ok=True)
+        _download_once(version, name, target)
+
+    call_with_retries(once, label=f"GitHub release asset {name}")
 
 
 class ImageUpdateStore:

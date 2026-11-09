@@ -121,6 +121,39 @@ def test_preparation_failure_is_visible() -> None:
     assert service.prepare_async()
     assert failed.wait(5)
     assert service.state.message == "disk full"
+    assert service.state.available_version == "1.1.0"
+    service.close()
+
+
+def test_failed_prepare_can_be_retried() -> None:
+    """Retry after a staging failure re-stages without another release check."""
+    available, failed, pending = threading.Event(), threading.Event(), threading.Event()
+    prepared: list[str] = []
+
+    def changed(info):
+        if info.status is PiDeckUpdateStatus.AVAILABLE:
+            available.set()
+        elif info.status is PiDeckUpdateStatus.FAILED:
+            failed.set()
+        elif info.status is PiDeckUpdateStatus.PENDING:
+            pending.set()
+
+    def prepare(version: str) -> None:
+        prepared.append(version)
+        if len(prepared) == 1:
+            raise OSError("HTTP Error 504: Gateway Timeout")
+
+    service = PiDeckUpdateService(
+        "1.0.0", lambda: SimpleNamespace(version="1.1.0"), version_key, changed, prepare=prepare,
+    )
+    assert service.check_async()
+    assert available.wait(5)
+    assert service.prepare_async()
+    assert failed.wait(5)
+    assert service.state.available_version == "1.1.0"
+    assert service.prepare_async()
+    assert pending.wait(5)
+    assert prepared == ["1.1.0", "1.1.0"]
     service.close()
 
 

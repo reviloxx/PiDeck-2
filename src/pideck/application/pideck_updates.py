@@ -112,9 +112,12 @@ class PiDeckUpdateService:
         """Prepare the available release on a worker without blocking the UI."""
         with self._lock:
             version = self._state.available_version
+            can_prepare = self._state.status in {
+                PiDeckUpdateStatus.AVAILABLE, PiDeckUpdateStatus.FAILED,
+            }
             if (
                 self._closed or self._checking or self._prepare is None
-                or self._state.status is not PiDeckUpdateStatus.AVAILABLE or version is None
+                or not can_prepare or version is None
             ):
                 return False
             self._checking = True
@@ -144,7 +147,9 @@ class PiDeckUpdateService:
             state = PiDeckUpdateInfo(PiDeckUpdateStatus.PENDING, self._current_version, version, release_notes=notes)
         except Exception as error:
             _LOGGER.exception("PiDeck update preparation failed")
-            state = PiDeckUpdateInfo(PiDeckUpdateStatus.FAILED, self._current_version, message=str(error))
+            state = PiDeckUpdateInfo(
+                PiDeckUpdateStatus.FAILED, self._current_version, version, str(error), notes,
+            )
         self._publish(state)
 
     def _check(self) -> None:

@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.29
+
+- Fixed: installing a PiDeck update retries briefly when GitHub returns a
+  temporary error such as HTTP 504, instead of failing on the first attempt.
+- Fixed: Retry after a failed install tries the download again, not only a new
+  update check.
+
 ## v0.5.28
 
 - Fixed: HDMI-CEC reconnects automatically after the TV is turned off and on

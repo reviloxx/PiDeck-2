@@ -1,5 +1,7 @@
 """Tests for staging and recovery of image release updates."""
 
+from email.message import EmailMessage
+from io import BytesIO
 from pathlib import Path
 import shutil
 import subprocess
@@ -9,6 +11,7 @@ import sys
 import tomllib
 
 import pytest
+from urllib.error import HTTPError
 
 from image.update_bundle import create_bundle
 from pideck.infrastructure import image_update_store
@@ -102,6 +105,46 @@ def test_rejects_repeated_and_older_staging(release_store: ImageUpdateStore) -> 
     release_store.stage("1.1.0")
     with pytest.raises(InvalidUpdate, match="already pending"):
         release_store.stage("1.1.0")
+
+
+def test_download_retries_transient_gateway_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single CDN 504 does not fail a release asset download."""
+    target = tmp_path / "pideck-update.json"
+    payload = b'{"format":1}'
+    attempts = {"count": 0}
+
+    class Response:
+        def __init__(self) -> None:
+            self._remaining = payload
+
+        def read(self, size: int) -> bytes:
+            data, self._remaining = self._remaining[:size], self._remaining[size:]
+            return data
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class Opener:
+        def open(self, _request, timeout=30):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise HTTPError(
+                    "https://github.com/reviloxx/PiDeck-2/releases/download/v1.1.0/pideck-update.json",
+                    504, "Gateway Timeout", EmailMessage(), BytesIO(),
+                )
+            return Response()
+
+    monkeypatch.setattr(image_update_store, "build_opener", lambda *_handlers: Opener())
+    monkeypatch.setattr("pideck.infrastructure.http_retry.time.sleep", lambda _delay: None)
+    monkeypatch.setattr("pideck.infrastructure.http_retry.random.uniform", lambda _a, _b: 0.0)
+    image_update_store._download("1.1.0", "pideck-update.json", target)
+    assert target.read_bytes() == payload
+    assert attempts["count"] == 2
 
 
 def test_socket_staging_activation_and_confirmation(

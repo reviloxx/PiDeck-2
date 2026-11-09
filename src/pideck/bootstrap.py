@@ -51,6 +51,7 @@ from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
 from pideck.infrastructure.process import SubprocessSupervisor
 from pideck.infrastructure.platform_updates import NativeUpdateGateway
+from pideck.infrastructure.http_retry import call_with_retries
 from pideck.infrastructure.image_update_client import ImageUpdateError, request as image_update_request
 from pideck.infrastructure.pideck_releases import find_latest_release, version_key
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
@@ -394,7 +395,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return result
 
     def prepare_image_update(version: str) -> None:
-        image_update_request("stage", timeout=1800, version=version)
+        call_with_retries(
+            lambda: image_update_request("stage", timeout=1800, version=version),
+            label=f"PiDeck update stage {version}",
+        )
 
     def confirm_image_ready() -> None:
         if release_version is None:
@@ -827,7 +831,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         )
         settings_window.cec_debug_requested.connect(open_cec_debug_window)
         def handle_pideck_update_request() -> None:
-            if pideck_update_service.state.status is PiDeckUpdateStatus.FAILED:
+            state = pideck_update_service.state
+            if state.status is PiDeckUpdateStatus.FAILED and state.available_version is None:
                 pideck_update_service.check_async()
             else:
                 pideck_update_service.prepare_async()

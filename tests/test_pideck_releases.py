@@ -1,6 +1,11 @@
 """Tests for PiDeck's stable release discovery."""
 
+from email.message import EmailMessage
+from io import BytesIO
+import json
+
 import pytest
+from urllib.error import HTTPError
 
 from pideck.infrastructure import pideck_releases
 from pideck.infrastructure.pideck_releases import ReleaseCheckError, version_key
@@ -92,3 +97,34 @@ def test_discovery_collects_bounded_release_notes(monkeypatch) -> None:
         ("1.2.0", "- newest\n[31mred"), ("1.1.0", ""), ("1.0.0", "- old"),
     ]
     assert len(pideck_releases._clean_notes("x" * 20000)) == pideck_releases._MAX_NOTES_CHARACTERS
+
+
+def test_read_page_retries_transient_gateway_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A single GitHub API 504 does not fail release discovery."""
+    payload = json.dumps([_release("v1.4.0")]).encode()
+    attempts = {"count": 0}
+
+    class Response:
+        def read(self, _size: int) -> bytes:
+            return payload
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def urlopen(_request, timeout=15):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise HTTPError(
+                "https://api.github.com/repos/reviloxx/PiDeck-2/releases",
+                504, "Gateway Timeout", EmailMessage(), BytesIO(),
+            )
+        return Response()
+
+    monkeypatch.setattr(pideck_releases, "urlopen", urlopen)
+    monkeypatch.setattr("pideck.infrastructure.http_retry.time.sleep", lambda _delay: None)
+    monkeypatch.setattr("pideck.infrastructure.http_retry.random.uniform", lambda _a, _b: 0.0)
+    assert pideck_releases._read_page(1)[0]["tag_name"] == "v1.4.0"
+    assert attempts["count"] == 2
