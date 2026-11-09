@@ -162,37 +162,6 @@ def test_kodi_launch_clears_browser_vaapi_environment() -> None:
     assert other.environment is None
 
 
-def test_command_environment_sets_pulse_sink_without_overriding_profiles() -> None:
-    """Per-application audio routing injects PULSE_SINK unless a profile already set it."""
-    service = ApplicationSessionService(
-        FakeSupervisor(),
-        RecordingObserver(),
-        command_environment=lambda application: {"PULSE_SINK": f"sink-for-{application.identifier}"},
-    )
-    youtube = service._command_for(
-        ApplicationDefinition(identifier="youtube", name="YouTube", executable="flatpak"),
-        None,
-    )
-    assert youtube.environment == {"PULSE_SINK": "sink-for-youtube"}
-    profile = ApplicationProfile(
-        identifier="custom",
-        name="Custom",
-        environment={"PULSE_SINK": "from-profile"},
-    )
-    kodi = ApplicationDefinition(
-        identifier="kodi",
-        name="Kodi",
-        executable="kodi",
-        profiles=(profile,),
-    )
-    command = service._command_for(kodi, profile)
-    assert command.environment == {
-        "PULSE_SINK": "from-profile",
-        "LIBVA_DRIVER_NAME": "",
-        "NVD_BACKEND": "",
-    }
-
-
 def test_session_waits_for_application_visibility() -> None:
     """A process start stays STARTING until its application window is visible."""
     supervisor = FakeSupervisor()

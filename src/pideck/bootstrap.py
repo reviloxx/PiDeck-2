@@ -483,22 +483,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
         """Destroy the current overlay when the application session ends."""
         clear_session_overlay()
 
-    def command_environment(application: ApplicationDefinition) -> dict[str, str]:
-        """Resolve a per-application or system-default PulseAudio sink for launch."""
-        token = audio_preferences.resolve(application.identifier)
-        if token is None:
-            return {}
-        try:
-            sink_name = audio_gateway.ensure_output(token)
-        except AudioError as error:
-            dependencies.logger.warning(
-                "Unable to prepare audio output for %s: %s",
-                application.identifier,
-                error,
-            )
-            return {}
-        return {"PULSE_SINK": sink_name}
-
     session_observer: SessionObserver = _QtSessionObserver(window, hide_session_overlay)
     visibility_detector = X11WindowVisibilityDetector()
     session_service = ApplicationSessionService(
@@ -507,7 +491,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
         visibility_detector,
         cec_adapter,
         releases_input=lambda _app: False,
-        command_environment=command_environment,
     )
     key_injector = X11KeyInjector()
     input_forwarding = InputForwardingService(key_injector)
@@ -680,6 +663,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if application_definition.identifier == "kodi":
             disable_kodi_cec()
             configure_kodi_acceleration()
+            try:
+                audio_gateway.ensure_hdmi_surround()
+            except AudioError as error:
+                dependencies.logger.warning("Unable to enable HDMI surround for Kodi: %s", error)
             configure_kodi_audio()
         result = session_service.request_launch(application_definition)
         if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
@@ -1050,14 +1037,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         parent = settings_window if settings_window is not None and settings_window.isVisible() else window
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
-        applications = tuple(
-            (application.identifier, application.name)
-            for application in current_configuration.applications
-        )
         audio_window = AudioWindow(
             audio_gateway,
             audio_preferences,
-            applications,
             theme,
             current_configuration.settings.language,
             parent,

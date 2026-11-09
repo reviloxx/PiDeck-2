@@ -34,11 +34,11 @@ class AudioGateway(Protocol):
         ...
 
     def set_output(self, identifier: str) -> None:
-        """Select the system default output, activating a card profile when needed."""
+        """Select the system default output, promoting HDMI surround when needed."""
         ...
 
-    def ensure_output(self, identifier: str) -> str:
-        """Make ``identifier`` usable and return its PulseAudio sink name."""
+    def ensure_hdmi_surround(self) -> None:
+        """Promote the default sink to HDMI Digital Surround 5.1 when available."""
         ...
 
     def set_volume(self, volume: int) -> None:

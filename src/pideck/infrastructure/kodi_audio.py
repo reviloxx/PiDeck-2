@@ -1,4 +1,4 @@
-"""Keep Kodi on PulseAudio Default so PULSE_SINK launch routing is honored."""
+"""Configure Kodi for PulseAudio HDMI multichannel PCM (5.1)."""
 
 from __future__ import annotations
 
@@ -8,15 +8,18 @@ import xml.etree.ElementTree as ET
 
 _LOGGER = logging.getLogger(__name__)
 _GUISETTINGS = Path(".kodi") / "userdata" / "guisettings.xml"
-_AUDIO_DEVICE = "audiooutput.audiodevice"
-_PULSE_DEFAULT = "PULSE:Default"
+_SETTINGS = {
+    "audiooutput.audiodevice": "PULSE:Default",
+    # Kodi Omega option value for 5.1 (1=2.0 … 8=5.1).
+    "audiooutput.channels": "8",
+    "audiooutput.passthrough": "false",
+}
 
 
 def configure_kodi_audio(*, home: Path | None = None) -> None:
-    """Force Kodi's audio device to PulseAudio Default.
+    """Force Kodi onto Pulse Default with 5.1 channels and passthrough off.
 
-    Per-application ``PULSE_SINK`` from PiDeck only applies when Kodi uses
-    PulseAudio. Failures are logged and never raised.
+    Failures are logged and never raised.
     """
     path = (home or Path.home()) / _GUISETTINGS
     try:
@@ -25,7 +28,7 @@ def configure_kodi_audio(*, home: Path | None = None) -> None:
             text = path.read_text(encoding="utf-8")
         else:
             text = '<settings version="2">\n</settings>\n'
-        updated = _apply_pulse_default(text)
+        updated = _apply_audio_settings(text)
         if updated == text and path.exists():
             return
         path.write_text(updated, encoding="utf-8")
@@ -35,29 +38,33 @@ def configure_kodi_audio(*, home: Path | None = None) -> None:
     except ET.ParseError as error:
         _LOGGER.warning("Unable to parse Kodi guisettings %s: %s", path, error)
         return
-    _LOGGER.info("Configured Kodi PulseAudio default at %s", path)
+    _LOGGER.info("Configured Kodi HDMI 5.1 PulseAudio settings at %s", path)
 
 
-def _apply_pulse_default(text: str) -> str:
-    """Return guisettings XML with audiooutput.audiodevice set to Pulse Default."""
+def _apply_audio_settings(text: str) -> str:
+    """Return guisettings XML with PiDeck HDMI 5.1 PulseAudio values."""
     root = ET.fromstring(text)
     if root.tag != "settings":
         raise ET.ParseError(f"expected <settings> root, found <{root.tag}>")
-    setting = next(
-        (
-            child
-            for child in root
-            if child.tag == "setting" and child.attrib.get("id") == _AUDIO_DEVICE
-        ),
-        None,
-    )
-    if setting is None:
-        setting = ET.SubElement(root, "setting", {"id": _AUDIO_DEVICE})
-        setting.text = _PULSE_DEFAULT
-    elif (setting.text or "").strip() != _PULSE_DEFAULT:
-        setting.text = _PULSE_DEFAULT
-        setting.attrib.pop("default", None)
-    else:
+    changed = False
+    for setting_id, value in _SETTINGS.items():
+        setting = next(
+            (
+                child
+                for child in root
+                if child.tag == "setting" and child.attrib.get("id") == setting_id
+            ),
+            None,
+        )
+        if setting is None:
+            setting = ET.SubElement(root, "setting", {"id": setting_id})
+            setting.text = value
+            changed = True
+        elif (setting.text or "").strip() != value:
+            setting.text = value
+            setting.attrib.pop("default", None)
+            changed = True
+    if not changed:
         return text
     return _serialize(root)
 

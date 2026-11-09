@@ -1,9 +1,0 @@
-# ASUS Xonar / C-Media Oxygen (snd_virtuoso, snd_oxygen): use PiDeck profile set
-# so Digital Stereo (IEC958) on PCM device 1 appears in PulseAudio.
-SUBSYSTEM!="sound", GOTO="pideck_oxygen_pulse_end"
-ACTION!="change", GOTO="pideck_oxygen_pulse_end"
-KERNEL!="card*", GOTO="pideck_oxygen_pulse_end"
-
-SUBSYSTEMS=="pci", ATTRS{vendor}=="0x13f6", ATTRS{device}=="0x8788", ENV{PULSE_PROFILE_SET}="pideck-oxygen.conf"
-
-LABEL="pideck_oxygen_pulse_end"

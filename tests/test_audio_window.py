@@ -32,26 +32,23 @@ class Audio:
     def __init__(self) -> None:
         self.current = "sink:one"
         self.volume = 50
-        self.ensured: list[str] = []
+        self.ensured_surround = 0
 
     def inspect(self) -> AudioState:
         return AudioState(
             (
                 AudioOutput("sink:one", "one", "HDMI"),
                 AudioOutput("sink:two", "two", "Speakers"),
-                AudioOutput("profile:card:output:iec958-stereo", "iec958", "Digital Stereo (IEC958) Output"),
             ),
             self.current,
             self.volume,
         )
 
     def set_output(self, identifier: str) -> None:
-        self.current = identifier if identifier.startswith("sink:") else "sink:two"
-        self.ensured.append(identifier)
+        self.current = identifier
 
-    def ensure_output(self, identifier: str) -> str:
-        self.ensured.append(identifier)
-        return identifier.removeprefix("sink:") if identifier.startswith("sink:") else "digital"
+    def ensure_hdmi_surround(self) -> None:
+        self.ensured_surround += 1
 
     def set_volume(self, volume: int) -> None:
         self.volume = volume
@@ -73,11 +70,11 @@ def test_audio_controls_are_asynchronous_and_controller_accessible(
     parent = QWidget()
     audio = Audio()
     preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
-    window = AudioWindow(audio, preferences, (("kodi", "Kodi"),), DEFAULT_THEME, "en", parent)
+    window = AudioWindow(audio, preferences, DEFAULT_THEME, "en", parent)
     window.show()
     _wait(application, lambda: window.output.isEnabled())
     assert window.output.currentText() == "HDMI"
-    assert "Use system default" in [window._app_combos["kodi"].itemText(i) for i in range(window._app_combos["kodi"].count())]
+    assert window.output.count() == 2
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert window.volume.hasFocus()
     window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
@@ -95,31 +92,12 @@ def test_audio_controls_are_asynchronous_and_controller_accessible(
     parent.close()
 
 
-def test_per_application_output_is_persisted(application: QApplication, tmp_path: Path) -> None:
-    """Choosing an application output writes audio.yaml without changing the default sink."""
-    parent = QWidget()
-    audio = Audio()
-    preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
-    window = AudioWindow(audio, preferences, (("kodi", "Kodi"),), DEFAULT_THEME, "en", parent)
-    window.show()
-    _wait(application, lambda: window.output.isEnabled())
-    combo = window._app_combos["kodi"]
-    digital = combo.findData("profile:card:output:iec958-stereo")
-    assert digital >= 0
-    combo.setCurrentIndex(digital)
-    window._apply_application("kodi", combo, digital)
-    assert preferences.resolve("kodi") == "profile:card:output:iec958-stereo"
-    assert audio.current == "sink:one"
-    window.close()
-    parent.close()
-
-
 def test_keyboard_enter_opens_audio_selector(application: QApplication, tmp_path: Path) -> None:
     """Keyboard activation opens output choices instead of a default action."""
     parent = QWidget()
     audio = Audio()
     preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
-    window = AudioWindow(audio, preferences, (), DEFAULT_THEME, "en", parent)
+    window = AudioWindow(audio, preferences, DEFAULT_THEME, "en", parent)
     window.show()
     _wait(application, lambda: window.output.isEnabled())
     QTest.keyClick(window.output, Qt.Key.Key_Return)
@@ -141,7 +119,7 @@ def test_audio_errors_are_visible(application: QApplication, tmp_path: Path) -> 
 
     parent = QWidget()
     preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
-    window = AudioWindow(Unavailable(), preferences, (), DEFAULT_THEME, "en", parent)
+    window = AudioWindow(Unavailable(), preferences, DEFAULT_THEME, "en", parent)
     window.show()
     _wait(application, lambda: "No audio server" in window.status.text())
     assert window.refresh.isEnabled()

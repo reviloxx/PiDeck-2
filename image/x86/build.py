@@ -195,14 +195,6 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     shutil.copytree(ROOT / "assets", root / "usr/share/pideck/assets")
     _install(PI_FILES / "pideck.yaml", root / "usr/share/pideck/config/pideck.yaml")
     _install(PI_FILES / "70-pideck-cec.rules", root / "etc/udev/rules.d/70-pideck-cec.rules")
-    _install(
-        INPUTS / "91-pideck-oxygen-pulse.rules",
-        root / "etc/udev/rules.d/91-pideck-oxygen-pulse.rules",
-    )
-    _install(
-        INPUTS / "pulse-pideck-oxygen.conf",
-        root / "usr/share/pulseaudio/alsa-mixer/profile-sets/pideck-oxygen.conf",
-    )
     _install(PI_FILES / "window-modes.yaml", root / "usr/share/pideck/config/window-modes.yaml")
     _install(PI_FILES / "openbox/rc.xml", root / "usr/share/pideck/openbox/rc.xml")
     for name in ("pideck-session", "pideck-xsession"):

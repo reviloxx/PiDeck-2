@@ -1,7 +1,6 @@
 """Tests for PulseAudio-compatible system audio operations."""
 
 import json
-from pathlib import Path
 import subprocess
 
 import pytest
@@ -10,55 +9,16 @@ from pideck.application.ports.audio import AudioError
 from pideck.infrastructure.system_audio import PulseAudioGateway
 
 
-def _empty_proc(tmp_path: Path) -> Path:
-    (tmp_path / "asound").mkdir(exist_ok=True)
-    (tmp_path / "asound/cards").write_text("", encoding="utf-8")
-    return tmp_path
-
-
-def _xonar_digital_proc(tmp_path: Path) -> Path:
-    asound = tmp_path / "asound"
-    asound.mkdir()
-    (asound / "cards").write_text(
-        " 0 [DX             ]: AV200 - Xonar DX\n"
-        "                      Asus Virtuoso 100 at 0xe000, irq 16\n",
-        encoding="utf-8",
-    )
-    card = asound / "card0"
-    (card / "pcm0p").mkdir(parents=True)
-    (card / "pcm0p/info").write_text(
-        "card: 0\ndevice: 0\nstream: PLAYBACK\nid: Multichannel\nname: Multichannel\n",
-        encoding="utf-8",
-    )
-    (card / "pcm1p").mkdir(parents=True)
-    (card / "pcm1p/info").write_text(
-        "card: 0\ndevice: 1\nstream: PLAYBACK\nid: Digital\nname: Digital\n",
-        encoding="utf-8",
-    )
-    return tmp_path
-
-
-def test_audio_outputs_include_inactive_digital_profiles(monkeypatch, tmp_path: Path) -> None:
-    """S/PDIF and other inactive output profiles appear beside active sinks."""
+def test_inspect_lists_active_sinks_only(monkeypatch) -> None:
+    """Inactive card profiles are not listed in Settings."""
     responses = {
-        ("--format=json", "info"): {"default_sink_name": "alsa_output.pci-xonar.analog-stereo"},
+        ("--format=json", "info"): {"default_sink_name": "alsa_output.pci-hdmi.hdmi-stereo"},
         ("--format=json", "list", "sinks"): [{
-            "index": 4,
-            "name": "alsa_output.pci-xonar.analog-stereo",
-            "description": "Xonar DX Analog Stereo",
+            "index": 1,
+            "name": "alsa_output.pci-hdmi.hdmi-stereo",
+            "description": "HDMI / DisplayPort Stereo",
             "volume": {"front-left": {"value": 32768}, "front-right": {"value": 32768}},
-            "properties": {"alsa.card": "0", "device.profile.name": "output:analog-stereo"},
-        }],
-        ("--format=json", "list", "cards"): [{
-            "index": 0,
-            "name": "alsa_card.pci-xonar",
-            "active_profile": "output:analog-stereo",
-            "profiles": {
-                "output:analog-stereo": {"description": "Analog Stereo"},
-                "output:iec958-stereo": {"description": "Digital Stereo (IEC958) Output"},
-                "off": {"description": "Off"},
-                "input:analog-stereo": {"description": "Analog Stereo Input"},
-            },
+            "properties": {"alsa.card": "0", "device.profile.name": "output:hdmi-stereo"},
         }],
     }
 
@@ -69,187 +29,154 @@ def test_audio_outputs_include_inactive_digital_profiles(monkeypatch, tmp_path: 
         return subprocess.CompletedProcess(command, 0, json.dumps(response) if response is not None else "", "")
 
     monkeypatch.setattr("pideck.infrastructure.system_audio.subprocess.run", run)
-    state = PulseAudioGateway(proc=_empty_proc(tmp_path)).inspect()
-    assert state.current == "sink:alsa_output.pci-xonar.analog-stereo"
+    state = PulseAudioGateway().inspect()
+    assert state.current == "sink:alsa_output.pci-hdmi.hdmi-stereo"
     assert state.volume == 50
-    assert [output.description for output in state.outputs] == [
-        "Xonar DX Analog Stereo",
-        "Digital Stereo (IEC958) Output",
-    ]
-    assert state.outputs[1].identifier == "profile:alsa_card.pci-xonar:output:iec958-stereo"
-
-
-def test_alsa_digital_pcm_appears_when_pulse_lacks_iec958(monkeypatch, tmp_path: Path) -> None:
-    """Xonar Digital PCM is offered when PulseAudio only exposes analog."""
-    responses = {
-        ("--format=json", "info"): {"default_sink_name": "alsa_output.pci-xonar.analog-stereo"},
-        ("--format=json", "list", "sinks"): [{
-            "index": 4,
-            "name": "alsa_output.pci-xonar.analog-stereo",
-            "description": "Xonar DX Analog Stereo",
-            "volume": {"front-left": {"value": 32768}, "front-right": {"value": 32768}},
-            "properties": {"alsa.card": "0", "device.profile.name": "output:analog-stereo"},
-        }],
-        ("--format=json", "list", "cards"): [{
-            "index": 0,
-            "name": "alsa_card.pci-xonar",
-            "active_profile": "output:analog-stereo",
-            "profiles": {
-                "output:analog-stereo": {"description": "Analog Stereo"},
-                "off": {"description": "Off"},
-            },
-        }],
-    }
-
-    def run(command, **kwargs):
-        response = responses.get(tuple(command[1:]))
-        return subprocess.CompletedProcess(command, 0, json.dumps(response) if response is not None else "", "")
-
-    monkeypatch.setattr("pideck.infrastructure.system_audio.subprocess.run", run)
-    state = PulseAudioGateway(proc=_xonar_digital_proc(tmp_path)).inspect()
     assert [output.identifier for output in state.outputs] == [
-        "sink:alsa_output.pci-xonar.analog-stereo",
-        "alsa:hw:0,1",
-    ]
-    assert state.outputs[1].description == "Xonar DX Digital Stereo (S/PDIF)"
-
-
-def test_alsa_digital_is_not_duplicated_when_iec958_profile_exists(
-    monkeypatch, tmp_path: Path,
-) -> None:
-    """Do not add an ALSA fallback when Pulse already exposes IEC958."""
-    responses = {
-        ("--format=json", "info"): {"default_sink_name": "alsa_output.pci-xonar.analog-stereo"},
-        ("--format=json", "list", "sinks"): [{
-            "index": 4,
-            "name": "alsa_output.pci-xonar.analog-stereo",
-            "description": "Xonar DX Analog Stereo",
-            "volume": {"front-left": {"value": 32768}},
-            "properties": {"alsa.card": "0"},
-        }],
-        ("--format=json", "list", "cards"): [{
-            "index": 0,
-            "name": "alsa_card.pci-xonar",
-            "active_profile": "output:analog-stereo",
-            "profiles": {
-                "output:analog-stereo": {"description": "Analog Stereo"},
-                "output:iec958-stereo": {"description": "Digital Stereo (IEC958) Output"},
-            },
-        }],
-    }
-
-    def run(command, **kwargs):
-        response = responses.get(tuple(command[1:]))
-        return subprocess.CompletedProcess(command, 0, json.dumps(response) if response is not None else "", "")
-
-    monkeypatch.setattr("pideck.infrastructure.system_audio.subprocess.run", run)
-    state = PulseAudioGateway(proc=_xonar_digital_proc(tmp_path)).inspect()
-    assert [output.identifier for output in state.outputs] == [
-        "sink:alsa_output.pci-xonar.analog-stereo",
-        "profile:alsa_card.pci-xonar:output:iec958-stereo",
+        "sink:alsa_output.pci-hdmi.hdmi-stereo",
     ]
 
 
-def test_selecting_alsa_digital_loads_module_and_sets_default(monkeypatch, tmp_path: Path) -> None:
-    """Choosing the ALSA Digital PCM loads module-alsa-sink once and uses that sink."""
+def test_set_output_promotes_hdmi_stereo_to_surround_51(monkeypatch) -> None:
+    """Selecting an HDMI sink switches the card to Digital Surround 5.1 when available."""
     commands: list[list[str]] = []
-    sinks: list[dict] = []
-
-    def run(command, **kwargs):
-        commands.append(command)
-        key = tuple(command[1:])
-        if key[:2] == ("--format=json", "list") and key[2:] == ("sinks",):
-            return subprocess.CompletedProcess(command, 0, json.dumps(sinks), "")
-        if key[0] == "load-module":
-            sinks.append({
-                "name": "pideck.spdif.0",
-                "description": "Xonar DX Digital Stereo (S/PDIF)",
-                "volume": {"front-left": {"value": 65536}},
-            })
-            return subprocess.CompletedProcess(command, 0, "42\n", "")
-        if key[0] == "set-default-sink":
-            return subprocess.CompletedProcess(command, 0, "", "")
-        if command[0] == "amixer":
-            return subprocess.CompletedProcess(command, 0, "", "")
-        raise AssertionError(command)
-
-    monkeypatch.setattr("pideck.infrastructure.system_audio.subprocess.run", run)
-    gateway = PulseAudioGateway(proc=_xonar_digital_proc(tmp_path))
-    assert gateway.ensure_output("alsa:hw:0,1") == "pideck.spdif.0"
-    gateway.set_output("alsa:hw:0,1")
-    assert any(command[:3] == ["pactl", "load-module", "module-alsa-sink"] for command in commands)
-    assert ["pactl", "set-default-sink", "pideck.spdif.0"] in commands
-    assert ["amixer", "-c", "0", "set", "IEC958", "unmute"] in commands
-    # Second ensure reuses the loaded sink without loading again.
-    before = len(commands)
-    assert gateway.ensure_output("alsa:hw:0,1") == "pideck.spdif.0"
-    assert not any(command[:3] == ["pactl", "load-module", "module-alsa-sink"] for command in commands[before:])
-
-
-def test_selecting_digital_profile_activates_sink_and_sets_default(monkeypatch) -> None:
-    """Choosing IEC958 switches the card profile then sets the new default sink."""
-    commands: list[list[str]] = []
-    sinks_after_profile = [{
-        "index": 5,
-        "name": "alsa_output.pci-xonar.iec958-stereo",
-        "description": "Xonar DX Digital Stereo (IEC958)",
-        "volume": {"front-left": {"value": 65536}},
-        "properties": {
-            "alsa.card": "0",
-            "device.profile.name": "output:iec958-stereo",
-        },
+    sinks = [{
+        "name": "alsa_output.pci-hdmi.hdmi-stereo",
+        "description": "HDMI Stereo",
+        "volume": {"a": {"value": 65536}},
+        "properties": {"alsa.card": "0", "device.profile.name": "output:hdmi-stereo"},
     }]
     cards = [{
         "index": 0,
-        "name": "alsa_card.pci-xonar",
-        "active_profile": "output:analog-stereo",
+        "name": "alsa_card.pci-hdmi",
+        "active_profile": "output:hdmi-stereo",
         "profiles": {
-            "output:analog-stereo": {"description": "Analog Stereo"},
-            "output:iec958-stereo": {"description": "Digital Stereo (IEC958) Output"},
+            "output:hdmi-stereo": {"description": "Digital Stereo (HDMI)"},
+            "output:hdmi-surround": {"description": "Digital Surround 5.1 (HDMI)"},
+            "output:hdmi-surround71": {"description": "Digital Surround 7.1 (HDMI)"},
+            "off": {"description": "Off"},
         },
     }]
 
     def run(command, **kwargs):
         commands.append(command)
         key = tuple(command[1:])
-        if key == ("set-card-profile", "alsa_card.pci-xonar", "output:iec958-stereo"):
-            return subprocess.CompletedProcess(command, 0, "", "")
-        if key == ("set-default-sink", "alsa_output.pci-xonar.iec958-stereo"):
-            return subprocess.CompletedProcess(command, 0, "", "")
+        if key == ("--format=json", "list", "sinks"):
+            return subprocess.CompletedProcess(command, 0, json.dumps(sinks), "")
         if key == ("--format=json", "list", "cards"):
             return subprocess.CompletedProcess(command, 0, json.dumps(cards), "")
-        if key == ("--format=json", "list", "sinks"):
-            return subprocess.CompletedProcess(command, 0, json.dumps(sinks_after_profile), "")
+        if key == ("set-card-profile", "alsa_card.pci-hdmi", "output:hdmi-surround"):
+            sinks[:] = [{
+                "name": "alsa_output.pci-hdmi.hdmi-surround",
+                "description": "HDMI Surround",
+                "volume": {"a": {"value": 65536}},
+                "properties": {
+                    "alsa.card": "0",
+                    "device.profile.name": "output:hdmi-surround",
+                },
+            }]
+            cards[0]["active_profile"] = "output:hdmi-surround"
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if key == ("set-default-sink", "alsa_output.pci-hdmi.hdmi-surround"):
+            return subprocess.CompletedProcess(command, 0, "", "")
         raise AssertionError(command)
 
     monkeypatch.setattr("pideck.infrastructure.system_audio.subprocess.run", run)
-    gateway = PulseAudioGateway()
-    assert gateway.ensure_output("profile:alsa_card.pci-xonar:output:iec958-stereo") == (
-        "alsa_output.pci-xonar.iec958-stereo"
-    )
-    gateway.set_output("profile:alsa_card.pci-xonar:output:iec958-stereo")
-    assert ["pactl", "set-card-profile", "alsa_card.pci-xonar", "output:iec958-stereo"] in commands
-    assert ["pactl", "set-default-sink", "alsa_output.pci-xonar.iec958-stereo"] in commands
+    PulseAudioGateway().set_output("sink:alsa_output.pci-hdmi.hdmi-stereo")
+    assert ["pactl", "set-card-profile", "alsa_card.pci-hdmi", "output:hdmi-surround"] in commands
+    assert ["pactl", "set-default-sink", "alsa_output.pci-hdmi.hdmi-surround"] in commands
 
 
-def test_set_output_by_sink_name(monkeypatch) -> None:
-    """Existing sinks are selected by stable name without profile switching."""
+def test_ensure_hdmi_surround_upgrades_default_sink(monkeypatch) -> None:
+    """Kodi launch promotes the current default HDMI stereo sink to surround 5.1."""
+    commands: list[list[str]] = []
+    sinks = [{
+        "name": "alsa_output.pci-hdmi.hdmi-stereo",
+        "description": "HDMI Stereo",
+        "volume": {"a": {"value": 65536}},
+        "properties": {"alsa.card": "0", "device.profile.name": "output:hdmi-stereo"},
+    }]
+    cards = [{
+        "index": 0,
+        "name": "alsa_card.pci-hdmi",
+        "active_profile": "output:hdmi-stereo",
+        "profiles": {
+            "output:hdmi-stereo": {"description": "Digital Stereo (HDMI)"},
+            "output:hdmi-surround": {"description": "Digital Surround 5.1 (HDMI)"},
+        },
+    }]
+
+    def run(command, **kwargs):
+        commands.append(command)
+        key = tuple(command[1:])
+        if key == ("--format=json", "info"):
+            return subprocess.CompletedProcess(
+                command, 0, json.dumps({"default_sink_name": "alsa_output.pci-hdmi.hdmi-stereo"}), "",
+            )
+        if key == ("--format=json", "list", "sinks"):
+            return subprocess.CompletedProcess(command, 0, json.dumps(sinks), "")
+        if key == ("--format=json", "list", "cards"):
+            return subprocess.CompletedProcess(command, 0, json.dumps(cards), "")
+        if key == ("set-card-profile", "alsa_card.pci-hdmi", "output:hdmi-surround"):
+            sinks[:] = [{
+                "name": "alsa_output.pci-hdmi.hdmi-surround",
+                "description": "HDMI Surround",
+                "volume": {"a": {"value": 65536}},
+                "properties": {
+                    "alsa.card": "0",
+                    "device.profile.name": "output:hdmi-surround",
+                },
+            }]
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if key == ("set-default-sink", "alsa_output.pci-hdmi.hdmi-surround"):
+            return subprocess.CompletedProcess(command, 0, "", "")
+        raise AssertionError(command)
+
+    monkeypatch.setattr("pideck.infrastructure.system_audio.subprocess.run", run)
+    PulseAudioGateway().ensure_hdmi_surround()
+    assert ["pactl", "set-card-profile", "alsa_card.pci-hdmi", "output:hdmi-surround"] in commands
+    assert ["pactl", "set-default-sink", "alsa_output.pci-hdmi.hdmi-surround"] in commands
+
+
+def test_set_output_by_sink_name_without_hdmi_profile(monkeypatch) -> None:
+    """Non-HDMI sinks are selected by name without profile switching."""
     commands: list[list[str]] = []
 
     def run(command, **kwargs):
         commands.append(command)
-        if tuple(command[1:]) == ("--format=json", "list", "sinks"):
+        key = tuple(command[1:])
+        if key == ("--format=json", "list", "sinks"):
             return subprocess.CompletedProcess(
                 command,
                 0,
-                json.dumps([{"name": "hdmi", "description": "HDMI", "volume": {"a": {"value": 1}}}]),
+                json.dumps([{
+                    "name": "speakers",
+                    "description": "Speakers",
+                    "volume": {"a": {"value": 1}},
+                    "properties": {"alsa.card": "1", "device.profile.name": "output:analog-stereo"},
+                }]),
                 "",
             )
-        return subprocess.CompletedProcess(command, 0, "", "")
+        if key == ("--format=json", "list", "cards"):
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                json.dumps([{
+                    "index": 1,
+                    "name": "alsa_card.speakers",
+                    "active_profile": "output:analog-stereo",
+                    "profiles": {"output:analog-stereo": {"description": "Analog Stereo"}},
+                }]),
+                "",
+            )
+        if key == ("set-default-sink", "speakers"):
+            return subprocess.CompletedProcess(command, 0, "", "")
+        raise AssertionError(command)
 
     monkeypatch.setattr("pideck.infrastructure.system_audio.subprocess.run", run)
-    PulseAudioGateway().set_output("sink:hdmi")
-    assert commands[-1] == ["pactl", "set-default-sink", "hdmi"]
+    PulseAudioGateway().set_output("sink:speakers")
+    assert not any(command[1:2] == ["set-card-profile"] for command in commands)
+    assert commands[-1] == ["pactl", "set-default-sink", "speakers"]
 
 
 @pytest.mark.parametrize("volume", [-1, 101, True])
@@ -263,17 +190,17 @@ def test_audio_rejects_invalid_volume_without_running_commands(monkeypatch, volu
         PulseAudioGateway().set_volume(volume)
 
 
-def test_audio_missing_or_invalid_service_is_reported(monkeypatch, tmp_path: Path) -> None:
+def test_audio_missing_or_invalid_service_is_reported(monkeypatch) -> None:
     """Unavailable backends and malformed output are explicit errors."""
     def missing(*args, **kwargs):
         raise FileNotFoundError("pactl")
 
     monkeypatch.setattr("pideck.infrastructure.system_audio.subprocess.run", missing)
     with pytest.raises(AudioError, match="unavailable"):
-        PulseAudioGateway(proc=_empty_proc(tmp_path)).inspect()
+        PulseAudioGateway().inspect()
     monkeypatch.setattr(
         "pideck.infrastructure.system_audio.subprocess.run",
         lambda command, **kwargs: subprocess.CompletedProcess(command, 0, "not json", ""),
     )
     with pytest.raises(AudioError, match="invalid data"):
-        PulseAudioGateway(proc=_empty_proc(tmp_path)).inspect()
+        PulseAudioGateway().inspect()
