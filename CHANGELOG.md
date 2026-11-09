@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.28
+
+- Fixed: HDMI-CEC reconnects automatically after the TV is turned off and on
+  again (and when the CEC link drops).
+- Changed: PiDeck registers as a CEC playback and recording device so Samsung
+  remotes are more likely to send Stop.
+
 ## v0.5.27
 
 - Added: Settings > Input > CEC debug shows live remote key codes so unmapped

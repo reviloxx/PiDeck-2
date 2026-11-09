@@ -593,6 +593,7 @@ class SettingsWindow(QDialog):
         keys = {
             "Connected": "cec_status_connected",
             "Connecting": "cec_status_connecting",
+            "Reconnecting": "cec_status_reconnecting",
             "Disconnected": "cec_status_disconnected",
             "Enable HDMI-CEC before connecting": "cec_status_enable_first",
         }

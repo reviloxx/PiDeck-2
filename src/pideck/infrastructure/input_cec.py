@@ -21,6 +21,12 @@ _LOGGER = logging.getLogger(__name__)
 _KEY_PRESS = re.compile(r"\bkey pressed: (.*) \(([0-9a-f]+), (\d+)\)$")
 _KEY_RELEASE = re.compile(r"\bkey released: .* \(([0-9a-f]+)\) D:\d+ms$")
 _KEY_IDLE = re.compile(r"\bKey .*: idle \(duration:\d+\) \(ff\) timeout:")
+# Restart after TV wake or a dropped link; ignore transitions into standby.
+_CONNECTION_LOST = re.compile(r"connection lost", re.IGNORECASE)
+_TV_POWER_ON = re.compile(
+    r"power status changed from .+ to '(?:on|in transition standby to on)'",
+    re.IGNORECASE,
+)
 _ACTIONS = {
     0x00: InputAction.ACTIVATE,
     0x01: InputAction.UP,
@@ -166,6 +172,20 @@ class CecClientAdapter:
 
         threading.Thread(target=stop, name="pideck-cec-stop", daemon=True).start()
 
+    def _request_bus_reconnect(self, process: subprocess.Popen[str], generation: int) -> bool:
+        """Stop ``process`` so ``_run`` opens a fresh client after TV wake or link loss."""
+        with self._condition:
+            if (
+                self._closed or self._suspended or not self._desired
+                or self._process is not process or self._generation != generation
+            ):
+                return False
+            self._generation += 1
+        self._set_status("Reconnecting")
+        _LOGGER.info("Restarting CEC client after TV wake or connection loss")
+        self._stop_async(process)
+        return True
+
     @property
     def generation(self) -> int:
         """Return the generation used to reject queued events after handoff."""
@@ -285,7 +305,9 @@ class CecClientAdapter:
                         self._condition.wait(timeout=self._retry_interval)
                     continue
                 try:
-                    command = ["cec-client", "-d", "31", "-t", "p", "-o", "PiDeck"]
+                    # Playback + recording: Samsung Anynet often withholds Stop unless
+                    # the sink looks like a recorder as well as a player.
+                    command = ["cec-client", "-d", "31", "-t", "p", "-t", "r", "-o", "PiDeck"]
                     if port is not None:
                         command.append(port)
                     process = subprocess.Popen(
@@ -366,6 +388,10 @@ class CecClientAdapter:
                         if self._settings.switch_input and process.stdin is not None:
                             process.stdin.write("as\n")
                             process.stdin.flush()
+                continue
+            if _CONNECTION_LOST.search(line) or _TV_POWER_ON.search(line):
+                if self._request_bus_reconnect(process, generation):
+                    return
                 continue
             if _KEY_IDLE.search(line):
                 held.clear()

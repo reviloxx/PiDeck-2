@@ -210,6 +210,62 @@ def test_cec_rejects_old_client_output_after_handoff() -> None:
     assert not sink.events
 
 
+def test_cec_restarts_on_connection_lost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dropped CEC link stops the client so the worker can open a fresh one."""
+    statuses: list[str] = []
+    stopped: list[object] = []
+    adapter = CecClientAdapter(status_changed=statuses.append)
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    monkeypatch.setattr(adapter, "_stop_async", stopped.append)
+    generation = adapter.generation
+    output = io.StringIO(
+        "Connection lost - trying to reconnect\n"
+        "DEBUG: [1] key pressed: select (0, 0)\n"
+    )
+    adapter._read_output(output, process, generation)
+    assert stopped == [process]
+    assert adapter.generation == generation + 1
+    assert adapter.status == "Reconnecting"
+    assert "Reconnecting" in statuses
+    assert not sink.events
+
+
+def test_cec_restarts_on_tv_power_on_but_not_standby(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TV wake restarts the client; entering standby alone does not."""
+    stopped: list[object] = []
+    adapter = CecClientAdapter()
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    monkeypatch.setattr(adapter, "_stop_async", stopped.append)
+    generation = adapter.generation
+    adapter._read_output(
+        io.StringIO("DEBUG: [1] TV (0): power status changed from 'on' to 'standby'\n"),
+        process,
+        generation,
+    )
+    assert stopped == []
+    assert adapter.generation == generation
+    adapter._read_output(
+        io.StringIO(
+            "DEBUG: [2] TV (0): power status changed from 'standby' to 'on'\n"
+            "DEBUG: [3] key pressed: select (0, 0)\n"
+        ),
+        process,
+        generation,
+    )
+    assert stopped == [process]
+    assert adapter.generation == generation + 1
+    assert adapter.status == "Reconnecting"
+    assert not sink.events
+
+
 def test_cec_releases_process_and_restarts_after_resume(monkeypatch: pytest.MonkeyPatch) -> None:
     """The actual child exits before suspend returns and can be restarted."""
     real_popen = subprocess.Popen
@@ -240,7 +296,7 @@ def test_cec_releases_process_and_restarts_after_resume(monkeypatch: pytest.Monk
         adapter.suspend()
         assert children[0].poll() is not None
         assert not adapter.accepts(old_generation)
-        assert commands[0] == ["cec-client", "-d", "31", "-t", "p", "-o", "PiDeck"]
+        assert commands[0] == ["cec-client", "-d", "31", "-t", "p", "-t", "r", "-o", "PiDeck"]
         sink.received.clear()
         adapter.resume()
         assert sink.received.wait(3)
