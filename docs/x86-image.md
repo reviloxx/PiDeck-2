@@ -253,10 +253,16 @@ Images built from v0.4.0 or later include `udisks2`, a polkit rule
 (`/etc/polkit-1/rules.d/50-pideck-udisks.rules`) that lets the session user's
 `plugdev` group mount, unmount and power off data drives, and an Xorg snippet
 (`/etc/X11/xorg.conf.d/00-pideck-keyboard.conf`) that makes German QWERTZ the
-default for every keyboard. The v0.4.0 application update adds the Drives
-window and the keyboard layout setting to older images too, but mounting
-drives there reports that a newer image is required, because application
-updates do not install packages or polkit rules. Reflash to enable it.
+default for every keyboard. Current images also install Samba (`smbd`/`nmbd`),
+a guest-capable `/etc/samba/smb.conf`, and an empty
+`/var/lib/pideck/samba/shares.conf` drop-in that Settings > Drives rewrites
+when you share a mounted drive on the LAN. The privileged updater broker
+exposes `share_enable` / `share_disable` for those exports. The hostname is
+`pideck`, so LAN clients can open `smb://pideck/<ShareName>` as Guest. The
+v0.4.0 application update adds the Drives window and the keyboard layout
+setting to older images too, but mounting or sharing drives there reports
+that a newer image is required, because application updates do not install
+packages, polkit rules or Samba. Reflash to enable it.
 
 ## VirtualBox
 
@@ -422,9 +428,10 @@ passwords and may still be required.
 Common non-free firmware is included for hardware compatibility, but no
 particular graphics, Wi-Fi, audio or controller chipset is guaranteed.
 Settings includes X11 display modes with timed rollback, PulseAudio-compatible
-audio controls and BlueZ Bluetooth pairing; these require compatible hardware
-and an authorized active session. See [Settings](../README.md#settings) for
-backend limitations and behavior.
+audio controls (system default, inactive digital profiles such as IEC958, and
+per-application outputs) and BlueZ Bluetooth pairing; these require compatible
+hardware and an authorized active session. See [Settings](../README.md#settings)
+for backend limitations and behavior.
 Network setup is authorized only for the active local appliance account.
 Third-party app updates use the existing apt/Flatpak integration when
 available; NoMachine Player has no update repository and is reported as
@@ -443,7 +450,9 @@ partition and package manifests, and test:
 - Offline Wi-Fi prompt, skip, Settings entry, WPA connection and reconnect;
   Ethernet; keyboard, mouse and controller navigation.
 - Display mode confirmation, timeout rollback, and restoration after reboot;
-  audio device selection and volume; Bluetooth discovery, pairing confirmation,
+  audio device selection and volume, including Digital Stereo (IEC958 / S/PDIF)
+  when the card exposes it, plus per-application outputs (for example Kodi on
+  Xonar S/PDIF and YouTube on HDMI); Bluetooth discovery, pairing confirmation,
   connect/disconnect and cancellation; restart and shutdown authorization.
 - Installing, launching and removing every catalog application from Settings,
   its external window, return to PiDeck, audio, video, updates, German user
@@ -464,7 +473,8 @@ partition and package manifests, and test:
   Link and YouTube start with GPU rendering; YouTube playback at 1080p does not
   drop frames; a kernel upgrade rebuilds the module; System information shows
   the expected hardware, drivers and audio devices (for example an ASUS Xonar DX
-  with `snd_virtuoso`).
+  with `snd_virtuoso`); Settings → Audio lists Digital Stereo (IEC958) for that
+  card and can route Kodi to S/PDIF while another application uses HDMI.
 
 These are release gates, not claims that the current experimental builder
 has already passed them.

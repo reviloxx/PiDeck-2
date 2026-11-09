@@ -12,17 +12,17 @@ class AudioError(Exception):
 class AudioOutput:
     """Describe one selectable output exposed by the audio server."""
 
-    identifier: int
+    identifier: str
     name: str
     description: str
 
 
 @dataclass(frozen=True, slots=True)
 class AudioState:
-    """Describe the active output and its current volume."""
+    """Describe available outputs and the active system default volume."""
 
     outputs: tuple[AudioOutput, ...]
-    current: int
+    current: str
     volume: int
 
 
@@ -30,11 +30,15 @@ class AudioGateway(Protocol):
     """Inspect and adjust host audio through an injected platform adapter."""
 
     def inspect(self) -> AudioState:
-        """Return the available outputs and current output volume."""
+        """Return the available outputs and current default output volume."""
         ...
 
-    def set_output(self, identifier: int) -> None:
-        """Select an available output."""
+    def set_output(self, identifier: str) -> None:
+        """Select the system default output, activating a card profile when needed."""
+        ...
+
+    def ensure_output(self, identifier: str) -> str:
+        """Make ``identifier`` usable and return its PulseAudio sink name."""
         ...
 
     def set_volume(self, volume: int) -> None:

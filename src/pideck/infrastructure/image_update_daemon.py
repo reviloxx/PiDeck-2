@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from pideck.infrastructure.image_update_store import ImageUpdateStore
 from pideck.infrastructure.privileged_apps import ApplicationOperations, ApplicationPlans
+from pideck.infrastructure.privileged_shares import ShareOperations
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -160,6 +161,7 @@ class UpdateServer(socketserver.ThreadingUnixStreamServer):
     def __init__(
         self, path: Path, store: ImageUpdateStore, allowed_uid: int = 1000,
         plans: ApplicationPlans | None = None,
+        shares: ShareOperations | None = None,
     ) -> None:
         """Bind the Unix socket and initialize operations."""
         self.store = store
@@ -167,6 +169,7 @@ class UpdateServer(socketserver.ThreadingUnixStreamServer):
         guard = threading.Lock()
         self.packages = PackageOperations(guard)
         self.applications = ApplicationOperations(plans or ApplicationPlans(), guard)
+        self.shares = shares or ShareOperations()
         self._slots = threading.BoundedSemaphore(16)
         super().__init__(str(path), _RequestHandler)
         path.chmod(0o666)
@@ -207,6 +210,8 @@ class UpdateServer(socketserver.ThreadingUnixStreamServer):
             "app_remove": {"action", "id"},
             "app_status": {"action", "token"},
             "app_cancel": {"action", "token"},
+            "share_enable": {"action", "uuid", "path", "name"},
+            "share_disable": {"action", "uuid"},
         }
         if action not in keys or set(request) != keys[action]:
             raise ValueError("Unsupported updater request")
@@ -227,7 +232,7 @@ class UpdateServer(socketserver.ThreadingUnixStreamServer):
         if action == "package_status":
             return self.packages.status(request["token"])
         if action == "capabilities":
-            return {"applications": 1}
+            return {"applications": 1, "shares": 1}
         if action in ("app_install", "app_remove"):
             kind = "install" if action == "app_install" else "remove"
             return {"token": self.applications.start(kind, request["id"])}
@@ -236,6 +241,10 @@ class UpdateServer(socketserver.ThreadingUnixStreamServer):
         if action == "app_cancel":
             self.applications.cancel(request["token"])
             return {}
+        if action == "share_enable":
+            return self.shares.enable(request["uuid"], request["path"], request["name"])
+        if action == "share_disable":
+            return self.shares.disable(request["uuid"])
         self.packages.cancel(request["token"])
         return {}
 

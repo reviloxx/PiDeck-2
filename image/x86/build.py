@@ -208,6 +208,13 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(INPUTS / "49-pideck-network.rules", root / "etc/polkit-1/rules.d/49-pideck-network.rules")
     _install(PI_FILES / "50-pideck-udisks.rules", root / "etc/polkit-1/rules.d/50-pideck-udisks.rules")
     _install(PI_FILES / "51-pideck-timezone.rules", root / "etc/polkit-1/rules.d/51-pideck-timezone.rules")
+    _install(PI_FILES / "smb.conf", root / "etc/samba/smb.conf")
+    samba_shares = root / "var/lib/pideck/samba"
+    samba_shares.mkdir(parents=True, exist_ok=True)
+    (samba_shares / "shares.conf").write_text(
+        "# Managed by PiDeck. Do not edit; Settings > Drives rewrites this file.\n",
+        encoding="utf-8",
+    )
     _install(PI_FILES / "00-pideck-keyboard.conf", root / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf")
     cec_support = ROOT / "src/pideck/infrastructure/cec_support"
     _install(cec_support / "71-pideck-cec-attach.rules", root / "etc/udev/rules.d/71-pideck-cec-attach.rules")
@@ -368,8 +375,9 @@ def _configure(root: Path, loop: str, tag: str | None) -> None:
         f"UUID={root_uuid} / ext4 defaults 0 1\n"
         f"UUID={efi_uuid} /boot/efi vfat umask=0077 0 2\n", encoding="utf-8",
     )
-    _run("systemctl", "--root", str(root), "enable", "NetworkManager", "bluetooth.service", "pideck-updater.service",
-         "pideck-grow-root.service", "pideck-nvidia-load.service", "getty@tty1.service")
+    _run("systemctl", "--root", str(root), "enable", "NetworkManager", "bluetooth.service", "smbd.service",
+         "nmbd.service", "pideck-updater.service", "pideck-grow-root.service", "pideck-nvidia-load.service",
+         "getty@tty1.service")
     chroot("grub-install", "--target=i386-pc", "--no-nvram", loop)
     chroot("grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",
            "--bootloader-id=PiDeck", "--removable", "--no-nvram")

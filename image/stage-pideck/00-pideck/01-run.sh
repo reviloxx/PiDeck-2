@@ -27,6 +27,10 @@ install -m 644 files/pideck.yaml "${ROOTFS_DIR}/usr/share/pideck/config/pideck.y
 install -m 644 files/70-pideck-cec.rules "${ROOTFS_DIR}/etc/udev/rules.d/70-pideck-cec.rules"
 install -m 644 files/50-pideck-udisks.rules "${ROOTFS_DIR}/etc/polkit-1/rules.d/50-pideck-udisks.rules"
 install -m 644 files/51-pideck-timezone.rules "${ROOTFS_DIR}/etc/polkit-1/rules.d/51-pideck-timezone.rules"
+install -d "${ROOTFS_DIR}/etc/samba" "${ROOTFS_DIR}/var/lib/pideck/samba"
+install -m 644 files/smb.conf "${ROOTFS_DIR}/etc/samba/smb.conf"
+printf '%s\n' '# Managed by PiDeck. Do not edit; Settings > Drives rewrites this file.' \
+    > "${ROOTFS_DIR}/var/lib/pideck/samba/shares.conf"
 install -m 644 files/00-pideck-keyboard.conf "${ROOTFS_DIR}/etc/X11/xorg.conf.d/00-pideck-keyboard.conf"
 install -m 644 files/project/src/pideck/infrastructure/cec_support/71-pideck-cec-attach.rules \
     "${ROOTFS_DIR}/etc/udev/rules.d/71-pideck-cec-attach.rules"
@@ -80,6 +84,8 @@ plymouth-set-default-theme pideck
 update-initramfs -u -k all
 systemctl enable NetworkManager
 systemctl enable bluetooth.service
+systemctl enable smbd.service
+systemctl enable nmbd.service
 systemctl enable pideck-updater.service
 # A NoMachine Player install must never start a remote-desktop server.
 systemctl mask nxserver.service

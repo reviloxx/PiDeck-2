@@ -5,4 +5,4 @@ qt6-qpa-plugins qt6-svg-plugins fonts-dejavu-core
 xserver-xorg-core xserver-xorg-input-libinput xinit xauth
 openbox picom wmctrl libxres1 x11-xserver-utils x11-utils x11-xkb-utils dbus-x11 libglib2.0-bin
 pulseaudio pulseaudio-utils network-manager bluez ca-certificates openssl
-udisks2 polkitd
+udisks2 polkitd samba

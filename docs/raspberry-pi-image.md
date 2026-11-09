@@ -247,10 +247,15 @@ Images built from v0.4.0 or later include `udisks2`, a polkit rule
 (`/etc/X11/xorg.conf.d/00-pideck-keyboard.conf`) that makes German QWERTZ the
 default for every keyboard. The pi-gen build also sets the console keymap
 to German; a keyboard chosen in Raspberry Pi Imager still applies to the
-console. The v0.4.0 application update adds the Drives
-window and the keyboard layout setting to older images too, but mounting
-drives there reports that a newer image is required, because application
-updates do not install packages or polkit rules. Reflash to enable it.
+console. Current images also install Samba (`smbd`/`nmbd`), a guest-capable
+`/etc/samba/smb.conf`, and an empty
+`/var/lib/pideck/samba/shares.conf` drop-in that Settings > Drives rewrites
+when you share a mounted drive on the LAN. The privileged updater broker
+exposes `share_enable` / `share_disable` for those exports. The v0.4.0
+application update adds the Drives window and the keyboard layout setting to
+older images too, but mounting or sharing drives there reports that a newer
+image is required, because application updates do not install packages,
+polkit rules or Samba. Reflash to enable it.
 
 ## Applications and language
 

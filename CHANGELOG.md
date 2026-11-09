@@ -4,6 +4,17 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.33
+
+- Added: in Settings > Drives, select a drive for options (mount, unmount, and
+  share on the local network). A single click opens the menu. Shared drives are
+  guest read-write Samba exports (`smb://<hostname>/<ShareName>`, for example
+  from Linux Mint Files). Sharing requires a current image with Samba.
+- Added: Settings > Audio can set a system default output and optional
+  per-application outputs (stored in `audio.yaml`). Inactive card profiles such
+  as S/PDIF appear in the list; Kodi follows PulseAudio Default so routing
+  applies.
+
 ## v0.5.32
 
 - Fixed: HDMI-CEC registers as one Player again. Dual Player/Recorder from

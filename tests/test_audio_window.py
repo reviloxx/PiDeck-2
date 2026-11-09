@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from pideck.application.ports.audio import AudioError, AudioOutput, AudioState
 from pideck.application.ports.input import InputAction, InputEvent
+from pideck.infrastructure.audio_preferences import AudioPreferencesStore
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.presentation.qt.audio_window import AudioWindow
@@ -29,14 +30,28 @@ class Audio:
     """In-memory audio gateway."""
 
     def __init__(self) -> None:
-        self.current = 1
+        self.current = "sink:one"
         self.volume = 50
+        self.ensured: list[str] = []
 
     def inspect(self) -> AudioState:
-        return AudioState((AudioOutput(1, "one", "HDMI"), AudioOutput(2, "two", "Speakers")), self.current, self.volume)
+        return AudioState(
+            (
+                AudioOutput("sink:one", "one", "HDMI"),
+                AudioOutput("sink:two", "two", "Speakers"),
+                AudioOutput("profile:card:output:iec958-stereo", "iec958", "Digital Stereo (IEC958) Output"),
+            ),
+            self.current,
+            self.volume,
+        )
 
-    def set_output(self, identifier: int) -> None:
-        self.current = identifier
+    def set_output(self, identifier: str) -> None:
+        self.current = identifier if identifier.startswith("sink:") else "sink:two"
+        self.ensured.append(identifier)
+
+    def ensure_output(self, identifier: str) -> str:
+        self.ensured.append(identifier)
+        return identifier.removeprefix("sink:") if identifier.startswith("sink:") else "digital"
 
     def set_volume(self, volume: int) -> None:
         self.volume = volume
@@ -51,14 +66,18 @@ def _wait(application: QApplication, condition) -> None:
     pytest.fail("Audio operation did not complete")
 
 
-def test_audio_controls_are_asynchronous_and_controller_accessible(application: QApplication) -> None:
+def test_audio_controls_are_asynchronous_and_controller_accessible(
+    application: QApplication, tmp_path: Path,
+) -> None:
     """The controller can navigate and adjust audio using the injected gateway."""
     parent = QWidget()
     audio = Audio()
-    window = AudioWindow(audio, DEFAULT_THEME, "en", parent)
+    preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
+    window = AudioWindow(audio, preferences, (("kodi", "Kodi"),), DEFAULT_THEME, "en", parent)
     window.show()
     _wait(application, lambda: window.output.isEnabled())
     assert window.output.currentText() == "HDMI"
+    assert "Use system default" in [window._app_combos["kodi"].itemText(i) for i in range(window._app_combos["kodi"].count())]
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert window.volume.hasFocus()
     window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
@@ -68,39 +87,61 @@ def test_audio_controls_are_asynchronous_and_controller_accessible(application: 
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    _wait(application, lambda: audio.current == 2 and window.output.isEnabled())
+    _wait(application, lambda: audio.current == "sink:two" and window.output.isEnabled())
     assert window.output.currentText() == "Speakers"
+    assert preferences.load().default == "sink:two"
     window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
     assert not window.isVisible()
     parent.close()
 
 
-def test_keyboard_enter_opens_audio_selector(application: QApplication) -> None:
+def test_per_application_output_is_persisted(application: QApplication, tmp_path: Path) -> None:
+    """Choosing an application output writes audio.yaml without changing the default sink."""
+    parent = QWidget()
+    audio = Audio()
+    preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
+    window = AudioWindow(audio, preferences, (("kodi", "Kodi"),), DEFAULT_THEME, "en", parent)
+    window.show()
+    _wait(application, lambda: window.output.isEnabled())
+    combo = window._app_combos["kodi"]
+    digital = combo.findData("profile:card:output:iec958-stereo")
+    assert digital >= 0
+    combo.setCurrentIndex(digital)
+    window._apply_application("kodi", combo, digital)
+    assert preferences.resolve("kodi") == "profile:card:output:iec958-stereo"
+    assert audio.current == "sink:one"
+    window.close()
+    parent.close()
+
+
+def test_keyboard_enter_opens_audio_selector(application: QApplication, tmp_path: Path) -> None:
     """Keyboard activation opens output choices instead of a default action."""
     parent = QWidget()
     audio = Audio()
-    window = AudioWindow(audio, DEFAULT_THEME, "en", parent)
+    preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
+    window = AudioWindow(audio, preferences, (), DEFAULT_THEME, "en", parent)
     window.show()
     _wait(application, lambda: window.output.isEnabled())
     QTest.keyClick(window.output, Qt.Key.Key_Return)
     assert window.output.view().isVisible()
-    assert audio.current == 1
+    assert audio.current == "sink:one"
     QTest.keyClick(window.output.view(), Qt.Key.Key_Down)
     QTest.keyClick(window.output.view(), Qt.Key.Key_Return)
-    _wait(application, lambda: audio.current == 2 and window.output.isEnabled())
+    _wait(application, lambda: audio.current == "sink:two" and window.output.isEnabled())
     assert window.output.currentText() == "Speakers"
     window.close()
     parent.close()
 
 
-def test_audio_errors_are_visible(application: QApplication) -> None:
+def test_audio_errors_are_visible(application: QApplication, tmp_path: Path) -> None:
     """Unavailable audio is reported and refresh stays accessible."""
     class Unavailable(Audio):
         def inspect(self) -> AudioState:
             raise AudioError("No audio server")
 
     parent = QWidget()
-    window = AudioWindow(Unavailable(), DEFAULT_THEME, "en", parent)
+    preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
+    window = AudioWindow(Unavailable(), preferences, (), DEFAULT_THEME, "en", parent)
     window.show()
     _wait(application, lambda: "No audio server" in window.status.text())
     assert window.refresh.isEnabled()

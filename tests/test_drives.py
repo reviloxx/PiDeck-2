@@ -186,16 +186,27 @@ def test_udisks_errors_are_readable_and_unknown_devices_rejected(tmp_path: Path)
 def test_drive_preferences_round_trip(tmp_path: Path) -> None:
     preferences = DrivePreferences(tmp_path / "drives.yaml")
     assert preferences.load() == frozenset()
+    assert preferences.load_shared() == frozenset()
     preferences.remember(MEDIA_UUID)
     preferences.remember(DATA_UUID)
     assert preferences.load() == frozenset({MEDIA_UUID, DATA_UUID})
     saved = (tmp_path / "drives.yaml").read_text(encoding="utf-8")
-    assert "version: 1" in saved and MEDIA_UUID in saved and DATA_UUID in saved
+    assert "version: 2" in saved and MEDIA_UUID in saved and DATA_UUID in saved
     preferences.forget(MEDIA_UUID)
     assert preferences.load() == frozenset({DATA_UUID})
+    preferences.remember_shared(DATA_UUID)
+    assert preferences.load_shared() == frozenset({DATA_UUID})
+    preferences.forget(DATA_UUID)
+    assert preferences.load() == frozenset()
+    assert preferences.load_shared() == frozenset({DATA_UUID})
+    preferences.forget_shared(DATA_UUID)
+    assert preferences.load_shared() == frozenset()
     with pytest.raises(StorageError):
         preferences.remember("not a uuid!")
-    (tmp_path / "drives.yaml").write_text("version: 2\nuuids: []\n", encoding="utf-8")
+    (tmp_path / "drives.yaml").write_text("version: 1\nuuids:\n- A1B2-C3D4\n", encoding="utf-8")
+    assert preferences.load() == frozenset({MEDIA_UUID})
+    assert preferences.load_shared() == frozenset()
+    (tmp_path / "drives.yaml").write_text("version: 3\nuuids: []\n", encoding="utf-8")
     with pytest.raises(StorageError, match="Invalid saved drive settings"):
         preferences.load()
 
@@ -373,7 +384,9 @@ class Storage:
     def __init__(self, available: bool = True) -> None:
         self.is_available = available
         self.drives = {
-            "/dev/sdb1": Drive("/dev/sdb1", "MEDIA", "exfat", 32_000_000_000, None, True, "/dev/sdb"),
+            "/dev/sdb1": Drive(
+                "/dev/sdb1", "MEDIA", "exfat", 32_000_000_000, None, True, "/dev/sdb", MEDIA_UUID, "MEDIA",
+            ),
         }
         self.fail: str | None = None
 
@@ -386,11 +399,56 @@ class Storage:
     def mount(self, drive: Drive) -> str:
         if self.fail:
             raise StorageError(self.fail)
-        self.drives[drive.device] = Drive(**{**_fields(drive), "mountpoint": "/media/pideck/MEDIA"})
-        return "/media/pideck/MEDIA"
+        path = f"/media/pideck/by-uuid/{drive.uuid or 'MEDIA'}"
+        self.drives[drive.device] = Drive(**{**_fields(drive), "mountpoint": path})
+        return path
 
     def unmount(self, drive: Drive) -> None:
         self.drives[drive.device] = Drive(**{**_fields(drive), "mountpoint": None})
+
+
+class Shares:
+    """In-memory share gateway."""
+
+    def __init__(self, available: bool = True) -> None:
+        self.is_available = available
+        self.shared: set[str] = set()
+        self.released: list[str] = []
+        self.fail: str | None = None
+
+    def available(self) -> bool:
+        return self.is_available
+
+    def is_shared(self, uuid: str | None) -> bool:
+        return uuid is not None and uuid in self.shared
+
+    def share_name(self, drive: Drive) -> str:
+        return drive.filesystem_label or drive.label
+
+    def share(self, drive: Drive) -> str:
+        from pideck.application.ports.sharing import ShareError
+
+        if self.fail:
+            raise ShareError(self.fail)
+        assert drive.uuid is not None
+        self.shared.add(drive.uuid)
+        return f"smb://pideck/{self.share_name(drive)}"
+
+    def unshare(self, drive: Drive) -> None:
+        if drive.uuid is not None:
+            self.shared.discard(drive.uuid)
+
+    def release(self, drive: Drive) -> None:
+        if drive.uuid is not None:
+            self.released.append(drive.uuid)
+
+    def restore_shared(self) -> None:
+        return None
+
+    def ensure_preferred(self, drive: Drive) -> str | None:
+        if self.is_shared(drive.uuid):
+            return self.share(drive)
+        return None
 
 
 def _fields(drive: Drive) -> dict:
@@ -406,37 +464,77 @@ def _wait(application: QApplication, condition) -> None:
     pytest.fail("Drive operation did not finish")
 
 
+def test_drives_window_opens_options_on_single_click(application: QApplication) -> None:
+    parent = QWidget()
+    window = DrivesWindow(Storage(), DEFAULT_THEME, "en", parent, shares=Shares())
+    window.show()
+    _wait(application, lambda: window.drives.count() == 1 and window.drives.isEnabled())
+    assert window.dialog is None
+    window.drives.itemClicked.emit(window.drives.item(0))
+    application.processEvents()
+    assert window.dialog is not None
+    assert window.dialog.actions() == ("mount",)
+    assert window.dialog.isVisible()
+    window.dialog.reject()
+    window.close()
+    parent.close()
+
+
 def test_drives_window_mounts_and_unmounts_with_controller(application: QApplication) -> None:
+    from pideck.application.drive_items import DriveAction
+
     parent = QWidget()
     storage = Storage()
-    window = DrivesWindow(storage, DEFAULT_THEME, "en", parent)
+    shares = Shares()
+    window = DrivesWindow(storage, DEFAULT_THEME, "en", parent, shares=shares)
     window.show()
     _wait(application, lambda: window.drives.count() == 1 and window.drives.isEnabled())
     assert "not mounted" in window.drives.item(0).text()
-    assert window.toggle.text() == "Mount"
     window.drives.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    application.processEvents()
+    assert window.dialog is not None
+    assert window.dialog.actions() == ("mount",)
+    window.dialog.choose(DriveAction.MOUNT)
     _wait(application, lambda: storage.drives["/dev/sdb1"].mounted and window.drives.isEnabled())
-    assert "/media/pideck/MEDIA" in window.drives.item(0).text()
-    assert "/media/pideck/MEDIA" in window.status.text()
-    assert window.toggle.text() == "Unmount"
-    window.toggle.setFocus()
+    assert "/media/pideck/by-uuid/" in window.drives.item(0).text()
+    assert "mounted at" in window.status.text()
+    window.drives.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    application.processEvents()
+    assert window.dialog is not None
+    assert "unmount" in window.dialog.actions()
+    assert "share" in window.dialog.actions()
+    window.dialog.choose(DriveAction.SHARE)
+    _wait(application, lambda: MEDIA_UUID in shares.shared and window.drives.isEnabled())
+    assert "smb://pideck/MEDIA" in window.status.text()
+    assert "shared as MEDIA" in window.drives.item(0).text()
+    window.drives.setFocus()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    application.processEvents()
+    window.dialog.choose(DriveAction.UNMOUNT)
     _wait(application, lambda: not storage.drives["/dev/sdb1"].mounted and window.drives.isEnabled())
     assert "removed safely" in window.status.text()
+    assert shares.released == [MEDIA_UUID]
+    assert MEDIA_UUID in shares.shared
     window.handle_input(InputEvent(InputAction.BACK, "gamepad"))
     assert not window.isVisible()
     parent.close()
 
 
 def test_drives_window_reports_errors_and_old_images(application: QApplication) -> None:
+    from pideck.application.drive_items import DriveAction
+
     parent = QWidget()
     storage = Storage()
     storage.fail = "Not authorized"
-    window = DrivesWindow(storage, DEFAULT_THEME, "de", parent)
+    window = DrivesWindow(storage, DEFAULT_THEME, "de", parent, shares=Shares())
     window.show()
     _wait(application, lambda: window.drives.isEnabled())
-    window.toggle.click()
+    window.activate_selected()
+    application.processEvents()
+    assert window.dialog is not None
+    window.dialog.choose(DriveAction.MOUNT)
     _wait(application, lambda: window.drives.isEnabled() and "Not authorized" in window.status.text())
     assert window.status.property("error") is True
     window.close()
@@ -444,7 +542,7 @@ def test_drives_window_reports_errors_and_old_images(application: QApplication) 
     old.show()
     application.processEvents()
     assert "newer PiDeck image" in old.status.text()
-    assert not old.toggle.isEnabled() and old.back.isEnabled()
+    assert not old.drives.isEnabled() and old.back.isEnabled()
     old.close()
     parent.close()
 

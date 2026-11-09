@@ -1,12 +1,13 @@
 """Application launch session orchestration."""
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 import logging
 import threading
 import shlex
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 from uuid import uuid4
 
 from pideck.application.ports.process import (
@@ -20,6 +21,7 @@ from pideck.domain.configuration import ApplicationDefinition, ApplicationProfil
 from pideck.domain.errors import PiDeckError, ProcessError
 
 _LOGGER = logging.getLogger(__name__)
+CommandEnvironment = Callable[[ApplicationDefinition], Mapping[str, str]]
 
 
 class SessionState(StrEnum):
@@ -112,17 +114,21 @@ class ApplicationSessionService:
         visibility_detector: ProcessVisibilityDetector | None = None,
         input_resource: SessionInputResource | None = None,
         releases_input: InputHandoffPolicy | None = None,
+        command_environment: CommandEnvironment | None = None,
     ) -> None:
         """Create a session service with injected process and presentation ports.
 
         ``releases_input`` decides per application whether the exclusive input
         resource is handed over; by default every application receives it.
+        ``command_environment`` adds process environment variables such as
+        ``PULSE_SINK`` without overriding profile-defined values.
         """
         self._supervisor = supervisor
         self._observer = observer
         self._visibility_detector = visibility_detector
         self._input_resource = input_resource
         self._releases_input = releases_input or (lambda _: True)
+        self._command_environment = command_environment or (lambda _: {})
         self._input_suspended = False
         self._closed = False
         self._lifecycle_lock = threading.RLock()
@@ -307,8 +313,8 @@ class ApplicationSessionService:
             return _PROFILE_REQUIRED
         return application.profiles[0] if application.profiles else None
 
-    @staticmethod
     def _command_for(
+        self,
         application: ApplicationDefinition,
         profile: ApplicationProfile | None,
     ) -> ProcessCommand:
@@ -331,6 +337,8 @@ class ApplicationSessionService:
             profile.arguments if profile else ()
         )
         environment = dict(profile.environment) if profile else {}
+        for key, value in self._command_environment(application).items():
+            environment.setdefault(key, value)
         if application.identifier == "kodi":
             # Browser session exports NVIDIA VA-API vars; Kodi must use VDPAU instead.
             environment["LIBVA_DRIVER_NAME"] = ""

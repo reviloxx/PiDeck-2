@@ -146,7 +146,10 @@ def test_image_configuration_and_assets(tmp_path: Path) -> None:
     }
     assert not optional & set(packages)
     assert {"bluez", "python3-pyside6.qtdbus", "pulseaudio-utils", "cec-utils", "inputattach"} <= set(packages)
-    assert {"udisks2", "polkitd", "x11-xkb-utils"} <= set(packages)
+    assert {"udisks2", "polkitd", "samba", "x11-xkb-utils"} <= set(packages)
+    assert (STAGE / "00-pideck" / "files" / "smb.conf").is_file()
+    run_script = (STAGE / "00-pideck" / "01-run.sh").read_text()
+    assert "smbd.service" in run_script and "var/lib/pideck/samba" in run_script
     assert "cec" in config.input.enabled_sources
 
     shutil.copytree(ROOT / "assets", tmp_path / "assets")

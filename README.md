@@ -185,24 +185,31 @@ able to replace both the release and its manifest can distribute altered code.
   the change. Confirmed modes are stored in `display.yaml` beside the PiDeck
   configuration and restored on later X11 sessions if still available. Wayland
   display configuration is not supported.
-- Default audio output and volume through `pactl` and a PulseAudio-compatible
-  server, including PipeWire's PulseAudio compatibility service.
+- System default audio output and volume through `pactl` and a PulseAudio-compatible
+  server, including PipeWire's PulseAudio compatibility service. Inactive card
+  profiles such as Digital Stereo (IEC958 / S/PDIF) appear beside active sinks.
+  Each configured application can override the output; selections are stored in
+  `audio.yaml` beside the PiDeck configuration and applied at launch with
+  `PULSE_SINK` (Kodi is kept on PulseAudio Default so that routing applies).
 - Bluetooth power, eight-second discovery, pairing and connecting or
   disconnecting devices through BlueZ. PiDeck uses the first available adapter
   and asks before authorizing a pairing or confirming a displayed code; it
   does not automatically trust devices.
 - Drives: mount and unmount USB sticks, external disks and additional
-  internal partitions through udisks2. Use the stable path
-  `/media/<user>/by-uuid/<UUID>` in Kodi sources (shown in Settings >
-  Drives after mount); udisks may also create a changing
+  internal partitions through udisks2. Select a drive for options. Use the
+  stable path `/media/<user>/by-uuid/<UUID>` in Kodi sources (shown in
+  Settings > Drives after mount); udisks may also create a changing
   `/media/<user>/<label>` directory, and a convenience
   `/media/<user>/by-label/<label>` link exists when the label is unique.
-  Disks with swap or any filesystem mounted outside `/media`, `/mnt` or
-  `/run/media` (such as root, boot, EFI or home) are never listed. Unmounting
-  a removable drive also powers it off so it can be removed safely. Mounting
-  requires an image built from v0.4.0 or later, which ships udisks2 and a
-  polkit rule for the session user's `plugdev` group; older images show a
-  notice instead.
+  Mounted drives can be shared on the LAN as guest read-write Samba
+  exports (`smb://<hostname>/<ShareName>`, for example from Linux Mint
+  Files). Disks with swap or any filesystem mounted outside `/media`,
+  `/mnt` or `/run/media` (such as root, boot, EFI or home) are never
+  listed. Unmounting a removable drive also powers it off so it can be
+  removed safely. Mounting requires an image built from v0.4.0 or later
+  (udisks2 and a polkit rule for the session user's `plugdev` group).
+  Network sharing requires a current image that includes Samba and the
+  privileged share actions; older images omit the share options.
 - NetworkManager connection status and the existing Wi-Fi setup, when
   NetworkManager is available. Advanced IP/DNS settings are not included.
 - Read-only system information: PiDeck, OS and kernel versions, uptime, CPU

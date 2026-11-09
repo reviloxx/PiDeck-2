@@ -43,8 +43,11 @@ from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.catalog import load_catalog
 from pideck.infrastructure.packages.installed import device_architecture
 from pideck.infrastructure.packages.manager import SystemPackageManager
+from pideck.infrastructure.audio_preferences import AudioPreferencesStore
 from pideck.infrastructure.kodi_acceleration import configure_kodi_acceleration
+from pideck.infrastructure.kodi_audio import configure_kodi_audio
 from pideck.infrastructure.kodi_cec import disable_kodi_cec
+from pideck.application.ports.audio import AudioError
 from pideck.infrastructure.session.picom import apply_release_picom
 from pideck.infrastructure.user_defaults import UserDefaultsInstaller
 from pideck.infrastructure.config.window_modes import load_window_modes
@@ -66,6 +69,7 @@ from pideck.application.ports.bluetooth import BluetoothError
 from pideck.infrastructure.process.x11_visibility import X11WindowVisibilityDetector
 from pideck.infrastructure.system_power import SystemPower
 from pideck.infrastructure.system_audio import PulseAudioGateway
+from pideck.infrastructure.samba_shares import SambaShareGateway
 from pideck.infrastructure.udisks_storage import DrivePreferences, UDisksStorageGateway
 from pideck.infrastructure.x11_display import DisplayPreferences, X11DisplayGateway
 from pideck.infrastructure.x11_hotkey import X11HotkeyListener
@@ -370,8 +374,13 @@ def main(arguments: Sequence[str] | None = None) -> int:
     cec_status_bridge.status_received.connect(handle_cec_status, Qt.ConnectionType.QueuedConnection)
     cec_key_bridge.key_received.connect(handle_cec_key, Qt.ConnectionType.QueuedConnection)
     display_gateway = X11DisplayGateway(DisplayPreferences(parsed_arguments.config.parent / "display.yaml"))
-    storage_gateway = UDisksStorageGateway(
-        preferences=DrivePreferences(parsed_arguments.config.parent / "drives.yaml"),
+    audio_gateway = PulseAudioGateway()
+    audio_preferences = AudioPreferencesStore(parsed_arguments.config.parent / "audio.yaml")
+    drive_preferences = DrivePreferences(parsed_arguments.config.parent / "drives.yaml")
+    storage_gateway = UDisksStorageGateway(preferences=drive_preferences)
+    share_gateway = SambaShareGateway(
+        preferences=drive_preferences,
+        list_drives=storage_gateway.list_drives,
     )
 
     class PiDeckUpdateBridge(QObject):
@@ -474,6 +483,22 @@ def main(arguments: Sequence[str] | None = None) -> int:
         """Destroy the current overlay when the application session ends."""
         clear_session_overlay()
 
+    def command_environment(application: ApplicationDefinition) -> dict[str, str]:
+        """Resolve a per-application or system-default PulseAudio sink for launch."""
+        token = audio_preferences.resolve(application.identifier)
+        if token is None:
+            return {}
+        try:
+            sink_name = audio_gateway.ensure_output(token)
+        except AudioError as error:
+            dependencies.logger.warning(
+                "Unable to prepare audio output for %s: %s",
+                application.identifier,
+                error,
+            )
+            return {}
+        return {"PULSE_SINK": sink_name}
+
     session_observer: SessionObserver = _QtSessionObserver(window, hide_session_overlay)
     visibility_detector = X11WindowVisibilityDetector()
     session_service = ApplicationSessionService(
@@ -482,6 +507,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         visibility_detector,
         cec_adapter,
         releases_input=lambda _app: False,
+        command_environment=command_environment,
     )
     key_injector = X11KeyInjector()
     input_forwarding = InputForwardingService(key_injector)
@@ -654,6 +680,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if application_definition.identifier == "kodi":
             disable_kodi_cec()
             configure_kodi_acceleration()
+            configure_kodi_audio()
         result = session_service.request_launch(application_definition)
         if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
             selected_profile = window.choose_profile(result.profiles)
@@ -1023,8 +1050,17 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         parent = settings_window if settings_window is not None and settings_window.isVisible() else window
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        applications = tuple(
+            (application.identifier, application.name)
+            for application in current_configuration.applications
+        )
         audio_window = AudioWindow(
-            PulseAudioGateway(), theme, current_configuration.settings.language, parent,
+            audio_gateway,
+            audio_preferences,
+            applications,
+            theme,
+            current_configuration.settings.language,
+            parent,
         )
         audio_window.showFullScreen()
 
@@ -1039,6 +1075,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         theme = dependencies.theme_repository.get(current_configuration.home.theme)
         drives_window = DrivesWindow(
             storage_gateway, theme, current_configuration.settings.language, parent,
+            shares=share_gateway,
         )
         drives_window.showFullScreen()
 
@@ -1172,7 +1209,22 @@ def main(arguments: Sequence[str] | None = None) -> int:
     window.settings_requested.connect(handle_settings_request)
     window.shutdown_requested.connect(handle_shutdown_request)
     display_gateway.restore_saved_async()
-    storage_gateway.restore_saved_async()
+
+    def restore_drives_and_shares() -> None:
+        """Remount remembered drives, then re-apply preferred Samba exports."""
+        try:
+            storage_gateway.restore_saved()
+        except Exception as error:
+            dependencies.logger.warning("Unable to restore remembered drives: %s", error)
+        try:
+            share_gateway.restore_shared()
+        except Exception as error:
+            dependencies.logger.warning("Unable to restore shared drives: %s", error)
+
+    if drive_preferences.path.exists() and storage_gateway.available():
+        threading.Thread(
+            target=restore_drives_and_shares, name="pideck-drives-restore", daemon=True,
+        ).start()
     sync_installed_applications()
     window.show_launcher()
 

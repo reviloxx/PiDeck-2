@@ -249,7 +249,7 @@ def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_broker_advertises_and_validates_application_requests(server: UpdateServer) -> None:
     """New clients detect support; requests cannot carry package names or commands."""
-    assert image_update_client.request("capabilities") == {"applications": 1}
+    assert image_update_client.request("capabilities") == {"applications": 1, "shares": 1}
     with pytest.raises(image_update_client.ImageUpdateError, match="not available"):
         image_update_client.request("app_install", id="kodi")
     with pytest.raises(image_update_client.ImageUpdateError, match="Unsupported"):

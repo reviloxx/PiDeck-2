@@ -161,39 +161,55 @@ def parse_drives(document: object) -> tuple[Drive, ...]:
 
 
 class DrivePreferences:
-    """Persist filesystem UUIDs the user mounted through Settings."""
+    """Persist mounted and shared filesystem UUIDs from Settings > Drives."""
 
     def __init__(self, path: Path) -> None:
-        """Create a repository for remembered data-drive mounts."""
+        """Create a repository for remembered data-drive mounts and shares."""
         self.path = path
 
     def load(self) -> frozenset[str]:
-        """Load validated UUIDs; a missing file means nothing to remount."""
+        """Load validated mount UUIDs; a missing file means nothing to remount."""
+        mounts, _shared = self.load_state()
+        return mounts
+
+    def load_shared(self) -> frozenset[str]:
+        """Load UUIDs the user opted to export on the LAN."""
+        _mounts, shared = self.load_state()
+        return shared
+
+    def load_state(self) -> tuple[frozenset[str], frozenset[str]]:
+        """Load mount and shared UUID sets; version 1 files have an empty shared set."""
         try:
             document = yaml.safe_load(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            return frozenset()
+            return frozenset(), frozenset()
         except (OSError, UnicodeError, yaml.YAMLError) as error:
             raise StorageError(f"Unable to read drive settings: {error}") from error
-        if not isinstance(document, dict) or document.get("version") != 1:
+        if not isinstance(document, dict):
             raise StorageError("Invalid saved drive settings")
-        values = document.get("uuids")
-        if not isinstance(values, list):
+        version = document.get("version")
+        if version not in (1, 2):
             raise StorageError("Invalid saved drive settings")
-        uuids: set[str] = set()
-        for value in values:
-            uuid = _filesystem_uuid(value)
-            if uuid is None:
-                raise StorageError("Invalid saved drive settings")
-            uuids.add(uuid)
-        return frozenset(uuids)
+        mounts = self._uuid_set(document.get("uuids"))
+        if version == 1:
+            return mounts, frozenset()
+        shared_values = document.get("shared", [])
+        return mounts, self._uuid_set(shared_values)
 
-    def save(self, uuids: frozenset[str]) -> None:
-        """Atomically replace the remembered UUID set."""
+    def save(self, uuids: frozenset[str], shared: frozenset[str] | None = None) -> None:
+        """Atomically replace remembered mounts; preserve shares when omitted."""
         for uuid in uuids:
             if _filesystem_uuid(uuid) is None:
                 raise StorageError("Invalid drive UUID")
-        document = {"version": 1, "uuids": sorted(uuids)}
+        if shared is None:
+            try:
+                _mounts, shared = self.load_state()
+            except StorageError:
+                shared = frozenset()
+        for uuid in shared:
+            if _filesystem_uuid(uuid) is None:
+                raise StorageError("Invalid drive UUID")
+        document = {"version": 2, "uuids": sorted(uuids), "shared": sorted(shared)}
         temporary: Path | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,14 +233,44 @@ class DrivePreferences:
         cleaned = _filesystem_uuid(uuid)
         if cleaned is None:
             raise StorageError("Invalid drive UUID")
-        self.save(self.load() | {cleaned})
+        mounts, shared = self.load_state()
+        self.save(mounts | {cleaned}, shared)
 
     def forget(self, uuid: str) -> None:
         """Remove ``uuid`` after the user explicitly unmounts the drive."""
         cleaned = _filesystem_uuid(uuid)
         if cleaned is None:
             raise StorageError("Invalid drive UUID")
-        self.save(self.load() - {cleaned})
+        mounts, shared = self.load_state()
+        self.save(mounts - {cleaned}, shared)
+
+    def remember_shared(self, uuid: str) -> None:
+        """Remember that ``uuid`` should be exported when mounted."""
+        cleaned = _filesystem_uuid(uuid)
+        if cleaned is None:
+            raise StorageError("Invalid drive UUID")
+        mounts, shared = self.load_state()
+        self.save(mounts, shared | {cleaned})
+
+    def forget_shared(self, uuid: str) -> None:
+        """Forget the LAN share preference for ``uuid``."""
+        cleaned = _filesystem_uuid(uuid)
+        if cleaned is None:
+            raise StorageError("Invalid drive UUID")
+        mounts, shared = self.load_state()
+        self.save(mounts, shared - {cleaned})
+
+    @staticmethod
+    def _uuid_set(values: object) -> frozenset[str]:
+        if not isinstance(values, list):
+            raise StorageError("Invalid saved drive settings")
+        uuids: set[str] = set()
+        for value in values:
+            uuid = _filesystem_uuid(value)
+            if uuid is None:
+                raise StorageError("Invalid saved drive settings")
+            uuids.add(uuid)
+        return frozenset(uuids)
 
 
 class UDisksStorageGateway:
