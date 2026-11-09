@@ -195,6 +195,7 @@ class LauncherWindow(QMainWindow):
         self._has_been_shown = False
         self._tiles: list[LauncherTile] = []
         self._dialog: ConfirmationDialog | None = None
+        self._fullscreen_timers: list[QTimer] = []
         self.setObjectName("launcher_window")
         self.setWindowTitle("PiDeck")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
@@ -231,9 +232,23 @@ class LauncherWindow(QMainWindow):
             self._has_been_shown = True
         self._apply_fullscreen_geometry()
         self.showFullScreen()
+        self.raise_()
+        self.activateWindow()
         self._focus_current_tile()
-        QTimer.singleShot(0, self._enforce_fullscreen)
-        QTimer.singleShot(250, self._enforce_fullscreen)
+
+    def schedule_fullscreen_reassert(self, delay_ms: int = 100) -> None:
+        """Reassert fullscreen after cold-start window-manager mapping."""
+        self._cancel_fullscreen_timers()
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(self._enforce_fullscreen)
+        timer.start(delay_ms)
+        self._fullscreen_timers.append(timer)
+
+    def hideEvent(self, event: object) -> None:
+        """Cancel pending restacks so a hidden launcher cannot reclaim focus."""
+        self._cancel_fullscreen_timers()
+        super().hideEvent(event)
 
     def resizeEvent(self, event: object) -> None:
         """Reflow tiles when the available screen geometry changes."""
@@ -445,9 +460,15 @@ class LauncherWindow(QMainWindow):
             return
         self.setGeometry(screen.geometry())
 
+    def _cancel_fullscreen_timers(self) -> None:
+        """Stop any pending fullscreen reassert timers."""
+        for timer in self._fullscreen_timers:
+            timer.stop()
+        self._fullscreen_timers.clear()
+
     def _enforce_fullscreen(self) -> None:
         """Reassert fullscreen after the window manager maps the launcher."""
-        if not self.isVisible():
+        if not self.isVisible() or self._running_identifier is not None:
             return
         self._apply_fullscreen_geometry()
         self.showFullScreen()
@@ -528,7 +549,7 @@ class LauncherWindow(QMainWindow):
         self.session_visible.emit(application)
 
     def notify_visibility_timeout(self, application: ApplicationDefinition) -> None:
-        """Publish a readiness timeout while keeping the launcher visible."""
+        """Publish a readiness timeout (legacy path; prefer session visible)."""
         self.visibility_timed_out.emit(application)
 
     def set_running_application(self, identifier: str | None) -> None:
@@ -597,9 +618,10 @@ class LauncherWindow(QMainWindow):
         self.hide()
 
     def _handle_visibility_timeout(self, application: ApplicationDefinition) -> None:
-        """Keep the launcher visible and spinner active when readiness is unverified."""
-        self.set_loading_application(application.identifier)
-        self.show_launcher()
+        """Get out of the way when readiness is unverified but the app may be usable."""
+        self.set_loading_application(None)
+        self.set_running_application(application.identifier)
+        self.hide()
 
     def _handle_session_finished(self, application: ApplicationDefinition, return_code: int) -> None:
         """Restore the launcher after an application exits."""

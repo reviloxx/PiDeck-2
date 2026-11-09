@@ -181,7 +181,36 @@ def test_unavailable_saved_mode_is_reported_without_applying(display) -> None:
     preferences.save("DP-1", DisplayMode("1920x1080", "60.00"))
     with pytest.raises(DisplayError, match="DP-1"):
         gateway.restore_saved()
-    assert "--output" not in log.read_text()
+    text = log.read_text()
+    assert "--mode" not in text
+    assert "--output HDMI-1 --brightness 1.00" in text
+
+
+def test_brightness_is_clamped_persisted_and_restored(display) -> None:
+    """Software brightness is clamped, saved, applied to outputs, and restored."""
+    gateway, preferences, log = display
+    assert gateway.get_brightness() == 100
+    gateway.set_brightness(5)
+    assert gateway.get_brightness() == 10
+    assert preferences.load_brightness() == 10
+    assert "--output HDMI-1 --brightness 0.10" in log.read_text()
+    gateway.set_brightness(70)
+    assert gateway.get_brightness() == 70
+    log.write_text("")
+    gateway.restore_saved()
+    assert "--output HDMI-1 --brightness 0.70" in log.read_text()
+
+
+def test_legacy_display_preferences_without_brightness_default_to_full(tmp_path: Path) -> None:
+    """Older display.yaml files that only store outputs remain valid."""
+    path = tmp_path / "display.yaml"
+    path.write_text(
+        "outputs:\n  HDMI-1:\n    resolution: '1920x1080'\n    rate: '60.00'\n",
+        encoding="utf-8",
+    )
+    preferences = DisplayPreferences(path)
+    assert preferences.load() == {"HDMI-1": DisplayMode("1920x1080", "60.00")}
+    assert preferences.load_brightness() == 100
 
 
 def test_restore_failure_is_reported_to_settings(display) -> None:

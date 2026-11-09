@@ -53,3 +53,11 @@ class DisplayGateway(Protocol):
     def begin(self, output: str, mode: DisplayMode) -> DisplayChange:
         """Temporarily apply a validated mode with an independent rollback."""
         ...
+
+    def get_brightness(self) -> int:
+        """Return the persisted software brightness percent (10–100)."""
+        ...
+
+    def set_brightness(self, percent: int) -> None:
+        """Apply and persist whole-screen software brightness for connected outputs."""
+        ...

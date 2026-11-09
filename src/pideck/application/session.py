@@ -284,15 +284,13 @@ class ApplicationSessionService:
             visible(active.application)
 
     def _visibility_timeout(self, handle: ProcessHandle) -> None:
-        """Keep the launcher visible when readiness cannot be verified."""
-        active = self._snapshot
-        if active.handle is None or active.handle.token != handle.token:
-            return
-        if active.application is None or active.state is not SessionState.STARTING:
-            return
-        timeout = getattr(self._observer, "visibility_timeout", None)
-        if timeout is not None:
-            timeout(active.application)
+        """Assume the app is usable when its window cannot be verified.
+
+        Undetected windows (Flatpak, Wine, splash filtering) are common while the
+        app is already on screen. Promoting to RUNNING hides the launcher instead
+        of raising it over the session after the detector timeout.
+        """
+        self._mark_visible(handle)
 
     @staticmethod
     def _select_profile(

@@ -49,6 +49,7 @@ class Display:
         self.modes = (DisplayMode("1920x1080", "60.00"), DisplayMode("1280x720", "60.00"))
         self.change = Change(timeout)
         self.selected = None
+        self.brightness = 100
 
     def inspect(self) -> tuple[DisplayOutput, ...]:
         return (DisplayOutput("HDMI-1", self.modes[0], self.modes),)
@@ -56,6 +57,12 @@ class Display:
     def begin(self, output: str, mode: DisplayMode) -> Change:
         self.selected = (output, mode)
         return self.change
+
+    def get_brightness(self) -> int:
+        return self.brightness
+
+    def set_brightness(self, percent: int) -> None:
+        self.brightness = max(10, min(100, percent))
 
 
 def _wait(application: QApplication, condition) -> None:
@@ -114,6 +121,21 @@ def test_keyboard_enter_opens_mode_selector_without_applying(application: QAppli
     QTest.keyClick(window.apply, Qt.Key.Key_Return)
     _wait(application, lambda: display.selected is not None)
     assert display.selected == ("HDMI-1", display.modes[1])
+    window.close()
+    parent.close()
+
+
+def test_brightness_slider_applies_debounced_value(application: QApplication) -> None:
+    """The brightness control updates the gateway after a short debounce."""
+    parent = QWidget()
+    display = Display()
+    window = DisplayWindow(display, DEFAULT_THEME, "en", parent)
+    window.show()
+    _wait(application, lambda: window.brightness.isEnabled())
+    assert window.brightness.value() == 100
+    window.brightness.setValue(55)
+    assert "55%" in window.brightness_label.text()
+    _wait(application, lambda: display.brightness == 55)
     window.close()
     parent.close()
 

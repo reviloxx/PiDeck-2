@@ -1217,7 +1217,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     sync_installed_applications()
     window.show_launcher()
     # Openbox may have just restarted for the release rc; re-assert fullscreen.
-    QTimer.singleShot(100, window._enforce_fullscreen)
+    window.schedule_fullscreen_reassert(100)
 
     QTimer.singleShot(0, pideck_update_service.check_async)
     if network_gateway is not None and network_setup_enabled:

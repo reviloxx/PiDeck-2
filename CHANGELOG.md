@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.50
+
+- Fixed: The home screen no longer jumps back over a running app after a while.
+  When PiDeck cannot detect the app window, it steps aside instead of raising
+  itself, and delayed fullscreen reasserts are cancelled once the launcher hides.
+- New: Settings > Display has a brightness slider (10–100%) that dims the whole
+  screen, including apps. The value is saved and restored on startup.
+
 ## v0.5.48
 
 - Fixed: PiDeck stays fullscreen. Openbox was restarted on every launch because

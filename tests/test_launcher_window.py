@@ -209,6 +209,49 @@ def test_launcher_waits_for_visibility_before_hiding(application: QApplication) 
     window.close()
 
 
+def test_visibility_timeout_hides_launcher(application: QApplication) -> None:
+    """An unverified window still clears the launcher so it cannot restack."""
+    window = launcher_window(application)
+    target = window._tiles[0].application
+
+    window.notify_session_started(target, None)
+    application.processEvents()
+    window.notify_visibility_timeout(target)
+    application.processEvents()
+
+    assert window.isVisible() is False
+    assert window._running_identifier == target.identifier
+    window.close()
+
+
+def test_hide_cancels_pending_fullscreen_reassert(application: QApplication) -> None:
+    """Pending cold-start reassert timers are dropped when the launcher hides."""
+    window = launcher_window(application)
+    window.schedule_fullscreen_reassert(60_000)
+    assert len(window._fullscreen_timers) == 1
+
+    window.hide()
+    application.processEvents()
+
+    assert window._fullscreen_timers == []
+    window.close()
+
+
+def test_enforce_fullscreen_skips_when_application_running(application: QApplication) -> None:
+    """Fullscreen reassert must not raise the launcher over a running app."""
+    window = launcher_window(application)
+    window.show_launcher()
+    application.processEvents()
+    window.set_running_application("one")
+    window.hide()
+    application.processEvents()
+
+    window._enforce_fullscreen()
+
+    assert window.isVisible() is False
+    window.close()
+
+
 def test_arrow_keys_on_tile_use_grid_navigation(application: QApplication) -> None:
     """Arrow keys delivered to a focused tile move by grid coordinates."""
     window = launcher_window(application)

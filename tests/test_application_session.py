@@ -178,12 +178,9 @@ def test_session_waits_for_application_visibility() -> None:
     assert observer.visible_applications == []
 
     detector.emit_timeout(handle)
-    assert service.snapshot.state is SessionState.STARTING
-    assert observer.timed_out_applications == ["visible"]
-
-    detector.emit_visible(handle)
     assert service.snapshot.state is SessionState.RUNNING
     assert observer.visible_applications == ["visible"]
+    assert observer.timed_out_applications == []
 
     service.close()
 

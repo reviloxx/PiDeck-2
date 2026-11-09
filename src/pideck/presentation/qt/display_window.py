@@ -7,7 +7,15 @@ import time
 
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication, QComboBox, QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QWidget,
+)
 
 from pideck.application.ports.display import DisplayChange, DisplayError, DisplayGateway, DisplayMode, DisplayOutput
 from pideck.application.ports.input import InputAction, InputEvent
@@ -65,18 +73,36 @@ class DisplayWindow(WallpaperDialog):
         self.keep = add_action_button(self, mode_actions, tr(language, "display_keep"))
         self.revert = add_action_button(self, mode_actions, tr(language, "display_revert"))
         layout.addLayout(mode_actions)
+        self.brightness_label = QLabel(tr(language, "display_brightness", brightness=100), self)
+        self.brightness_label.setObjectName("settings_label")
+        layout.addWidget(self.brightness_label)
+        self.brightness = QSlider(Qt.Orientation.Horizontal, self)
+        self.brightness.setObjectName("system_volume")
+        self.brightness.setRange(10, 100)
+        self.brightness.setSingleStep(5)
+        self.brightness.setPageStep(10)
+        self.brightness.setValue(100)
+        layout.addWidget(self.brightness)
         layout.addStretch()
         self.refresh = add_action_button(self, frame.footer, tr(language, "display_refresh"))
         self.back = add_action_button(self, frame.footer, tr(language, "back"), back=True)
-        for control in (self.output, self.mode, self.apply, self.keep, self.revert, self.refresh, self.back):
+        for control in (
+            self.output, self.mode, self.apply, self.keep, self.revert,
+            self.brightness, self.refresh, self.back,
+        ):
             control.installEventFilter(self)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(lambda: self._resolve(False))
+        self._brightness_timer = QTimer(self)
+        self._brightness_timer.setSingleShot(True)
+        self._brightness_timer.setInterval(200)
+        self._brightness_timer.timeout.connect(self._apply_brightness)
         self.output.currentIndexChanged.connect(self._select_output)
         self.apply.clicked.connect(self._apply)
         self.keep.clicked.connect(lambda: self._resolve(True))
         self.revert.clicked.connect(lambda: self._resolve(False))
+        self.brightness.valueChanged.connect(self._brightness_changed)
         self.refresh.clicked.connect(self._refresh)
         self.back.clicked.connect(self.reject)
         self.operation_finished.connect(self._finish_operation)
@@ -88,7 +114,7 @@ class DisplayWindow(WallpaperDialog):
 
     def _submit(self, kind: str, operation: Callable[[], object]) -> None:
         set_status(self.status, tr(self._language, "wifi_working"))
-        for control in (self.output, self.mode, self.apply, self.keep, self.revert, self.refresh):
+        for control in (self.output, self.mode, self.apply, self.keep, self.revert, self.brightness, self.refresh):
             control.setEnabled(False)
         future = self._executor.submit(operation)
 
@@ -107,7 +133,27 @@ class DisplayWindow(WallpaperDialog):
         future.add_done_callback(finish)
 
     def _refresh(self) -> None:
+        self._brightness_timer.stop()
         self._submit("inspect", self._gateway.inspect)
+
+    def _sync_brightness_control(self) -> None:
+        """Load persisted brightness into the slider without re-applying it."""
+        try:
+            value = self._gateway.get_brightness()
+        except DisplayError:
+            value = 100
+        with QSignalBlocker(self.brightness):
+            self.brightness.setValue(value)
+        self.brightness_label.setText(tr(self._language, "display_brightness", brightness=value))
+        self.brightness.setEnabled(True)
+
+    def _brightness_changed(self, value: int) -> None:
+        self.brightness_label.setText(tr(self._language, "display_brightness", brightness=value))
+        self._brightness_timer.start()
+
+    def _apply_brightness(self) -> None:
+        value = self.brightness.value()
+        self._submit("brightness", lambda: self._gateway.set_brightness(value))
 
     def _finish_operation(self, kind: str, future: Future[object]) -> None:
         if self._closed:
@@ -121,12 +167,19 @@ class DisplayWindow(WallpaperDialog):
             result = future.result()
         except DisplayError as error:
             set_status(self.status, tr(self._language, "display_error", message=str(error)), error=True)
+            self.brightness.setEnabled(True)
             self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         except Exception:
             _LOGGER.exception("Unexpected display operation failure")
             set_status(self.status, tr(self._language, "display_error", message=tr(self._language, "display_unavailable")), error=True)
+            self.brightness.setEnabled(True)
             self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        if kind == "brightness":
+            self._sync_brightness_control()
+            set_status(self.status, "")
+            self.brightness.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         if kind == "begin":
             if not isinstance(result, DisplayChange):
@@ -137,6 +190,7 @@ class DisplayWindow(WallpaperDialog):
             self.revert.show()
             self.keep.setEnabled(True)
             self.revert.setEnabled(True)
+            self.brightness.setEnabled(True)
             self.refresh.setEnabled(False)
             set_status(self.status, tr(self._language, "display_confirm"))
             self.revert.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -157,6 +211,7 @@ class DisplayWindow(WallpaperDialog):
         self.output.setEnabled(bool(self._outputs))
         self.mode.setEnabled(bool(self._outputs))
         self.apply.setEnabled(bool(self._outputs))
+        self._sync_brightness_control()
         set_status(self.status, self._notice or "")
         self._notice = None
         if self._outputs:
@@ -234,6 +289,8 @@ class DisplayWindow(WallpaperDialog):
                 watched.showPopup()
                 return True
             if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                if isinstance(watched, QSlider) and watched is self.brightness:
+                    return False
                 for group in ((self.apply, self.keep, self.revert), (self.refresh, self.back)):
                     buttons = [button for button in group if button.isEnabled() and button.isVisible()]
                     if isinstance(watched, QPushButton) and watched in buttons:
@@ -242,7 +299,10 @@ class DisplayWindow(WallpaperDialog):
                         buttons[max(0, min(len(buttons) - 1, index + step))].setFocus(Qt.FocusReason.OtherFocusReason)
                         return True
             controls: list[QWidget] = [
-                control for control in (self.output, self.mode, self.apply, self.keep, self.revert, self.refresh, self.back)
+                control for control in (
+                    self.output, self.mode, self.apply, self.keep, self.revert,
+                    self.brightness, self.refresh, self.back,
+                )
                 if control.isEnabled() and control.isVisible()
             ]
             if isinstance(watched, QWidget) and watched in controls and event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
@@ -255,6 +315,7 @@ class DisplayWindow(WallpaperDialog):
     def _finish(self, _result: int) -> None:
         self._closed = True
         self._timer.stop()
+        self._brightness_timer.stop()
         if self._pending is not None:
             change = self._pending
             self._pending = None

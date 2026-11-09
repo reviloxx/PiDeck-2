@@ -21,12 +21,20 @@ _OUTPUT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 _MODE = re.compile(r"[0-9]{2,5}x[0-9]{2,5}[ip]?\Z")
 _RATE = re.compile(r"([0-9]+(?:\.[0-9]+)?)([+*]*)\Z")
 _TIMEOUT = 10.0
+_DEFAULT_BRIGHTNESS = 100
+_MIN_BRIGHTNESS = 10
+_MAX_BRIGHTNESS = 100
 
 
 def _validate(output: str, mode: DisplayMode) -> None:
     rate = _RATE.fullmatch(mode.rate)
     if not _OUTPUT.fullmatch(output) or not _MODE.fullmatch(mode.resolution) or rate is None or rate.group(2):
         raise DisplayError("Invalid display output or mode")
+
+
+def clamp_brightness(percent: int) -> int:
+    """Clamp software brightness to the supported interactive range."""
+    return max(_MIN_BRIGHTNESS, min(_MAX_BRIGHTNESS, int(percent)))
 
 
 def _parse_outputs(text: str) -> tuple[DisplayOutput, ...]:
@@ -66,24 +74,43 @@ def _parse_outputs(text: str) -> tuple[DisplayOutput, ...]:
 
 
 class DisplayPreferences:
-    """Persist confirmed output modes in a separate per-user YAML file."""
+    """Persist confirmed output modes and software brightness per user."""
 
     def __init__(self, path: Path) -> None:
         """Create a repository for confirmed display settings."""
         self.path = path
 
-    def load(self) -> dict[str, DisplayMode]:
-        """Load validated settings; missing preferences mean no saved modes."""
+    def _read_document(self) -> dict[str, object]:
+        """Load the raw YAML document or an empty defaults-ready structure."""
         try:
             document = yaml.safe_load(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            return {}
+            return {"outputs": {}}
         except (OSError, UnicodeError, yaml.YAMLError) as error:
             raise DisplayError(f"Unable to read display settings: {error}") from error
-        if not isinstance(document, dict) or set(document) != {"outputs"} or not isinstance(document["outputs"], dict):
+        if document is None:
+            return {"outputs": {}}
+        if not isinstance(document, dict):
+            raise DisplayError("Invalid saved display settings")
+        allowed = {"outputs", "brightness"}
+        if not set(document) <= allowed or "outputs" not in document:
+            raise DisplayError("Invalid saved display settings")
+        if not isinstance(document["outputs"], dict):
+            raise DisplayError("Invalid saved display settings")
+        if "brightness" in document:
+            brightness = document["brightness"]
+            if not isinstance(brightness, int) or isinstance(brightness, bool):
+                raise DisplayError("Invalid saved display settings")
+            if not _MIN_BRIGHTNESS <= brightness <= _MAX_BRIGHTNESS:
+                raise DisplayError("Invalid saved display settings")
+        return document
+
+    def _parse_outputs(self, raw_outputs: object) -> dict[str, DisplayMode]:
+        """Validate the outputs mapping from a preferences document."""
+        if not isinstance(raw_outputs, dict):
             raise DisplayError("Invalid saved display settings")
         result: dict[str, DisplayMode] = {}
-        for output, value in document["outputs"].items():
+        for output, value in raw_outputs.items():
             if not isinstance(output, str) or not isinstance(value, dict) or set(value) != {"resolution", "rate"}:
                 raise DisplayError("Invalid saved display settings")
             resolution, rate = value["resolution"], value["rate"]
@@ -94,15 +121,27 @@ class DisplayPreferences:
             result[output] = mode
         return result
 
-    def save(self, output: str, mode: DisplayMode) -> None:
-        """Atomically save a user-confirmed display mode."""
-        _validate(output, mode)
-        values = self.load()
-        values[output] = mode
-        document = {"outputs": {
-            name: {"resolution": value.resolution, "rate": value.rate}
-            for name, value in values.items()
-        }}
+    def load(self) -> dict[str, DisplayMode]:
+        """Load validated output modes; missing preferences mean no saved modes."""
+        return self._parse_outputs(self._read_document()["outputs"])
+
+    def load_brightness(self) -> int:
+        """Load persisted brightness percent, defaulting to full brightness."""
+        document = self._read_document()
+        brightness = document.get("brightness", _DEFAULT_BRIGHTNESS)
+        if not isinstance(brightness, int) or isinstance(brightness, bool):
+            return _DEFAULT_BRIGHTNESS
+        return clamp_brightness(brightness)
+
+    def _write(self, outputs: dict[str, DisplayMode], brightness: int) -> None:
+        """Atomically persist modes and brightness together."""
+        document: dict[str, object] = {
+            "outputs": {
+                name: {"resolution": value.resolution, "rate": value.rate}
+                for name, value in outputs.items()
+            },
+            "brightness": clamp_brightness(brightness),
+        }
         temporary: Path | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,6 +159,17 @@ class DisplayPreferences:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
+
+    def save(self, output: str, mode: DisplayMode) -> None:
+        """Atomically save a user-confirmed display mode."""
+        _validate(output, mode)
+        values = self.load()
+        values[output] = mode
+        self._write(values, self.load_brightness())
+
+    def save_brightness(self, percent: int) -> None:
+        """Atomically save software brightness without dropping saved modes."""
+        self._write(self.load(), clamp_brightness(percent))
 
 
 class X11DisplayGateway:
@@ -174,6 +224,27 @@ class X11DisplayGateway:
     def _apply(self, output: str, mode: DisplayMode) -> None:
         _validate(output, mode)
         self._run("--output", output, "--mode", mode.resolution, "--rate", mode.rate)
+
+    def _apply_brightness(self, percent: int, output_names: tuple[str, ...] | None = None) -> None:
+        """Apply clamped software brightness to one or every connected output."""
+        value = clamp_brightness(percent) / 100.0
+        names = output_names if output_names is not None else tuple(output.name for output in self._inspect())
+        for name in names:
+            if not _OUTPUT.fullmatch(name):
+                raise DisplayError("Invalid display output or mode")
+            self._run("--output", name, "--brightness", f"{value:.2f}")
+
+    def get_brightness(self) -> int:
+        """Return the persisted software brightness percent."""
+        return self._preferences.load_brightness()
+
+    def set_brightness(self, percent: int) -> None:
+        """Apply software brightness to connected outputs and persist it."""
+        if not self._startup_ready.wait(timeout=30):
+            raise DisplayError("Display settings are still being restored")
+        clamped = clamp_brightness(percent)
+        self._apply_brightness(clamped)
+        self._preferences.save_brightness(clamped)
 
     def begin(self, output: str, mode: DisplayMode) -> "X11DisplayChange":
         """Apply an offered mode with an independent ten-second rollback."""
@@ -234,10 +305,9 @@ class X11DisplayGateway:
                 self._active_change = None
 
     def restore_saved(self) -> None:
-        """Restore only saved modes still offered by their active X11 outputs."""
+        """Restore saved modes and software brightness on active X11 outputs."""
         preferences = self._preferences.load()
-        if not preferences:
-            return
+        brightness = self._preferences.load_brightness()
         outputs = {output.name: output for output in self._inspect()}
         unavailable: list[str] = []
         for name, mode in preferences.items():
@@ -248,6 +318,7 @@ class X11DisplayGateway:
                 continue
             if output.current != mode:
                 self._apply(name, mode)
+        self._apply_brightness(brightness, tuple(outputs))
         if unavailable:
             raise DisplayError(f"Saved display modes are unavailable for: {', '.join(unavailable)}")
 
@@ -340,6 +411,10 @@ class X11DisplayChange:
                 except DisplayError as rollback_error:
                     raise DisplayError(f"{error}; rollback failed: {rollback_error}") from error
                 raise
+            try:
+                self._gateway._apply_brightness(self._preferences.load_brightness(), (self._output,))
+            except DisplayError:
+                _LOGGER.warning("Unable to re-apply display brightness after mode confirm", exc_info=True)
         finally:
             self.resolving = False
             self._gateway._release_change(self)
@@ -351,6 +426,10 @@ class X11DisplayChange:
             result = self._finish("rollback")
             if result != "REVERTED":
                 raise DisplayError(result or "Unable to restore the previous display mode")
+            try:
+                self._gateway._apply_brightness(self._preferences.load_brightness(), (self._output,))
+            except DisplayError:
+                _LOGGER.warning("Unable to re-apply display brightness after mode revert", exc_info=True)
         finally:
             self.resolving = False
             self._gateway._release_change(self)
