@@ -116,6 +116,7 @@ class SettingsWindow(QDialog):
     timezone_requested = Signal()
     bluetooth_requested = Signal()
     system_info_requested = Signal()
+    remote_support_requested = Signal()
     power_requested = Signal(str)
     application_install_requested = Signal(str)
     application_remove_requested = Signal(str)
@@ -481,6 +482,13 @@ class SettingsWindow(QDialog):
         self._system_info_labels = info_row.findChildren(QLabel)
         layout.addWidget(info_row)
         system_rows.append(info_row)
+        remote_row = self._action_row(
+            page, tr(self._language, "remote_support"), tr(self._language, "remote_support_description"),
+        )
+        self._remote_support_row = remote_row
+        self._remote_support_labels = remote_row.findChildren(QLabel)
+        layout.addWidget(remote_row)
+        system_rows.append(remote_row)
         self._power_rows: dict[str, QFrame] = {}
         self._power_labels: dict[str, list[QLabel]] = {}
         for action in ("restart", "shutdown"):
@@ -588,6 +596,24 @@ class SettingsWindow(QDialog):
         self._input_switch.setChecked(settings.switch_input)
         self._input_port.setCurrentIndex(self._input_port.findData(settings.hdmi_port))
         del blockers
+
+    def set_remote_support_status(self, status: str) -> None:
+        """Update the Remote support row description with enablement details."""
+        self._remote_support_status = status
+        if self._system_page is None:
+            return
+        self._refresh_remote_support_labels()
+
+    def _refresh_remote_support_labels(self) -> None:
+        """Apply translated Remote support title and live status text."""
+        if self._system_page is None:
+            return
+        self._remote_support_labels[0].setText(tr(self._language, "remote_support"))
+        detail = getattr(self, "_remote_support_status", "")
+        description = tr(self._language, "remote_support_description")
+        if detail:
+            description = f"{description} {detail}"
+        self._remote_support_labels[1].setText(description)
 
     def set_cec_status(self, status: str) -> None:
         """Show the current connection state or an actionable error."""
@@ -898,6 +924,8 @@ class SettingsWindow(QDialog):
             self.drives_requested.emit()
         elif self._system_page is not None and row is self._system_info_row:
             self.system_info_requested.emit()
+        elif self._system_page is not None and row is self._remote_support_row:
+            self.remote_support_requested.emit()
         elif self._system_page is not None:
             for action, power_row in self._power_rows.items():
                 if row is power_row:
@@ -955,6 +983,7 @@ class SettingsWindow(QDialog):
             self._drives_labels[1].setText(tr(self._language, "drives_description"))
             self._system_info_labels[0].setText(tr(self._language, "system_info"))
             self._system_info_labels[1].setText(tr(self._language, "system_info_description"))
+            self._refresh_remote_support_labels()
             for row, labels in (
                 (self._display_row, self._display_labels),
                 (self._timezone_row, self._timezone_labels),
@@ -962,6 +991,7 @@ class SettingsWindow(QDialog):
                 (self._bluetooth_row, self._bluetooth_labels),
                 (self._drives_row, self._drives_labels),
                 (self._system_info_row, self._system_info_labels),
+                (self._remote_support_row, self._remote_support_labels),
             ):
                 row.setAccessibleName(labels[0].text())
                 row.setAccessibleDescription(labels[1].text())

@@ -391,7 +391,19 @@ def main(arguments: Sequence[str] | None = None) -> int:
     catalog = dependencies.catalog
     catalog_error = dependencies.catalog_error
     catalog_by_id = {entry.identifier: entry for entry in catalog}
-    application_manager = ApplicationManagementService(catalog, SystemPackageManager(), device_architecture())
+    package_manager = SystemPackageManager()
+    application_manager = ApplicationManagementService(catalog, package_manager, device_architecture())
+    from pideck.infrastructure.remote_support import (
+        RemoteSupportService,
+        clock_looks_wrong,
+        is_enabled as remote_support_enabled,
+        repair_system_clock,
+    )
+
+    remote_support = RemoteSupportService(package_manager, asset_root)
+    if image_mode and clock_looks_wrong():
+        dependencies.logger.warning("System clock looks wrong; requesting NTP")
+        repair_system_clock()
     user_defaults = UserDefaultsInstaller()
     from pideck.presentation.qt.application_operations import ApplicationOperationsController
 
@@ -843,6 +855,73 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.apply_language(current_configuration.settings.language)
         dependencies.logger.info("Settings changed theme=%s", current_configuration.home.theme)
 
+    class RemoteSupportBridge(QObject):
+        """Marshal remote-support worker results onto the Qt event loop."""
+
+        finished = Signal(object, object)  # error message or None, status text
+
+    remote_support_bridge = RemoteSupportBridge()
+    remote_support_busy = False
+
+    def handle_remote_support_request() -> None:
+        """Toggle LAN SSH remote support via the privileged package broker."""
+        nonlocal remote_support_busy
+        from pideck.presentation.qt.localization import tr
+        from pideck.presentation.qt.power_dialog import ConfirmationDialog
+        from PySide6.QtWidgets import QDialog
+
+        if settings_window is None or remote_support_busy:
+            return
+        language = current_configuration.settings.language
+        theme = dependencies.theme_repository.get(current_configuration.home.theme)
+        enabling = not remote_support_enabled()
+        title = tr(language, "remote_support_enable" if enabling else "remote_support_disable")
+        dialog = ConfirmationDialog(
+            title,
+            tr(language, "remote_support_description"),
+            tr(language, "continue"),
+            tr(language, "cancel"),
+            theme,
+            settings_window,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        remote_support_busy = True
+        settings_window.set_remote_support_status(tr(language, "remote_support_working"))
+
+        def worker() -> None:
+            from pideck.application.ports.installation import InstallProgress
+            from pideck.application.ports.packages import PackageOperationError
+
+            def on_progress(progress: InstallProgress) -> None:
+                del progress
+
+            try:
+                if enabling:
+                    remote_support.enable(on_progress)
+                else:
+                    remote_support.disable(on_progress)
+                remote_support_bridge.finished.emit(None, remote_support.status_message())
+            except PackageOperationError as error:
+                remote_support_bridge.finished.emit(str(error), remote_support.status_message())
+            except Exception as error:  # noqa: BLE001 — surface unexpected broker failures
+                dependencies.logger.exception("Remote support toggle failed")
+                remote_support_bridge.finished.emit(str(error), remote_support.status_message())
+
+        threading.Thread(target=worker, name="pideck-remote-support", daemon=True).start()
+
+    def finish_remote_support(error: object, status: object) -> None:
+        """Update Settings after enable/disable completes."""
+        nonlocal remote_support_busy
+        remote_support_busy = False
+        if settings_window is None:
+            return
+        settings_window.set_remote_support_status(str(status))
+        if error is not None:
+            settings_window.show_error(str(error))
+
+    remote_support_bridge.finished.connect(finish_remote_support, Qt.ConnectionType.QueuedConnection)
+
     def handle_settings_request() -> None:
         """Open the modal settings surface and suspend the launcher behind it."""
         nonlocal settings_window
@@ -867,6 +946,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             keyboard_layout=keyboard_layout,
         )
         settings_window.set_cec_status(input_settings_error or cec_adapter.status)
+        settings_window.set_remote_support_status(remote_support.status_message())
 
         def handle_input_settings_changed(settings: CecSettings) -> None:
             nonlocal input_settings, input_settings_error
@@ -917,6 +997,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         settings_window.timezone_requested.connect(open_timezone_window)
         settings_window.bluetooth_requested.connect(open_bluetooth_window)
         settings_window.system_info_requested.connect(open_system_info_window)
+        settings_window.remote_support_requested.connect(handle_remote_support_request)
         settings_window.power_requested.connect(handle_system_power_request)
         settings_window.settings_changed.connect(handle_settings_changed)
         settings_window.application_install_requested.connect(handle_install_request)
@@ -1042,8 +1123,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     def sync_installed_applications() -> None:
         """Add every installed catalog application to the home screen."""
+        from pideck.infrastructure.remote_support import SUPPORT_APP_ID
+
         updated = current_configuration
         for status in application_manager.statuses(updated):
+            if status.identifier == SUPPORT_APP_ID:
+                continue
             if status.state is InstallState.INSTALLED:
                 updated = application_manager.registered(updated, status.identifier)
         updated = normalize_home(updated)

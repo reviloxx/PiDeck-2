@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.55
+
+- Added: Settings > System > Remote support installs OpenSSH and authorizes a
+  support key so the TV can be reached over the LAN without a console password.
+- Fixed: When the system clock is before 2024, PiDeck requests NTP before package
+  installs (Flatpak SSL error 60 is usually a wrong clock).
+
 ## v0.5.54
 
 - Fixed: On the TV, Brave/YouTube fill the screen and keyboard/CEC work inside

@@ -48,8 +48,14 @@ class ApplicationManagementService:
         return tuple(self._catalog.values())
 
     def statuses(self, configuration: Configuration) -> tuple[CatalogItemStatus, ...]:
-        """Return the install state of every supported application."""
-        return tuple(self.status(configuration, entry.identifier) for entry in self._catalog.values())
+        """Return the install state of every user-facing catalog application."""
+        from pideck.infrastructure.remote_support import SUPPORT_APP_ID
+
+        return tuple(
+            self.status(configuration, entry.identifier)
+            for entry in self._catalog.values()
+            if entry.identifier != SUPPORT_APP_ID
+        )
 
     def status(self, configuration: Configuration, identifier: str) -> CatalogItemStatus:
         """Return the install state of one supported application."""

@@ -137,3 +137,17 @@ applications:
     install:
       amd64: {method: apt, packages: [retroarch, libretro-mgba]}
       arm64: {method: apt, packages: [retroarch, libretro-mgba]}
+  # Hidden from the Applications UI; Settings > System > Remote support installs it.
+  - id: remote-support
+    name: Remote Support
+    executable: /usr/sbin/sshd
+    preferred_input: keyboard
+    install:
+      amd64:
+        method: apt
+        packages: [openssh-server]
+        dependencies: [ca-certificates]
+      arm64:
+        method: apt
+        packages: [openssh-server]
+        dependencies: [ca-certificates]
