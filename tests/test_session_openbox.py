@@ -153,3 +153,19 @@ def test_apply_release_openbox_noop_without_display(
     )
 
     assert apply_release_openbox(config=conf) is False
+
+
+def test_apply_release_openbox_syncs_image_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Release rc is copied onto the image share path when writable."""
+    import pideck.infrastructure.session.openbox as openbox_mod
+
+    conf = tmp_path / "openbox-rc.xml"
+    conf.write_text("<openbox_config><applications/></openbox_config>\n", encoding="utf-8")
+    image_rc = tmp_path / "share" / "rc.xml"
+    monkeypatch.setattr(openbox_mod, "_IMAGE_OPENBOX_RC", image_rc)
+    monkeypatch.delenv("DISPLAY", raising=False)
+
+    assert apply_release_openbox(config=conf) is False
+    assert image_rc.read_text(encoding="utf-8") == conf.read_text(encoding="utf-8")

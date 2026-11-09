@@ -3,7 +3,12 @@
 from pathlib import Path
 from dataclasses import replace
 
-from pideck.bootstrap import _apply_window_modes, build_dependencies
+from pideck.bootstrap import (
+    _apply_window_modes,
+    _migrate_catalog_launch_arguments,
+    build_dependencies,
+)
+from pideck.domain.catalog import CatalogEntry
 from pideck.domain.configuration import ApplicationDefinition, WindowMode
 from pideck.infrastructure.config.defaults import default_configuration
 from pideck.infrastructure.config.repository import FileConfigurationRepository
@@ -70,6 +75,69 @@ def test_bootstrap_reads_separate_window_policy(tmp_path: Path, monkeypatch: pyt
     result = build_dependencies(repository.path, log_level="WARNING")
     assert result.configuration.applications[0].window_mode is WindowMode.MAXIMIZED
     assert repository.path.read_bytes() == original
+
+
+def test_migrate_catalog_launch_arguments_adds_start_maximized() -> None:
+    """Existing Brave installs pick up catalog --start-maximized after OTA."""
+    saved = replace(
+        default_configuration(),
+        applications=(
+            ApplicationDefinition(
+                "brave",
+                "Brave",
+                "brave-browser",
+                arguments=(
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--password-store=basic",
+                    "--ignore-gpu-blocklist",
+                ),
+            ),
+            ApplicationDefinition("youtube", "YouTube", "flatpak", arguments=("run", "com.ktechpit.red")),
+        ),
+    )
+    catalog = (
+        CatalogEntry(
+            application=ApplicationDefinition(
+                "brave",
+                "Brave",
+                "brave-browser",
+                arguments=(
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--password-store=basic",
+                    "--start-maximized",
+                ),
+            ),
+        ),
+    )
+    migrated = _migrate_catalog_launch_arguments(saved, catalog, "amd64")
+    brave = next(app for app in migrated.applications if app.identifier == "brave")
+    assert "--start-maximized" in brave.arguments
+    youtube = next(app for app in migrated.applications if app.identifier == "youtube")
+    assert youtube.arguments == ("run", "com.ktechpit.red")
+
+
+def test_migrate_catalog_launch_arguments_is_noop_when_present() -> None:
+    """Already-migrated browser tiles are left unchanged."""
+    args = (
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--start-maximized",
+    )
+    saved = replace(
+        default_configuration(),
+        applications=(ApplicationDefinition("brave", "Brave", "brave-browser", arguments=args),),
+    )
+    catalog = (
+        CatalogEntry(
+            application=ApplicationDefinition(
+                "brave", "Brave", "brave-browser", arguments=args + ("--ignore-gpu-blocklist",),
+            ),
+        ),
+    )
+    assert _migrate_catalog_launch_arguments(saved, catalog, "amd64") is saved
 
 
 def test_logging_redacts_sensitive_values(tmp_path: Path) -> None:

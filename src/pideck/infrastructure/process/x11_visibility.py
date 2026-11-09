@@ -17,6 +17,7 @@ from pideck.application.ports.visibility import (
 from pideck.domain.configuration import WindowMode
 
 _LOGGER = logging.getLogger(__name__)
+_DIAG_PATH = Path.home() / ".local/share/pideck/window-diag.log"
 
 
 @dataclass(slots=True)
@@ -91,9 +92,7 @@ class X11WindowVisibilityDetector:
         while time.monotonic() < deadline and not watch.cancel.is_set():
             window_id = self._find_visible_window(watch.handle, main_only=managed)
             if window_id:
-                self._apply_window_mode(window_id, window_mode, watch.cancel)
-                self._finish(watch.handle)
-                on_visible(watch.handle)
+                self._finish_visible(watch, window_id, window_mode, on_visible)
                 return
             watch.cancel.wait(self._poll_interval)
         if watch.cancel.is_set():
@@ -106,12 +105,41 @@ class X11WindowVisibilityDetector:
             if window_id is None:
                 window_id = self._find_visible_window(watch.handle, main_only=False)
             if window_id is not None:
-                self._apply_window_mode(window_id, window_mode, watch.cancel)
-                self._finish(watch.handle)
-                on_visible(watch.handle)
+                self._finish_visible(watch, window_id, window_mode, on_visible)
                 return
+        # Still try to focus any matching window so keyboard/CEC are not stranded.
+        window_id = self._find_visible_window(watch.handle, main_only=False)
+        if window_id is not None:
+            _focus_window(window_id, watch.cancel)
         self._finish(watch.handle)
         on_timeout(watch.handle)
+
+    def _finish_visible(
+        self,
+        watch: _VisibilityWatch,
+        window_id: str,
+        window_mode: WindowMode | None,
+        on_visible: VisibilityCallback,
+    ) -> None:
+        """Present the window, hide the launcher via callback, then reclaim focus."""
+        self._present_window(window_id, window_mode, watch.cancel)
+        self._finish(watch.handle)
+        on_visible(watch.handle)
+        # Launcher hide can leave X focus nowhere; activate the app again.
+        if not watch.cancel.is_set():
+            _focus_window(window_id, watch.cancel)
+
+    @classmethod
+    def _present_window(
+        cls,
+        window_id: str,
+        window_mode: WindowMode | None,
+        cancel: threading.Event,
+    ) -> None:
+        """Apply presentation mode, then hand X focus to the application."""
+        cls._apply_window_mode(window_id, window_mode, cancel)
+        _focus_window(window_id, cancel)
+        _append_diag(window_id, "presented")
 
     @staticmethod
     def _apply_window_mode(
@@ -122,16 +150,22 @@ class X11WindowVisibilityDetector:
         """Apply the configured presentation mode to one mapped window.
 
         Chromium-based browsers often map at a restored size and only accept
-        maximize a moment later, so managed modes are applied twice.
+        maximize a moment later, so managed modes are applied twice. When the
+        window manager still ignores EWMH maximize/fullscreen, fill the workarea
+        with an absolute geometry as a last resort.
         """
         if window_mode is WindowMode.MAXIMIZED:
             _maximize_window(window_id, cancel)
             if not cancel.wait(1.0):
                 _maximize_window(window_id, cancel)
+            if not _window_covers_workarea(window_id) and not cancel.is_set():
+                _fill_workarea(window_id, cancel)
         elif window_mode is WindowMode.FULLSCREEN:
             _fullscreen_window(window_id, cancel)
             if not cancel.wait(1.0):
                 _fullscreen_window(window_id, cancel)
+            if not _window_is_fullscreen(window_id) and not cancel.is_set():
+                _fill_workarea(window_id, cancel)
 
     def _finish(self, handle: ProcessHandle) -> None:
         """Remove a completed watch."""
@@ -212,6 +246,36 @@ def _is_main_window(window_id: str) -> bool:
     return True
 
 
+def _window_is_maximized(window_id: str) -> bool:
+    """Return whether both EWMH maximized bits are set."""
+    properties = _window_properties(window_id)
+    if properties is None:
+        return False
+    return (
+        "_NET_WM_STATE_MAXIMIZED_VERT" in properties
+        and "_NET_WM_STATE_MAXIMIZED_HORZ" in properties
+    )
+
+
+def _window_is_fullscreen(window_id: str) -> bool:
+    """Return whether the window reports the EWMH fullscreen state."""
+    properties = _window_properties(window_id)
+    return properties is not None and "_NET_WM_STATE_FULLSCREEN" in properties
+
+
+def _window_covers_workarea(window_id: str) -> bool:
+    """Return whether the window already fills or exceeds the desktop workarea."""
+    if _window_is_maximized(window_id) or _window_is_fullscreen(window_id):
+        return True
+    workarea = _desktop_workarea()
+    geometry = _window_geometry(window_id)
+    if workarea is None or geometry is None:
+        return False
+    _x, _y, width, height = geometry
+    _wx, _wy, work_w, work_h = workarea
+    return width >= work_w - 16 and height >= work_h - 16
+
+
 def _maximize_window(window_id: str, cancel: threading.Event) -> None:
     """Ask the window manager to maximize a normal, non-fullscreen window."""
     properties = _window_properties(window_id)
@@ -233,10 +297,7 @@ def _maximize_window(window_id: str, cancel: threading.Event) -> None:
         return
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline and not cancel.is_set():
-        properties = _window_properties(window_id)
-        if properties is None:
-            break
-        if "_NET_WM_STATE_MAXIMIZED_VERT" in properties and "_NET_WM_STATE_MAXIMIZED_HORZ" in properties:
+        if _window_is_maximized(window_id):
             return
         cancel.wait(0.1)
     if not cancel.is_set():
@@ -264,14 +325,156 @@ def _fullscreen_window(window_id: str, cancel: threading.Event) -> None:
         return
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline and not cancel.is_set():
-        properties = _window_properties(window_id)
-        if properties is None:
-            break
-        if "_NET_WM_STATE_FULLSCREEN" in properties:
+        if _window_is_fullscreen(window_id):
             return
         cancel.wait(0.1)
     if not cancel.is_set():
         _LOGGER.warning("Window %s did not enter the fullscreen state", window_id)
+
+
+def _fill_workarea(window_id: str, cancel: threading.Event) -> None:
+    """Force a window to the desktop workarea when EWMH maximize is ignored."""
+    if cancel.is_set():
+        return
+    workarea = _desktop_workarea()
+    if workarea is None:
+        _LOGGER.warning("Cannot size window %s: desktop workarea unavailable", window_id)
+        return
+    x, y, width, height = workarea
+    try:
+        result = subprocess.run(
+            ["wmctrl", "-ir", window_id, "-e", f"0,{x},{y},{width},{height}"],
+            check=False, capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _LOGGER.warning("Unable to resize window %s to the workarea: %s", window_id, error)
+        return
+    if result.returncode:
+        _LOGGER.warning(
+            "Unable to resize window %s to the workarea: %s",
+            window_id, result.stderr.strip(),
+        )
+        return
+    _LOGGER.info(
+        "Forced window %s to workarea %sx%s+%s+%s after maximize was ignored",
+        window_id, width, height, x, y,
+    )
+    _append_diag(window_id, f"fill_workarea {width}x{height}+{x}+{y}")
+
+
+def _focus_window(window_id: str, cancel: threading.Event) -> None:
+    """Activate the application window so keyboard and CEC XTest reach it."""
+    _activate_window(window_id)
+    if not cancel.wait(0.4):
+        _activate_window(window_id)
+
+
+def _activate_window(window_id: str) -> None:
+    """Ask the window manager to focus and raise one window."""
+    try:
+        result = subprocess.run(
+            ["wmctrl", "-ia", window_id],
+            check=False, capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _LOGGER.warning("Unable to focus window %s: %s", window_id, error)
+        return
+    if result.returncode:
+        _LOGGER.warning("Unable to focus window %s: %s", window_id, result.stderr.strip())
+
+
+def _desktop_workarea() -> tuple[int, int, int, int] | None:
+    """Return the current desktop workarea as x, y, width, height."""
+    try:
+        result = subprocess.run(
+            ["wmctrl", "-d"],
+            check=False, capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _LOGGER.debug("Unable to read desktop workarea: %s", error)
+        return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        # 0  * DG: 1920x1080  VP: 0,0  WA: 0,0 1920x1080  ...
+        if "*" not in line or "WA:" not in line:
+            continue
+        try:
+            after_wa = line.split("WA:", 1)[1].strip()
+            origin, size = after_wa.split(None, 1)
+            size = size.split(None, 1)[0]
+            x_text, y_text = origin.split(",", 1)
+            w_text, h_text = size.split("x", 1)
+            return int(x_text), int(y_text), int(w_text), int(h_text)
+        except (IndexError, ValueError):
+            continue
+    geometry = _root_desktop_geometry()
+    if geometry is None:
+        return None
+    width, height = geometry
+    return 0, 0, width, height
+
+
+def _root_desktop_geometry() -> tuple[int, int] | None:
+    """Fall back to the root window desktop geometry when wmctrl -d is sparse."""
+    try:
+        result = subprocess.run(
+            ["xprop", "-root", "_NET_DESKTOP_GEOMETRY"],
+            check=False, capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    # _NET_DESKTOP_GEOMETRY(CARDINAL) = 1920, 1080
+    if "=" not in result.stdout:
+        return None
+    try:
+        values = result.stdout.split("=", 1)[1]
+        width_text, height_text = values.split(",", 1)
+        return int(width_text.strip()), int(height_text.strip())
+    except (IndexError, ValueError):
+        return None
+
+
+def _window_geometry(window_id: str) -> tuple[int, int, int, int] | None:
+    """Return window geometry as x, y, width, height from wmctrl."""
+    try:
+        result = subprocess.run(
+            ["wmctrl", "-lG"],
+            check=False, capture_output=True, text=True, timeout=0.5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        fields = line.split(maxsplit=6)
+        if len(fields) < 6 or fields[0] != window_id:
+            continue
+        try:
+            return int(fields[2]), int(fields[3]), int(fields[4]), int(fields[5])
+        except ValueError:
+            return None
+    return None
+
+
+def _append_diag(window_id: str, note: str) -> None:
+    """Append a short launch-time window dump for TV field diagnosis."""
+    try:
+        _DIAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+        geometry = _window_geometry(window_id)
+        properties = _window_properties(window_id) or ""
+        state_line = next(
+            (line for line in properties.splitlines() if line.startswith("_NET_WM_STATE")),
+            "_NET_WM_STATE: unknown",
+        )
+        line = f"{stamp} {note} id={window_id} geometry={geometry} {state_line}\n"
+        with _DIAG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+    except OSError as error:
+        _LOGGER.debug("Unable to write window diagnostics: %s", error)
 
 
 def _window_client_pid(window_id: str) -> int | None:

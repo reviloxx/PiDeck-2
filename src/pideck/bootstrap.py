@@ -166,6 +166,42 @@ def _apply_catalog_preferred_inputs(
     )
 
 
+_BROWSER_LAUNCH_IDS = frozenset({"brave", "chrome", "chromium"})
+
+
+def _migrate_catalog_launch_arguments(
+    configuration: Configuration,
+    catalog: tuple[CatalogEntry, ...],
+    architecture: str,
+) -> Configuration:
+    """Persist catalog browser launch flags missing from older installs.
+
+    OTA updates ship catalog ``--start-maximized`` but never rewrite saved
+    ``pideck.yaml`` arguments. Existing Brave/Chrome/Chromium tiles keep the
+    pre-maximize argv until this migration runs once on appliance start.
+    """
+    by_id = {entry.identifier: entry for entry in catalog}
+    updated: list[ApplicationDefinition] = []
+    changed = False
+    for application in configuration.applications:
+        entry = by_id.get(application.identifier)
+        if entry is None or application.identifier not in _BROWSER_LAUNCH_IDS:
+            updated.append(application)
+            continue
+        catalog_arguments = entry.definition_for(architecture).arguments
+        if "--start-maximized" not in catalog_arguments:
+            updated.append(application)
+            continue
+        if "--start-maximized" in application.arguments:
+            updated.append(application)
+            continue
+        updated.append(replace(application, arguments=catalog_arguments))
+        changed = True
+    if not changed:
+        return configuration
+    return replace(configuration, applications=tuple(updated))
+
+
 def _load_catalog(asset_root: Path, logger: logging.Logger) -> tuple[tuple[CatalogEntry, ...], str | None]:
     """Load the release catalog with icon paths resolved against the asset root."""
     try:
@@ -209,6 +245,14 @@ def build_dependencies(
             logger.exception("Unable to load application window policy path=%s", policy_path)
     configuration = _apply_window_modes(configuration, window_modes)
     configuration = _apply_catalog_preferred_inputs(configuration, catalog)
+    if image_mode and catalog:
+        migrated = _migrate_catalog_launch_arguments(
+            configuration, catalog, device_architecture(),
+        )
+        if migrated is not configuration:
+            configuration_repository.save(migrated)
+            logger.info("Migrated browser launch arguments from the application catalog")
+            configuration = migrated
     configuration = apply_shipped_themes(configuration, resolved_asset_root, logger=logger)
     normalized = normalize_home(configuration)
     if normalized is not configuration:

@@ -33,12 +33,16 @@ def apply_release_openbox(*, config: Path | None = None) -> bool:
     openbox is already running with the chosen config (same resolved path or
     identical file contents). Never SIGKILL openbox.
 
+    Also best-effort copies the release rc onto the image share path so a
+    fallback xsession still gets maximize rules after an OTA.
+
     Returns True when Openbox was restarted with the release config.
     """
     conf = config or select_openbox_config()
     if not conf.is_file():
         _LOGGER.warning("PiDeck openbox config missing at %s", conf)
         return False
+    _sync_image_openbox(conf)
     if not os.environ.get("DISPLAY"):
         return False
     binary = shutil.which("openbox")
@@ -49,7 +53,11 @@ def apply_release_openbox(*, config: Path | None = None) -> bool:
         return False
     try:
         if not _stop_openbox():
-            _LOGGER.warning("Leaving existing openbox running; new config not applied")
+            _LOGGER.error(
+                "Openbox still running after SIGTERM; release config %s was NOT applied. "
+                "Browser maximize rules may be missing until reboot.",
+                conf,
+            )
             return False
         subprocess.Popen(  # noqa: S603 — fixed binary from PATH, fixed config path
             [binary, "--config-file", str(conf.resolve())],
@@ -66,6 +74,21 @@ def apply_release_openbox(*, config: Path | None = None) -> bool:
     else:
         _LOGGER.info("Started openbox with %s", conf)
     return True
+
+
+def _sync_image_openbox(conf: Path) -> None:
+    """Copy the release Openbox rc onto the image fallback path when writable."""
+    try:
+        if _IMAGE_OPENBOX_RC.is_file() and _IMAGE_OPENBOX_RC.read_bytes() == conf.read_bytes():
+            return
+        _IMAGE_OPENBOX_RC.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(conf, _IMAGE_OPENBOX_RC)
+        _LOGGER.info("Synced Openbox config to %s", _IMAGE_OPENBOX_RC)
+    except OSError as error:
+        _LOGGER.warning(
+            "Unable to sync Openbox config to %s: %s (release path %s still used when available)",
+            _IMAGE_OPENBOX_RC, error, conf,
+        )
 
 
 def _wait_for_window_manager() -> bool:

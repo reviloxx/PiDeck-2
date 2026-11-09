@@ -96,8 +96,52 @@ def test_managed_mode_is_reapplied_after_short_delay(monkeypatch: pytest.MonkeyP
         calls.append(window_id)
 
     monkeypatch.setattr(x11_visibility, "_maximize_window", maximize)
+    monkeypatch.setattr(x11_visibility, "_window_covers_workarea", lambda window_id: True)
     X11WindowVisibilityDetector._apply_window_mode("0xabc", WindowMode.MAXIMIZED, threading.Event())
     assert calls == ["0xabc", "0xabc"]
+
+
+def test_maximize_falls_back_to_workarea_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When Chromium ignores EWMH maximize, force absolute screen geometry."""
+    fills: list[str] = []
+    monkeypatch.setattr(x11_visibility, "_maximize_window", lambda window_id, cancel: None)
+    monkeypatch.setattr(x11_visibility, "_window_covers_workarea", lambda window_id: False)
+    monkeypatch.setattr(
+        x11_visibility, "_fill_workarea",
+        lambda window_id, cancel: fills.append(window_id),
+    )
+    X11WindowVisibilityDetector._apply_window_mode("0xabc", WindowMode.MAXIMIZED, threading.Event())
+    assert fills == ["0xabc"]
+
+
+def test_present_window_focuses_application(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Focus handoff runs after presentation so keyboard and CEC reach the app."""
+    focused: list[str] = []
+    monkeypatch.setattr(
+        X11WindowVisibilityDetector, "_apply_window_mode", staticmethod(lambda *args: None),
+    )
+    monkeypatch.setattr(
+        x11_visibility, "_focus_window",
+        lambda window_id, cancel: focused.append(window_id),
+    )
+    monkeypatch.setattr(x11_visibility, "_append_diag", lambda *args: None)
+    X11WindowVisibilityDetector._present_window("0xabc", WindowMode.MAXIMIZED, threading.Event())
+    assert focused == ["0xabc"]
+
+
+def test_fill_workarea_uses_wmctrl_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Absolute resize uses the current desktop workarea."""
+    commands: list[list[str]] = []
+    monkeypatch.setattr(x11_visibility, "_desktop_workarea", lambda: (0, 0, 1920, 1080))
+    monkeypatch.setattr(x11_visibility, "_append_diag", lambda *args: None)
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    x11_visibility._fill_workarea("0x123", threading.Event())
+    assert commands == [["wmctrl", "-ir", "0x123", "-e", "0,0,0,1920,1080"]]
 
 
 def test_fullscreen_request_is_verified(monkeypatch: pytest.MonkeyPatch) -> None:
