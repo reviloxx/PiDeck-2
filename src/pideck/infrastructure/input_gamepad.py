@@ -5,12 +5,18 @@ from dataclasses import dataclass
 import logging
 from pathlib import Path
 import threading
-import time
 from typing import Any
 
 from pideck.application.ports.input import InputAction, InputEvent, InputSink
 
 _LOGGER = logging.getLogger(__name__)
+
+# Linux gamepad face buttons are position-based (south/east), not label-based.
+_BTN_SOUTH = 304
+_BTN_EAST = 305
+_BTN_NORTH = 307
+_BTN_START = 315
+_BTN_MODE = 316
 
 
 @dataclass(slots=True)
@@ -20,6 +26,7 @@ class _GamepadDevice:
     path: Path
     device: Any
     stop: threading.Event
+    nintendo_layout: bool = False
 
 
 class EvdevGamepadAdapter:
@@ -119,14 +126,27 @@ class EvdevGamepadAdapter:
         button_codes = _capability_codes(capabilities.get(1, []))
         if "(imu)" in name:
             return False
-        return bool(absolute_codes.intersection({16, 17}) or button_codes.intersection({304, 305, 307, 308})) or any(
-            word in name for word in ("gamepad", "controller", "joystick")
-        )
+        return bool(
+            absolute_codes.intersection({16, 17})
+            or button_codes.intersection({_BTN_SOUTH, _BTN_EAST, _BTN_NORTH, 308})
+        ) or any(word in name for word in ("gamepad", "controller", "joystick"))
 
     @staticmethod
     def _is_keyboard(device: Any) -> bool:
         """Identify typing keyboards by the presence of letter keys A and Z."""
         return {30, 44}.issubset(_capability_codes(device.capabilities().get(1, [])))
+
+    @staticmethod
+    def _is_nintendo_controller(name: str) -> bool:
+        """Detect Switch Pro / Joy-Con style controllers by device name."""
+        folded = name.casefold()
+        return (
+            "nintendo" in folded
+            or "joy-con" in folded
+            or "joycon" in folded
+            or folded.strip() == "pro controller"
+            or folded.startswith("pro controller ")
+        )
 
     def _open_device(self, evdev: Any, path: Path) -> None:
         """Open one newly discovered gamepad and start its reader."""
@@ -138,7 +158,8 @@ class EvdevGamepadAdapter:
         except (OSError, PermissionError) as error:
             _LOGGER.warning("Unable to open gamepad path=%s error=%s", path, error)
             return
-        managed = _GamepadDevice(path, device, threading.Event())
+        nintendo = self._is_nintendo_controller(getattr(device, "name", "") or "")
+        managed = _GamepadDevice(path, device, threading.Event(), nintendo_layout=nintendo)
         with self._lock:
             self._devices[path] = managed
         threading.Thread(
@@ -147,7 +168,12 @@ class EvdevGamepadAdapter:
             name=f"pideck-gamepad-{device.name}",
             daemon=True,
         ).start()
-        _LOGGER.info("Gamepad connected name=%s path=%s", device.name, path)
+        _LOGGER.info(
+            "Gamepad connected name=%s path=%s layout=%s",
+            device.name,
+            path,
+            "nintendo" if nintendo else "xbox",
+        )
 
     def _close_device(self, path: Path) -> None:
         """Stop one disconnected gamepad reader."""
@@ -167,7 +193,7 @@ class EvdevGamepadAdapter:
             for event in managed.device.read_loop():
                 if managed.stop.is_set() or self._stop.is_set():
                     return
-                action = self._map_event(event)
+                action = self._map_event(event, nintendo_layout=managed.nintendo_layout)
                 if action is not None:
                     sink = self._sink
                     if sink is not None:
@@ -178,20 +204,27 @@ class EvdevGamepadAdapter:
             self._close_device(managed.path)
 
     @staticmethod
-    def _map_event(event: Any) -> InputAction | None:
-        """Map Linux evdev codes to D-pad and controller actions."""
+    def _map_event(event: Any, *, nintendo_layout: bool = False) -> InputAction | None:
+        """Map Linux evdev codes to D-pad and controller actions.
+
+        Default (Xbox-style) mapping uses physical positions: south confirms,
+        east goes back. Nintendo face labels put A on east and B on south.
+        """
         if event.type == 3:
             if event.code == 16:
                 return InputAction.LEFT if event.value < 0 else InputAction.RIGHT if event.value > 0 else None
             if event.code == 17:
                 return InputAction.UP if event.value < 0 else InputAction.DOWN if event.value > 0 else None
         if event.type == 1 and event.value == 1:
+            activate, back = (
+                (_BTN_EAST, _BTN_SOUTH) if nintendo_layout else (_BTN_SOUTH, _BTN_EAST)
+            )
             return {
-                304: InputAction.ACTIVATE,
-                305: InputAction.BACK,
-                307: InputAction.BACK,
-                315: InputAction.MENU,
-                316: InputAction.MENU,
+                activate: InputAction.ACTIVATE,
+                back: InputAction.BACK,
+                _BTN_NORTH: InputAction.BACK,
+                _BTN_START: InputAction.MENU,
+                _BTN_MODE: InputAction.MENU,
             }.get(event.code)
         return None
 

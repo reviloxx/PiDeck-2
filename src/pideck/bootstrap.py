@@ -638,8 +638,13 @@ def main(arguments: Sequence[str] | None = None) -> int:
         clear_session_overlay()
 
     def return_to_pideck_from_overlay() -> None:
-        """Stop the running application after the overlay return action."""
+        """Cover with the launcher first, then stop the running application.
+
+        Hiding the overlay alone would briefly (or permanently) reveal the app
+        while stop() is still terminating Flatpak/steamlink orphans.
+        """
         clear_session_overlay()
+        window.show_launcher()
         session_service.stop()
 
     def open_session_overlay() -> None:

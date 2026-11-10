@@ -1,8 +1,10 @@
 """Linux process-group supervision using Python subprocess primitives."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 import os
+from pathlib import Path
 import signal
 import subprocess
 import threading
@@ -29,6 +31,7 @@ class _ManagedProcess:
     process: subprocess.Popen[bytes]
     handle: ProcessHandle
     callback: ProcessExitCallback
+    command: ProcessCommand
 
 
 class SubprocessSupervisor:
@@ -72,7 +75,9 @@ class SubprocessSupervisor:
                 f"Unable to start {command.executable!r}: {error}"
             ) from error
         handle = ProcessHandle(token=token, pid=process.pid, process_group_id=process.pid)
-        managed = _ManagedProcess(process=process, handle=handle, callback=on_exit)
+        managed = _ManagedProcess(
+            process=process, handle=handle, callback=on_exit, command=command,
+        )
         with self._lock:
             if self._closed:
                 self._terminate_group(handle)
@@ -93,6 +98,7 @@ class SubprocessSupervisor:
         if managed is None:
             return
         self._terminate_group(handle, signal.SIGTERM)
+        self._terminate_orphans(managed.command, signal.SIGTERM)
         threading.Thread(
             target=self._escalate_if_needed,
             args=(managed, grace_period),
@@ -107,6 +113,7 @@ class SubprocessSupervisor:
             processes = list(self._processes.values())
         for managed in processes:
             self._terminate_group(managed.handle, signal.SIGTERM)
+            self._terminate_orphans(managed.command, signal.SIGTERM)
 
     def _wait_for_exit(self, managed: _ManagedProcess) -> None:
         """Wait for one child and publish exactly one exit event."""
@@ -125,6 +132,7 @@ class SubprocessSupervisor:
         except subprocess.TimeoutExpired:
             _LOGGER.warning("Escalating process termination token=%s", managed.handle.token)
             self._terminate_group(managed.handle, signal.SIGKILL)
+            self._terminate_orphans(managed.command, signal.SIGKILL)
 
     @staticmethod
     def _terminate_group(handle: ProcessHandle, termination_signal: int = signal.SIGKILL) -> None:
@@ -135,3 +143,80 @@ class SubprocessSupervisor:
             return
         except OSError:
             _LOGGER.exception("Unable to signal process group token=%s", handle.token)
+
+    @classmethod
+    def _terminate_orphans(cls, command: ProcessCommand, termination_signal: int) -> None:
+        """Stop Flatpak/steamlink processes that left the supervised process group."""
+        flatpak_id = _flatpak_app_id(command)
+        if flatpak_id is not None:
+            cls._flatpak_kill(flatpak_id)
+            return
+        if Path(command.executable).name == "steamlink":
+            cls._signal_matching_processes(_is_steamlink_orphan, termination_signal)
+
+    @staticmethod
+    def _flatpak_kill(app_id: str) -> None:
+        """Ask Flatpak to end every instance of one application id."""
+        try:
+            subprocess.run(
+                ["flatpak", "kill", app_id],
+                check=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            _LOGGER.warning("Unable to flatpak kill app_id=%s error=%s", app_id, error)
+
+    @staticmethod
+    def _signal_matching_processes(
+        matches: Callable[[bytes], bool],
+        termination_signal: int,
+    ) -> None:
+        """Signal every local process whose /proc cmdline matches ``matches``."""
+        try:
+            entries = list(Path("/proc").iterdir())
+        except OSError:
+            return
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            try:
+                pid = int(entry.name)
+                cmdline = (entry / "cmdline").read_bytes()
+            except (OSError, ValueError):
+                continue
+            if not matches(cmdline):
+                continue
+            try:
+                os.kill(pid, termination_signal)
+            except ProcessLookupError:
+                continue
+            except OSError:
+                _LOGGER.debug("Unable to signal orphan pid=%s", pid)
+
+
+def _flatpak_app_id(command: ProcessCommand) -> str | None:
+    """Return the Flatpak application id for a ``flatpak run`` command."""
+    if Path(command.executable).name != "flatpak":
+        return None
+    try:
+        run_index = command.arguments.index("run")
+    except ValueError:
+        return None
+    for argument in command.arguments[run_index + 1 :]:
+        if argument.startswith("-"):
+            continue
+        if "." in argument:
+            return argument
+        break
+    return None
+
+
+def _is_steamlink_orphan(cmdline: bytes) -> bool:
+    """Identify leftover Steam Link launcher or runtime processes."""
+    if not cmdline:
+        return False
+    text = cmdline.replace(b"\x00", b" ").decode("utf-8", errors="ignore").casefold()
+    return "steamlink" in text or "steam-link" in text or "steamlink/" in text or "/steamlink" in text

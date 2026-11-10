@@ -49,7 +49,7 @@ Validate a configuration without starting Qt:
 pideck --validate-only --config config/pideck.yaml
 ```
 
-On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and the Guide (Xbox) button opens the session overlay while an application is running. Controllers can be connected or removed while PiDeck is running.
+On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and the Guide (Xbox) button opens the session overlay while an application is running. Nintendo Switch controllers use face-button labels instead (A confirms, B goes Back). Controllers can be connected or removed while PiDeck is running.
 
 HDMI-CEC navigation uses the Linux CEC interface: a Pulse-Eight USB adapter on
 x86 or built-in CEC on Raspberry Pi. **Settings → Input** offers direct-TV

@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.66
+
+- Fixed: Returning home from Steam Link via the overlay covers PiDeck
+  immediately and terminates Flatpak / ``steamlink`` orphans so Steam Link
+  does not stay on screen.
+- Changed: Nintendo Switch controllers use face-button labels in the PiDeck
+  UI (A confirms, B goes Back). Xbox-style controllers are unchanged.
+
 ## v0.5.65
 
 - Fixed: Switch Pro Controller Home opens the session overlay (BTN_MODE).

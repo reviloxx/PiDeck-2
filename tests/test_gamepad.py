@@ -8,7 +8,7 @@ from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
 
 
 def test_gamepad_maps_dpad_and_buttons() -> None:
-    """Standard evdev codes become normalized PiDeck actions."""
+    """Standard Xbox-style evdev codes become normalized PiDeck actions."""
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=3, code=16, value=-1)) is InputAction.LEFT
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=3, code=16, value=1)) is InputAction.RIGHT
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=3, code=17, value=-1)) is InputAction.UP
@@ -18,6 +18,38 @@ def test_gamepad_maps_dpad_and_buttons() -> None:
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=315, value=1)) is InputAction.MENU
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=316, value=1)) is InputAction.MENU
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=304, value=0)) is None
+
+
+def test_nintendo_layout_maps_a_to_activate_and_b_to_back() -> None:
+    """Nintendo face labels put A on east (confirm) and B on south (back)."""
+    assert (
+        EvdevGamepadAdapter._map_event(
+            SimpleNamespace(type=1, code=305, value=1), nintendo_layout=True,
+        )
+        is InputAction.ACTIVATE
+    )
+    assert (
+        EvdevGamepadAdapter._map_event(
+            SimpleNamespace(type=1, code=304, value=1), nintendo_layout=True,
+        )
+        is InputAction.BACK
+    )
+    assert (
+        EvdevGamepadAdapter._map_event(
+            SimpleNamespace(type=1, code=316, value=1), nintendo_layout=True,
+        )
+        is InputAction.MENU
+    )
+
+
+def test_nintendo_controller_detection() -> None:
+    """Switch Pro and Joy-Con names select the Nintendo face-button layout."""
+    assert EvdevGamepadAdapter._is_nintendo_controller("Nintendo Switch Pro Controller")
+    assert EvdevGamepadAdapter._is_nintendo_controller("Nintendo Switch Left Joy-Con")
+    assert EvdevGamepadAdapter._is_nintendo_controller("Pro Controller")
+    assert EvdevGamepadAdapter._is_nintendo_controller("Joy-Con (R)")
+    assert EvdevGamepadAdapter._is_nintendo_controller("Xbox Wireless Controller") is False
+    assert EvdevGamepadAdapter._is_nintendo_controller("8BitDo Pro 2") is False
 
 
 def test_gamepad_detection_skips_imu_nodes() -> None:
@@ -73,6 +105,32 @@ def test_opening_gamepad_does_not_take_exclusive_control() -> None:
 
     adapter.close()
     assert device.grab_calls == 0
+
+
+def test_opening_nintendo_gamepad_stores_nintendo_layout() -> None:
+    """Detected Nintendo controllers keep the face-label layout for mapping."""
+    import threading
+
+    release = threading.Event()
+
+    class FakeDevice:
+        name = "Nintendo Switch Pro Controller"
+
+        def read_loop(self):  # type: ignore[no-untyped-def]
+            release.wait(1)
+            return
+            yield  # pragma: no cover — make this a generator
+
+        def close(self) -> None:
+            release.set()
+
+    device = FakeDevice()
+    adapter = EvdevGamepadAdapter()
+    evdev = SimpleNamespace(InputDevice=lambda path: device)
+    path = Path("/dev/input/event3")
+    adapter._open_device(evdev, path)
+    assert adapter._devices[path].nintendo_layout is True
+    adapter.close()
 
 
 def test_keyboard_hotplug_notifies_once_after_the_next_scan() -> None:
