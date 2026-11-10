@@ -11,11 +11,17 @@ class CecSettings:
     auto_connect: bool = True
     hdmi_port: int | None = None
     switch_input: bool = True
+    wake_tv: bool = True
 
     def __post_init__(self) -> None:
         """Reject invalid settings rather than passing them to an adapter."""
-        if any(type(value) is not bool for value in (self.enabled, self.auto_connect, self.switch_input)):
-            raise ValueError("CEC enabled, auto-connect, and switch-input must be boolean")
+        if any(
+            type(value) is not bool
+            for value in (self.enabled, self.auto_connect, self.switch_input, self.wake_tv)
+        ):
+            raise ValueError(
+                "CEC enabled, auto-connect, switch-input, and wake-tv must be boolean"
+            )
         if self.hdmi_port is not None and (
             type(self.hdmi_port) is not int or not 1 <= self.hdmi_port <= 15
         ):

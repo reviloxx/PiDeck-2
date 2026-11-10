@@ -8,6 +8,9 @@ import yaml
 
 from pideck.domain.input_settings import CecSettings
 
+_BASE_KEYS = frozenset({"version", "enabled", "auto_connect", "hdmi_port", "switch_input"})
+_WAKE_KEY = "wake_tv"
+
 
 class InputSettingsError(Exception):
     """Report invalid or inaccessible input preferences."""
@@ -30,16 +33,19 @@ class InputPreferences:
             return settings
         except (OSError, UnicodeError, yaml.YAMLError) as error:
             raise InputSettingsError(f"Unable to read input settings: {error}") from error
-        if not isinstance(data, dict) or set(data) != {
-            "version", "enabled", "auto_connect", "hdmi_port", "switch_input",
-        } or type(data["version"]) is not int or data["version"] != 1:
+        if not isinstance(data, dict) or type(data.get("version")) is not int or data["version"] != 1:
             raise InputSettingsError("Invalid input settings")
+        keys = set(data)
+        if keys != _BASE_KEYS and keys != _BASE_KEYS | {_WAKE_KEY}:
+            raise InputSettingsError("Invalid input settings")
+        wake_tv = data.get(_WAKE_KEY, True)
         try:
             return CecSettings(
                 enabled=data["enabled"],
                 auto_connect=data["auto_connect"],
                 hdmi_port=data["hdmi_port"],
                 switch_input=data["switch_input"],
+                wake_tv=wake_tv,
             )
         except ValueError as error:
             raise InputSettingsError(f"Invalid input settings: {error}") from error
@@ -52,6 +58,7 @@ class InputPreferences:
             "auto_connect": settings.auto_connect,
             "hdmi_port": settings.hdmi_port,
             "switch_input": settings.switch_input,
+            "wake_tv": settings.wake_tv,
         }
         temporary: Path | None = None
         try:

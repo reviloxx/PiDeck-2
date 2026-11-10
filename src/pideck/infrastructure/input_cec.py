@@ -188,10 +188,14 @@ class CecClientAdapter:
         self._stop_async(process)
         return True
 
-    def _claim_active_source(self, process: subprocess.Popen[str]) -> None:
+    def _claim_active_source(
+        self, process: subprocess.Popen[str], *, on_connect: bool = False,
+    ) -> None:
         """Ask the TV to route Anynet / HDMI to PiDeck when switch-input is enabled."""
         settings = self._settings
         if settings is None or not settings.switch_input or process.stdin is None:
+            return
+        if on_connect and not settings.wake_tv:
             return
         try:
             process.stdin.write("as\n")
@@ -398,7 +402,7 @@ class CecClientAdapter:
                     if active:
                         connected = True
                         self._set_status("Connected")
-                        self._claim_active_source(process)
+                        self._claim_active_source(process, on_connect=True)
                 continue
             # Only after "waiting for input": startup always logs unknown→on.
             if connected and _CONNECTION_LOST.search(line):

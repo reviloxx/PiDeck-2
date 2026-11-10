@@ -64,6 +64,9 @@ def test_input_settings_are_accessible_and_immediate(application: QApplication) 
     assert changes[-1].auto_connect is False
     window._input_port.setCurrentIndex(window._input_port.findData(2))
     assert changes[-1].hdmi_port == 2
+    window._input_rows["cec_wake"].setFocus()
+    window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
+    assert changes[-1].wake_tv is False
     window._input_rows["cec_connect"].setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert requests == [True]
@@ -71,6 +74,8 @@ def test_input_settings_are_accessible_and_immediate(application: QApplication) 
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert debug_opens == [True]
     window.apply_language("de")
+    assert window._input_section_headers["input_section_cec"].text() == "HDMI-CEC"
+    assert window._input_labels["cec_wake"][0].text() == "TV einschalten"
     window.set_cec_status("Connected")
     assert window._input_status.text() == "Verbunden"
     window.close()

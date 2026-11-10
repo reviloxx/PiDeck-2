@@ -325,6 +325,34 @@ def test_cec_claims_active_source_on_tv_wake_without_restart(
     quiet.stdin.write.assert_not_called()
 
 
+def test_cec_skips_active_source_on_connect_when_wake_tv_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """wake_tv off skips as on connect but still reclaims after the TV wakes."""
+    stopped: list[object] = []
+    adapter = CecClientAdapter(settings=CecSettings(switch_input=True, wake_tv=False))
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    monkeypatch.setattr(adapter, "_stop_async", stopped.append)
+    generation = adapter.generation
+    adapter._read_output(
+        io.StringIO(
+            "waiting for input\n"
+            "DEBUG: [1] TV (0): power status changed from 'standby' to 'on'\n"
+            "DEBUG: [2] key pressed: select (0, 0)\n"
+        ),
+        process,
+        generation,
+    )
+    assert stopped == []
+    assert [call.args[0] for call in process.stdin.write.call_args_list] == ["as\n"]
+    assert [event.action for event in sink.events] == [InputAction.ACTIVATE]
+
+
 def test_cec_releases_process_and_restarts_after_resume(monkeypatch: pytest.MonkeyPatch) -> None:
     """The actual child exits before suspend returns and can be restarted."""
     real_popen = subprocess.Popen

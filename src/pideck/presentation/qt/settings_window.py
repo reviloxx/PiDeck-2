@@ -511,9 +511,11 @@ class SettingsWindow(QDialog):
         layout = self._page_layout(page)
         self._input_rows: dict[str, SettingsRow] = {}
         self._input_labels: dict[str, list[QLabel]] = {}
+        self._input_section_headers: dict[str, QLabel] = {}
         self._input_enabled = ToggleSwitch(page)
         self._input_auto = ToggleSwitch(page)
         self._input_switch = ToggleSwitch(page)
+        self._input_wake = ToggleSwitch(page)
         self._input_port = SettingsComboBox(page)
         configure_combo_box(self._input_port)
         self._input_port.addItem("", None)
@@ -522,9 +524,14 @@ class SettingsWindow(QDialog):
         self._input_enabled.setChecked(self._input_settings.enabled)
         self._input_auto.setChecked(self._input_settings.auto_connect)
         self._input_switch.setChecked(self._input_settings.switch_input)
+        self._input_wake.setChecked(self._input_settings.wake_tv)
         self._input_port.setCurrentIndex(self._input_port.findData(self._input_settings.hdmi_port))
         self._keyboard_combo: SettingsComboBox | None = None
         if self._keyboard_layout is not None:
+            keyboard_heading = QLabel(tr(self._language, "input_section_keyboard"), page)
+            keyboard_heading.setObjectName("settings_kicker")
+            self._input_section_headers["input_section_keyboard"] = keyboard_heading
+            layout.addWidget(keyboard_heading)
             self._keyboard_combo = SettingsComboBox(page)
             configure_combo_box(self._keyboard_combo)
             for layout_option in KeyboardLayout:
@@ -541,9 +548,14 @@ class SettingsWindow(QDialog):
             self._input_labels["keyboard_layout"] = row.findChildren(QLabel)
             layout.addWidget(row)
             self._keyboard_combo.currentIndexChanged.connect(self._emit_keyboard_layout)
+        cec_heading = QLabel(tr(self._language, "input_section_cec"), page)
+        cec_heading.setObjectName("settings_kicker")
+        self._input_section_headers["input_section_cec"] = cec_heading
+        layout.addWidget(cec_heading)
         for key, control in (
             ("cec_enabled", self._input_enabled), ("cec_auto", self._input_auto),
             ("cec_port", self._input_port), ("cec_switch", self._input_switch),
+            ("cec_wake", self._input_wake),
         ):
             control.setObjectName("settings_control")
             row, _ = self._control_row(page, tr(self._language, key), tr(self._language, f"{key}_hint"), control)
@@ -564,6 +576,7 @@ class SettingsWindow(QDialog):
         self._input_enabled.toggled.connect(self._emit_input_settings)
         self._input_auto.toggled.connect(self._emit_input_settings)
         self._input_switch.toggled.connect(self._emit_input_settings)
+        self._input_wake.toggled.connect(self._emit_input_settings)
         self._input_port.currentIndexChanged.connect(self._emit_input_settings)
         return self._input_scroll
 
@@ -574,6 +587,7 @@ class SettingsWindow(QDialog):
             auto_connect=self._input_auto.isChecked(),
             hdmi_port=self._input_port.currentData(),
             switch_input=self._input_switch.isChecked(),
+            wake_tv=self._input_wake.isChecked(),
         ))
 
     def _emit_keyboard_layout(self, *_: object) -> None:
@@ -589,11 +603,15 @@ class SettingsWindow(QDialog):
 
     def set_input_settings(self, settings: CecSettings) -> None:
         """Restore controls after a rejected or externally applied change."""
-        controls = (self._input_enabled, self._input_auto, self._input_switch, self._input_port)
+        controls = (
+            self._input_enabled, self._input_auto, self._input_switch,
+            self._input_wake, self._input_port,
+        )
         blockers = [QSignalBlocker(control) for control in controls]
         self._input_enabled.setChecked(settings.enabled)
         self._input_auto.setChecked(settings.auto_connect)
         self._input_switch.setChecked(settings.switch_input)
+        self._input_wake.setChecked(settings.wake_tv)
         self._input_port.setCurrentIndex(self._input_port.findData(settings.hdmi_port))
         del blockers
 
@@ -900,6 +918,8 @@ class SettingsWindow(QDialog):
                 self._input_auto.toggle()
             elif row is self._input_rows["cec_switch"]:
                 self._input_switch.toggle()
+            elif row is self._input_rows["cec_wake"]:
+                self._input_wake.toggle()
             elif row is self._input_rows["cec_port"]:
                 self._input_port.showPopup()
             elif row is self._input_rows.get("keyboard_layout") and self._keyboard_combo is not None:
@@ -957,11 +977,15 @@ class SettingsWindow(QDialog):
                 for index in range(self._keyboard_combo.count()):
                     option = self._keyboard_combo.itemData(index)
                     self._keyboard_combo.setItemText(index, tr(self._language, f"keyboard_layout_{option}"))
-            for control in (self._input_enabled, self._input_auto, self._input_switch):
+            for control in (
+                self._input_enabled, self._input_auto, self._input_switch, self._input_wake,
+            ):
                 control.set_state_texts(tr(self._language, "on"), tr(self._language, "off"))
             for key, labels in self._input_labels.items():
                 labels[0].setText(tr(self._language, key))
                 labels[1].setText(tr(self._language, f"{key}_hint"))
+            for key, heading in self._input_section_headers.items():
+                heading.setText(tr(self._language, key))
             if hasattr(self, "_cec_status"):
                 self.set_cec_status(self._cec_status)
         if self._network_enabled:
