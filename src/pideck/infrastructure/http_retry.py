@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import errno
 import logging
 import random
 import re
+import socket
 import time
 from typing import TypeVar
 from urllib.error import HTTPError, URLError
@@ -14,6 +16,18 @@ from urllib.error import HTTPError, URLError
 _LOGGER = logging.getLogger(__name__)
 # Rate limits (429 / primary 403) are never short-retried; see GitHubRateLimitError.
 _TRANSIENT_STATUS = frozenset({408, 500, 502, 503, 504})
+# Locale-independent: German (and other) gaierror messages do not match English text.
+_TRANSIENT_ERRNOS = frozenset(
+    {
+        errno.ECONNRESET,
+        errno.ECONNABORTED,
+        errno.ENETUNREACH,
+        errno.EHOSTUNREACH,
+        errno.ETIMEDOUT,
+        socket.EAI_AGAIN,
+        socket.EAI_NONAME,
+    }
+)
 _TRANSIENT_TEXT = re.compile(
     r"(?i)(?:timed?\s*out|timeout|temporarily\s+unavailable|connection\s+reset|"
     r"connection\s+aborted|broken\s+pipe|network\s+is\s+unreachable|"
@@ -103,6 +117,12 @@ def github_rate_limit_error(error: BaseException, *, now: float | None = None) -
     return GitHubRateLimitError(not_before)
 
 
+def _transient_errno(error: BaseException) -> bool:
+    """Return whether ``error`` carries a known transient OS or getaddrinfo errno."""
+    code = getattr(error, "errno", None)
+    return isinstance(code, int) and code in _TRANSIENT_ERRNOS
+
+
 def is_transient_error(error: BaseException) -> bool:
     """Return whether ``error`` is worth a short retry (never rate limits)."""
     if is_github_rate_limit(error):
@@ -112,6 +132,8 @@ def is_transient_error(error: BaseException) -> bool:
     if isinstance(error, TimeoutError):
         return True
     if isinstance(error, (OSError, URLError)):
+        if _transient_errno(error):
+            return True
         reason = getattr(error, "reason", None)
         if isinstance(reason, BaseException) and reason is not error and is_transient_error(reason):
             return True

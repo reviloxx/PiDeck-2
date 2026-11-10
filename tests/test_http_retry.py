@@ -2,6 +2,7 @@
 
 from email.message import EmailMessage
 from io import BytesIO
+import socket
 
 import pytest
 from urllib.error import HTTPError, URLError
@@ -15,6 +16,11 @@ from pideck.infrastructure.http_retry import (
     rate_limit_not_before,
     retry_after_seconds,
 )
+
+
+def _german_dns_error() -> OSError:
+    """Build a German-locale temporary DNS failure (EAI_AGAIN)."""
+    return OSError(socket.EAI_AGAIN, "Temporärer Fehler bei der Namensauflösung")
 
 
 def _http_error(
@@ -50,6 +56,10 @@ def _http_error(
         (TimeoutError("timed out"), True),
         (URLError("timed out"), True),
         (OSError("Connection reset by peer"), True),
+        (OSError(socket.EAI_AGAIN, "Temporary failure in name resolution"), True),
+        (_german_dns_error(), True),
+        (URLError(_german_dns_error()), True),
+        (OSError(socket.EAI_NONAME, "Name oder Dienst nicht bekannt"), True),
         (RuntimeError("HTTP Error 504: Gateway Timeout"), True),
         (RuntimeError("HTTP Error 429: Too Many Requests"), False),
         (RuntimeError("disk full"), False),
@@ -117,6 +127,23 @@ def test_call_with_retries_recovers_from_transient_failure(monkeypatch: pytest.M
         return "ok"
 
     assert call_with_retries(operation, sleep=delays.append, label="test") == "ok"
+    assert attempts["count"] == 2
+    assert delays == [1.0]
+
+
+def test_call_with_retries_recovers_from_localized_dns_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """German EAI_AGAIN messages are retried by errno, not English text."""
+    delays: list[float] = []
+    monkeypatch.setattr("pideck.infrastructure.http_retry.random.uniform", lambda _a, _b: 0.0)
+    attempts = {"count": 0}
+
+    def operation() -> str:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise URLError(_german_dns_error())
+        return "ok"
+
+    assert call_with_retries(operation, sleep=delays.append, label="dns") == "ok"
     assert attempts["count"] == 2
     assert delays == [1.0]
 

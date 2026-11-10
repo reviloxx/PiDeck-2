@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.75
+
+- Fixed: Checking for updates no longer fails on German systems when DNS is
+  briefly unavailable at startup (retries temporary name-resolution errors).
+
 ## v0.5.74
 
 - Fixed: Switch Pro Controllers reconnect after you turn them off and on again
