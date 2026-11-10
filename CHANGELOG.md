@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.72
+
+- Fixed: Wireless keyboard icon stays off at boot when the keyboard is powered
+  off (no more false positive before the receiver reports online).
+- Fixed: Gamepad icon clears as soon as Bluetooth disconnects, and the
+  controller reconnects when you turn it back on.
+
 ## v0.5.71
 
 - Fixed: Keyboard icon only shows for a plugged USB keyboard or a wireless

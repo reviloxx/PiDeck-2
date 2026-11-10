@@ -241,7 +241,20 @@ def test_usb_keyboard_without_power_supply_is_online(tmp_path: Path) -> None:
     event.mkdir()
     (event / "device").symlink_to(device_dir)
     adapter = EvdevGamepadAdapter(sysfs_input_root=tmp_path)
-    assert adapter._input_device_online(Path("/dev/input/event1")) is True
+    wired = SimpleNamespace(info=SimpleNamespace(bustype=3), uniq="")
+    assert adapter._device_is_live(wired, Path("/dev/input/event1"), frozenset()) is True
+
+
+def test_wireless_usb_keyboard_without_power_supply_is_offline(tmp_path: Path) -> None:
+    """Unifying receivers keep a uniq even before hidpp online sysfs appears."""
+    event = tmp_path / "event2"
+    hid = tmp_path / "sys" / "hid"
+    hid.mkdir(parents=True)
+    event.mkdir()
+    (event / "device").symlink_to(hid)
+    adapter = EvdevGamepadAdapter(sysfs_input_root=tmp_path)
+    wireless = SimpleNamespace(info=SimpleNamespace(bustype=3), uniq="ba-fd-59-7c")
+    assert adapter._device_is_live(wireless, Path("/dev/input/event2"), frozenset()) is False
 
 
 def test_wireless_keyboard_requires_power_supply_online(tmp_path: Path) -> None:
@@ -253,30 +266,49 @@ def test_wireless_keyboard_requires_power_supply_online(tmp_path: Path) -> None:
     event.mkdir()
     (event / "device").symlink_to(hid)
     adapter = EvdevGamepadAdapter(sysfs_input_root=tmp_path)
+    wireless = SimpleNamespace(info=SimpleNamespace(bustype=3), uniq="ba-fd-59-7c")
 
     (supply / "online").write_text("0\n", encoding="utf-8")
-    assert adapter._input_device_online(Path("/dev/input/event2")) is False
+    assert adapter._device_is_live(wireless, Path("/dev/input/event2"), frozenset()) is False
 
     (supply / "online").write_text("1\n", encoding="utf-8")
-    assert adapter._input_device_online(Path("/dev/input/event2")) is True
+    assert adapter._device_is_live(wireless, Path("/dev/input/event2"), frozenset()) is True
 
 
-def test_reader_stop_suppresses_reopen_and_notifies_presence() -> None:
-    """Power-off must clear the pad immediately and not re-open a lingering node."""
+def test_bluetooth_device_live_requires_bluez_connected(tmp_path: Path) -> None:
+    """Bluetooth pads/keyboards are live only while BlueZ reports Connected."""
+    adapter = EvdevGamepadAdapter(sysfs_input_root=tmp_path)
+    pad = SimpleNamespace(
+        name="Pro Controller",
+        info=SimpleNamespace(bustype=5),
+        uniq="98:b6:e9:b2:4f:2c",
+        capabilities=lambda: {1: [304, 305], 3: [16, 17]},
+    )
+    path = Path("/dev/input/pideck-bt-pad")
+    assert adapter._device_is_live(pad, path, frozenset()) is False
+    assert adapter._device_is_live(pad, path, frozenset({"98:B6:E9:B2:4F:2C"})) is True
+
+
+def test_reader_stop_suppresses_reopen_until_live_again(tmp_path: Path) -> None:
+    """Power-off clears the icon; reconnect clears suppress when the pad is live."""
     import threading
 
-    path = Path("/dev/input/event9")
+    path = Path("/dev/input/pideck-test-pad")
     presence: list[int] = []
-    open_calls = 0
     fail_read = True
     hold = threading.Event()
+    bt_connected: set[str] = set()
 
     class FakeDevice:
-        name = "Xbox Wireless Controller"
+        name = "Pro Controller"
+        info = SimpleNamespace(bustype=5)
+        uniq = "98:B6:E9:B2:4F:2C"
 
         def __init__(self) -> None:
-            nonlocal open_calls
-            open_calls += 1
+            self._reading = False
+
+        def capabilities(self) -> dict[int, list[int]]:
+            return {1: [304, 305], 3: [16, 17]}
 
         def grab(self) -> None:
             return None
@@ -285,25 +317,31 @@ def test_reader_stop_suppresses_reopen_and_notifies_presence() -> None:
             return None
 
         def read_loop(self):  # type: ignore[no-untyped-def]
-            hold.wait(1)
+            self._reading = True
+            hold.wait(2)
             if fail_read:
                 raise OSError("device gone")
             return
             yield  # pragma: no cover
 
         def close(self) -> None:
-            hold.set()
+            # Classification probes also call close(); only wake an active reader.
+            if self._reading:
+                hold.set()
 
     adapter = EvdevGamepadAdapter(
         discovery_interval=0,
         presence_changed=lambda: presence.append(adapter.connected_gamepad_count()),
+        sysfs_input_root=tmp_path,
     )
+    adapter._bluetooth_connected_addresses = lambda: frozenset(bt_connected)  # type: ignore[method-assign]
     evdev = SimpleNamespace(InputDevice=lambda _path: FakeDevice())
+    bt_connected.add("98:B6:E9:B2:4F:2C")
     adapter._open_device(evdev, path)
     assert adapter.connected_gamepad_count() == 1
     assert presence == [1]
 
-    # Simulate the reader dying (Bluetooth/USB power-off).
+    # Simulate the reader dying (Bluetooth power-off).
     hold.set()
     for _ in range(50):
         if adapter.connected_gamepad_count() == 0:
@@ -312,18 +350,41 @@ def test_reader_stop_suppresses_reopen_and_notifies_presence() -> None:
     assert adapter.connected_gamepad_count() == 0
     assert presence[-1] == 0
     assert path in adapter._suppress_until_absent
+    bt_connected.clear()
 
-    # Stale node still listed must not reopen while suppressed.
-    adapter._open_device(evdev, path)
+    # Stale node still listed must not reopen while BlueZ says disconnected.
+    scans = 0
+
+    def list_devices() -> list[str]:
+        nonlocal scans
+        scans += 1
+        if scans >= 2:
+            adapter._stop.set()
+        return [str(path)]
+
+    adapter._discover_loop(
+        SimpleNamespace(list_devices=list_devices, InputDevice=lambda _p: FakeDevice())
+    )
     assert adapter.connected_gamepad_count() == 0
-    assert open_calls == 1
+    assert path in adapter._suppress_until_absent
 
-    # Once the node leaves list_devices, suppress clears and a later open works.
+    # Power-on: BlueZ Connected again clears suppress and reopens the same path.
     fail_read = False
     hold = threading.Event()
-    with adapter._lock:
-        adapter._suppress_until_absent.discard(path)
-    adapter._open_device(evdev, path)
+    bt_connected.add("98:B6:E9:B2:4F:2C")
+    scans = 0
+
+    def list_devices_live() -> list[str]:
+        nonlocal scans
+        scans += 1
+        if scans >= 2:
+            adapter._stop.set()
+        return [str(path)]
+
+    adapter._stop.clear()
+    adapter._discover_loop(
+        SimpleNamespace(list_devices=list_devices_live, InputDevice=lambda _p: FakeDevice())
+    )
     assert adapter.connected_gamepad_count() == 1
-    assert open_calls == 2
+    assert path not in adapter._suppress_until_absent
     adapter.close()

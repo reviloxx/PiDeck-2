@@ -4,8 +4,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 from pathlib import Path
+import re
 import threading
 from typing import Any
+import xml.etree.ElementTree as ET
 
 from pideck.application.ports.input import InputAction, InputEvent, InputSink
 
@@ -22,6 +24,8 @@ _BTN_MODE = 316
 _BUS_USB = 3
 _BUS_BLUETOOTH = 5
 _KEYBOARD_BUSES = frozenset({_BUS_USB, _BUS_BLUETOOTH})
+_BLUEZ_ADAPTER = re.compile(r"hci[0-9]+\Z")
+_BLUEZ_DEVICE = re.compile(r"dev_(?:[0-9A-F]{2}_){5}[0-9A-F]{2}\Z")
 
 
 @dataclass(slots=True)
@@ -143,26 +147,36 @@ class EvdevGamepadAdapter:
                     callback()
                 except Exception:
                     _LOGGER.exception("Keyboard hot-plug handler failed")
-            paths: set[Path] = set()
+            bt_connected = self._bluetooth_connected_addresses()
+            seen_gamepads: set[Path] = set()
+            live_paths: set[Path] = set()
             keyboards: set[Path] = set()
             for raw_path in evdev.list_devices():
                 path = Path(raw_path)
                 try:
                     device = evdev.InputDevice(raw_path)
                     is_gamepad = self._is_gamepad(device)
+                    live = self._device_is_live(device, path, bt_connected)
                     is_keyboard = (
-                        not is_gamepad
-                        and self._is_keyboard(device)
-                        and self._input_device_online(path)
+                        not is_gamepad and self._is_keyboard(device) and live
                     )
                     device.close()
                 except (OSError, PermissionError):
                     continue
                 if is_gamepad:
-                    paths.add(path)
-                    self._open_device(evdev, path)
+                    seen_gamepads.add(path)
+                    if live:
+                        live_paths.add(path)
                 elif is_keyboard:
                     keyboards.add(path)
+            with self._lock:
+                for path in live_paths:
+                    self._suppress_until_absent.discard(path)
+                gone = self._suppress_until_absent.difference(seen_gamepads)
+                if gone:
+                    self._suppress_until_absent.difference_update(gone)
+            for path in live_paths:
+                self._open_device(evdev, path)
             previous_keyboards = self._keyboards
             if previous_keyboards is not None and keyboards.difference(previous_keyboards):
                 _LOGGER.info(
@@ -173,12 +187,11 @@ class EvdevGamepadAdapter:
             keyboards_changed = previous_keyboards != keyboards
             self._keyboards = keyboards
             with self._lock:
-                removed = set(self._devices).difference(paths)
-                gone = self._suppress_until_absent.difference(paths)
-                if gone:
-                    self._suppress_until_absent.difference_update(gone)
+                removed = set(self._devices).difference(live_paths)
             for path in removed:
-                self._close_device(path, suppress_reopen=False)
+                # Keep suppress so a lingering BT node does not flap; clear when
+                # BlueZ reports the pad live again (or the node finally vanishes).
+                self._close_device(path, suppress_reopen=True)
             if keyboards_changed:
                 self._notify_presence_changed()
             self._stop.wait(self._discovery_interval)
@@ -218,17 +231,24 @@ class EvdevGamepadAdapter:
             or folded.startswith("pro controller ")
         )
 
-    def _input_device_online(self, path: Path) -> bool:
-        """Return whether a wireless input is powered on, if the kernel exposes it.
-
-        Wired USB keyboards usually have no ``power_supply/*/online`` attribute and
-        count as present. Logitech Unifying and similar HID devices expose
-        ``online`` (0 while the keyboard is off, 1 while it is awake).
-        """
+    def _device_is_live(self, device: Any, path: Path, bt_connected: frozenset[str]) -> bool:
+        """Return whether a keyboard/gamepad is powered on and usable right now."""
         online_values = list(self._power_supply_online_values(path))
-        if not online_values:
+        if online_values:
+            return any(value == "1" for value in online_values)
+        info = getattr(device, "info", None)
+        bustype = getattr(info, "bustype", None)
+        if bustype == _BUS_BLUETOOTH:
+            address = _normalize_bluetooth_address(getattr(device, "uniq", "") or "")
+            return bool(address) and address in bt_connected
+        if bustype == _BUS_USB:
+            uniq = (getattr(device, "uniq", "") or "").strip()
+            # Unifying-style wireless USB keeps the node with a non-empty uniq
+            # even while powered off; without online=1 treat it as absent.
+            if uniq:
+                return False
             return True
-        return any(value == "1" for value in online_values)
+        return False
 
     def _power_supply_online_values(self, path: Path) -> list[str]:
         """Read ``online`` attributes under the input device's sysfs parents."""
@@ -257,6 +277,35 @@ class EvdevGamepadAdapter:
                 break
             current = parent
         return values
+
+    def _bluetooth_connected_addresses(self) -> frozenset[str]:
+        """Return normalized MAC addresses BlueZ currently reports as Connected."""
+        try:
+            from PySide6.QtDBus import QDBusConnection
+        except ImportError:
+            return frozenset()
+        bus = QDBusConnection.systemBus()
+        if not bus.isConnected():
+            return frozenset()
+        addresses: set[str] = set()
+        try:
+            for adapter in _dbus_child_names(bus, "/org/bluez"):
+                if not _BLUEZ_ADAPTER.fullmatch(adapter):
+                    continue
+                adapter_path = f"/org/bluez/{adapter}"
+                for name in _dbus_child_names(bus, adapter_path):
+                    if not _BLUEZ_DEVICE.fullmatch(name):
+                        continue
+                    path = f"{adapter_path}/{name}"
+                    if not _dbus_device_connected(bus, path):
+                        continue
+                    addresses.add(
+                        _normalize_bluetooth_address(name.removeprefix("dev_").replace("_", ":"))
+                    )
+        except Exception:
+            _LOGGER.debug("Unable to query BlueZ connected devices", exc_info=True)
+            return frozenset()
+        return frozenset(addresses)
 
     def _open_device(self, evdev: Any, path: Path) -> None:
         """Open one newly discovered gamepad and start its reader."""
@@ -383,6 +432,44 @@ class EvdevGamepadAdapter:
                 _BTN_MODE: InputAction.MENU,
             }.get(event.code)
         return None
+
+
+def _normalize_bluetooth_address(value: str) -> str:
+    """Normalize BlueZ / evdev Bluetooth addresses for set membership."""
+    return value.strip().upper().replace("-", ":")
+
+
+def _dbus_child_names(bus: Any, path: str) -> tuple[str, ...]:
+    """Return child node names under a BlueZ D-Bus object path."""
+    from PySide6.QtDBus import QDBusInterface, QDBusReply
+
+    interface = QDBusInterface(
+        "org.bluez", path, "org.freedesktop.DBus.Introspectable", bus,
+    )
+    reply = QDBusReply(interface.call("Introspect"))
+    if not reply.isValid() or not isinstance(reply.value(), str):
+        return ()
+    try:
+        root = ET.fromstring(reply.value())
+    except ET.ParseError:
+        return ()
+    return tuple(name for node in root.findall("node") if (name := node.get("name")) is not None)
+
+
+def _dbus_device_connected(bus: Any, path: str) -> bool:
+    """Return whether BlueZ reports Device1.Connected for one device path."""
+    from PySide6.QtDBus import QDBusInterface, QDBusReply, QDBusVariant
+
+    interface = QDBusInterface(
+        "org.bluez", path, "org.freedesktop.DBus.Properties", bus,
+    )
+    reply = QDBusReply(interface.call("Get", "org.bluez.Device1", "Connected"))
+    if not reply.isValid():
+        return False
+    value = reply.value()
+    if isinstance(value, QDBusVariant):
+        value = value.variant()
+    return value is True
 
 
 def _capability_codes(entries: Any) -> set[int]:
