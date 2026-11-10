@@ -731,6 +731,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
         event_received = Signal(object)
         presence_changed = Signal()
+        device_lost = Signal(str)
 
         def handle_input(self, event: InputEvent) -> None:
             """Emit one normalized event for queued Qt delivery."""
@@ -740,8 +741,13 @@ def main(arguments: Sequence[str] | None = None) -> int:
             """Queue a connected-input strip refresh from a discovery thread."""
             self.presence_changed.emit()
 
+        def notify_device_lost(self, address: str) -> None:
+            """Queue a BlueZ Disconnect for a pad that just disappeared."""
+            self.device_lost.emit(address)
+
     gamepad_bridge = GamepadBridge()
     gamepad_adapter.presence_changed = gamepad_bridge.notify_presence_changed
+    gamepad_adapter.device_lost = gamepad_bridge.notify_device_lost
 
     def handle_gamepad_event(event: InputEvent) -> None:
         """Route normalized input to the overlay, settings, app, or launcher."""
@@ -795,6 +801,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     connected_inputs_timer.start()
     refresh_connected_inputs()
     bluetooth_reconnect_timer: QTimer | None = None
+    bluetooth_reconnect_gateway = None
     try:
         from pideck.infrastructure.bluez import BluezGateway
         from pideck.infrastructure.bluetooth_reconnect import BluetoothReconnectService
@@ -802,14 +809,26 @@ def main(arguments: Sequence[str] | None = None) -> int:
         def bluetooth_pairing_active() -> bool:
             return bluetooth_window is not None and bluetooth_window.isVisible()
 
+        bluetooth_reconnect_gateway = BluezGateway("/org/pideck/agent/reconnect")
         bluetooth_reconnect = BluetoothReconnectService(
-            BluezGateway("/org/pideck/agent/reconnect"),
+            bluetooth_reconnect_gateway,
             pairing_active=bluetooth_pairing_active,
         )
         bluetooth_reconnect_timer = QTimer(application)
         bluetooth_reconnect_timer.setInterval(1500)
         bluetooth_reconnect_timer.timeout.connect(bluetooth_reconnect.tick)
         bluetooth_reconnect_timer.start()
+
+        def handle_gamepad_device_lost(address: str) -> None:
+            """Clear a stale BlueZ Connected session so reconnect can run again."""
+            if bluetooth_reconnect_gateway is None:
+                return
+            bluetooth_reconnect_gateway.disconnect_address(address)
+
+        gamepad_bridge.device_lost.connect(
+            handle_gamepad_device_lost,
+            Qt.ConnectionType.QueuedConnection,
+        )
     except (ImportError, BluetoothError) as error:
         dependencies.logger.warning("Bluetooth auto-reconnect unavailable: %s", error)
     if cec_adapter is not None:

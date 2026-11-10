@@ -47,6 +47,9 @@ class FakeReconnectBluez(BluezGateway):
         if method == "Set" and arguments[0] == _DEVICE and arguments[1] == "Trusted":
             self.devices[path]["Trusted"] = True
             return []
+        if method == "Disconnect":
+            self.devices[path]["Connected"] = False
+            return []
         if method == "Connect":
             self.connect_calls += 1
             if self.fail_connect:
@@ -95,6 +98,17 @@ def test_try_connect_returns_false_when_pad_is_off() -> None:
     assert gateway.try_connect(DEVICE) is False
     assert gateway.connect_calls == 1
     assert gateway.devices[DEVICE]["Connected"] is False
+    methods = [method for _, _, method in gateway.calls]
+    assert methods.count("Disconnect") >= 2
+    assert methods.index("Disconnect") < methods.index("Connect")
+
+
+def test_try_connect_disconnects_before_connect() -> None:
+    """Auto-reconnect must abort a stuck InProgress attempt first."""
+    gateway = FakeReconnectBluez()
+    assert gateway.try_connect(DEVICE) is True
+    methods = [method for _, _, method in gateway.calls]
+    assert methods.index("Disconnect") < methods.index("Set") < methods.index("Connect")
 
 
 def test_reconnect_tick_connects_and_is_single_flight() -> None:

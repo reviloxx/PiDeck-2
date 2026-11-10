@@ -37,6 +37,7 @@ class _GamepadDevice:
     stop: threading.Event
     nintendo_layout: bool = False
     grabbed: bool = False
+    address: str = ""
 
 
 class EvdevGamepadAdapter:
@@ -47,6 +48,7 @@ class EvdevGamepadAdapter:
         discovery_interval: float = 1.0,
         keyboard_added: Callable[[], None] | None = None,
         presence_changed: Callable[[], None] | None = None,
+        device_lost: Callable[[str], None] | None = None,
         *,
         sysfs_input_root: Path | None = None,
     ) -> None:
@@ -55,16 +57,20 @@ class EvdevGamepadAdapter:
         ``keyboard_added`` is called from the discovery thread one scan after a
         keyboard appears, giving the X server time to register the device.
         ``presence_changed`` fires when open gamepads or counted keyboards change.
+        ``device_lost`` receives a Bluetooth MAC when a pad reader dies so BlueZ
+        can Disconnect a stale Connected session.
         """
         self._discovery_interval = discovery_interval
         self.keyboard_added = keyboard_added
         self.presence_changed = presence_changed
+        self.device_lost = device_lost
         self._sysfs_input_root = sysfs_input_root or Path("/sys/class/input")
         self._keyboards: set[Path] | None = None
         self._lock = threading.RLock()
         self._sink: InputSink | None = None
         self._devices: dict[Path, _GamepadDevice] = {}
         self._suppress_until_absent: set[Path] = set()
+        self._suppress_addresses: dict[Path, str] = {}
         self._stop = threading.Event()
         self._discovery_thread: threading.Thread | None = None
         self._exclusive = False
@@ -118,6 +124,7 @@ class EvdevGamepadAdapter:
             devices = list(self._devices.values())
             self._devices.clear()
             self._suppress_until_absent.clear()
+            self._suppress_addresses.clear()
         for managed in devices:
             managed.stop.set()
             self._apply_grab(managed, False)
@@ -136,6 +143,18 @@ class EvdevGamepadAdapter:
         except Exception:
             _LOGGER.exception("Connected-input presence handler failed")
 
+    def _notify_device_lost(self, address: str) -> None:
+        """Ask BlueZ to drop a stale Connected session for one Bluetooth MAC."""
+        if not address:
+            return
+        callback = self.device_lost
+        if callback is None:
+            return
+        try:
+            callback(address)
+        except Exception:
+            _LOGGER.exception("Gamepad device-lost handler failed address=%s", address)
+
     def _discover_loop(self, evdev: Any) -> None:
         """Discover and remove gamepads while the adapter is active."""
         keyboard_pending = False
@@ -150,6 +169,7 @@ class EvdevGamepadAdapter:
             bt_connected = self._bluetooth_connected_addresses()
             seen_gamepads: set[Path] = set()
             live_paths: set[Path] = set()
+            path_addresses: dict[Path, str] = {}
             keyboards: set[Path] = set()
             for raw_path in evdev.list_devices():
                 path = Path(raw_path)
@@ -157,6 +177,7 @@ class EvdevGamepadAdapter:
                     device = evdev.InputDevice(raw_path)
                     is_gamepad = self._is_gamepad(device)
                     live = self._device_is_live(device, path, bt_connected)
+                    address = _normalize_bluetooth_address(getattr(device, "uniq", "") or "")
                     is_keyboard = (
                         not is_gamepad and self._is_keyboard(device) and live
                     )
@@ -165,18 +186,23 @@ class EvdevGamepadAdapter:
                     continue
                 if is_gamepad:
                     seen_gamepads.add(path)
+                    if address:
+                        path_addresses[path] = address
                     if live:
                         live_paths.add(path)
                 elif is_keyboard:
                     keyboards.add(path)
             with self._lock:
-                for path in live_paths:
-                    self._suppress_until_absent.discard(path)
-                gone = self._suppress_until_absent.difference(seen_gamepads)
-                if gone:
-                    self._suppress_until_absent.difference_update(gone)
+                # Clear suppress only after BlueZ drops Connected (or the node
+                # vanishes). Do not reopen while Connected is still stale.
+                for path in list(self._suppress_until_absent):
+                    address = self._suppress_addresses.get(path) or path_addresses.get(path, "")
+                    if path not in seen_gamepads or (address and address not in bt_connected):
+                        self._suppress_until_absent.discard(path)
+                        self._suppress_addresses.pop(path, None)
             for path in live_paths:
-                self._open_device(evdev, path)
+                if path not in self._suppress_until_absent:
+                    self._open_device(evdev, path)
             previous_keyboards = self._keyboards
             if previous_keyboards is not None and keyboards.difference(previous_keyboards):
                 _LOGGER.info(
@@ -189,8 +215,6 @@ class EvdevGamepadAdapter:
             with self._lock:
                 removed = set(self._devices).difference(live_paths)
             for path in removed:
-                # Keep suppress so a lingering BT node does not flap; clear when
-                # BlueZ reports the pad live again (or the node finally vanishes).
                 self._close_device(path, suppress_reopen=True)
             if keyboards_changed:
                 self._notify_presence_changed()
@@ -318,7 +342,10 @@ class EvdevGamepadAdapter:
             _LOGGER.warning("Unable to open gamepad path=%s error=%s", path, error)
             return
         nintendo = self._is_nintendo_controller(getattr(device, "name", "") or "")
-        managed = _GamepadDevice(path, device, threading.Event(), nintendo_layout=nintendo)
+        address = _normalize_bluetooth_address(getattr(device, "uniq", "") or "")
+        managed = _GamepadDevice(
+            path, device, threading.Event(), nintendo_layout=nintendo, address=address,
+        )
         with self._lock:
             if path in self._devices or path in self._suppress_until_absent:
                 try:
@@ -350,6 +377,8 @@ class EvdevGamepadAdapter:
             managed = self._devices.pop(path, None)
             if managed is not None and suppress_reopen:
                 self._suppress_until_absent.add(path)
+                if managed.address:
+                    self._suppress_addresses[path] = managed.address
         if managed is not None:
             managed.stop.set()
             self._apply_grab(managed, False)
@@ -359,6 +388,8 @@ class EvdevGamepadAdapter:
                 pass
             _LOGGER.info("Gamepad disconnected path=%s", path)
             self._notify_presence_changed()
+            if suppress_reopen:
+                self._notify_device_lost(managed.address)
 
     @staticmethod
     def _apply_grab(managed: _GamepadDevice, exclusive: bool, *, force: bool = False) -> None:

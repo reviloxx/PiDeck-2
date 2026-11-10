@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.74
+
+- Fixed: Switch Pro Controllers reconnect after you turn them off and on again
+  (BlueZ no longer gets stuck mid-connect).
+- Fixed: Gamepad icon clears promptly when the controller is turned off.
+
 ## v0.5.73
 
 - Fixed: Paired Nintendo Switch Pro Controllers connect on the first power-on

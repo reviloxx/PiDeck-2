@@ -289,12 +289,13 @@ def test_bluetooth_device_live_requires_bluez_connected(tmp_path: Path) -> None:
     assert adapter._device_is_live(pad, path, frozenset({"98:B6:E9:B2:4F:2C"})) is True
 
 
-def test_reader_stop_suppresses_reopen_until_live_again(tmp_path: Path) -> None:
-    """Power-off clears the icon; reconnect clears suppress when the pad is live."""
+def test_reader_stop_suppresses_reopen_until_bluez_drops(tmp_path: Path) -> None:
+    """Power-off clears the icon; suppress holds until BlueZ Connected goes false."""
     import threading
 
     path = Path("/dev/input/pideck-test-pad")
     presence: list[int] = []
+    lost: list[str] = []
     fail_read = True
     hold = threading.Event()
     bt_connected: set[str] = set()
@@ -332,6 +333,7 @@ def test_reader_stop_suppresses_reopen_until_live_again(tmp_path: Path) -> None:
     adapter = EvdevGamepadAdapter(
         discovery_interval=0,
         presence_changed=lambda: presence.append(adapter.connected_gamepad_count()),
+        device_lost=lost.append,
         sysfs_input_root=tmp_path,
     )
     adapter._bluetooth_connected_addresses = lambda: frozenset(bt_connected)  # type: ignore[method-assign]
@@ -350,12 +352,12 @@ def test_reader_stop_suppresses_reopen_until_live_again(tmp_path: Path) -> None:
     assert adapter.connected_gamepad_count() == 0
     assert presence[-1] == 0
     assert path in adapter._suppress_until_absent
-    bt_connected.clear()
+    assert lost == ["98:B6:E9:B2:4F:2C"]
 
-    # Stale node still listed must not reopen while BlueZ says disconnected.
+    # Stale BlueZ Connected must not clear suppress or reopen the pad.
     scans = 0
 
-    def list_devices() -> list[str]:
+    def list_devices_stale() -> list[str]:
         nonlocal scans
         scans += 1
         if scans >= 2:
@@ -363,16 +365,33 @@ def test_reader_stop_suppresses_reopen_until_live_again(tmp_path: Path) -> None:
         return [str(path)]
 
     adapter._discover_loop(
-        SimpleNamespace(list_devices=list_devices, InputDevice=lambda _p: FakeDevice())
+        SimpleNamespace(list_devices=list_devices_stale, InputDevice=lambda _p: FakeDevice())
     )
     assert adapter.connected_gamepad_count() == 0
     assert path in adapter._suppress_until_absent
 
-    # Power-on: BlueZ Connected again clears suppress and reopens the same path.
+    # After BlueZ drops Connected, suppress clears; a later Connected opens again.
+    bt_connected.clear()
+    scans = 0
+    adapter._stop.clear()
+
+    def list_devices_dropped() -> list[str]:
+        nonlocal scans
+        scans += 1
+        if scans >= 2:
+            adapter._stop.set()
+        return [str(path)]
+
+    adapter._discover_loop(
+        SimpleNamespace(list_devices=list_devices_dropped, InputDevice=lambda _p: FakeDevice())
+    )
+    assert path not in adapter._suppress_until_absent
+
     fail_read = False
     hold = threading.Event()
     bt_connected.add("98:B6:E9:B2:4F:2C")
     scans = 0
+    adapter._stop.clear()
 
     def list_devices_live() -> list[str]:
         nonlocal scans
@@ -381,10 +400,8 @@ def test_reader_stop_suppresses_reopen_until_live_again(tmp_path: Path) -> None:
             adapter._stop.set()
         return [str(path)]
 
-    adapter._stop.clear()
     adapter._discover_loop(
         SimpleNamespace(list_devices=list_devices_live, InputDevice=lambda _p: FakeDevice())
     )
     assert adapter.connected_gamepad_count() == 1
-    assert path not in adapter._suppress_until_absent
     adapter.close()

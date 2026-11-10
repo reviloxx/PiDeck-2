@@ -193,14 +193,41 @@ class BluezGateway:
         return tuple(paths)
 
     def try_connect(self, path: str, *, timeout: int = 4000) -> bool:
-        """Best-effort Connect for auto-reconnect; False when the pad is still off."""
+        """Best-effort Connect for auto-reconnect; False when the pad is still off.
+
+        Always Disconnect first so a prior timed-out Connect cannot leave BlueZ
+        stuck in ``InProgress`` / ``br-connection-busy``.
+        """
         try:
             path = self._device_path(path)
+        except BluetoothError:
+            return False
+        try:
+            self._call(path, _DEVICE, "Disconnect", timeout=2000)
+        except BluetoothError:
+            pass
+        try:
             self._call(path, _PROPERTIES, "Set", _DEVICE, "Trusted", QDBusVariant(True))
             self._call(path, _DEVICE, "Connect", timeout=timeout)
         except BluetoothError:
+            try:
+                self._call(path, _DEVICE, "Disconnect", timeout=2000)
+            except BluetoothError:
+                pass
             return False
         return True
+
+    def disconnect_address(self, address: str) -> None:
+        """Best-effort Disconnect for a Bluetooth MAC from a gamepad loss event."""
+        normalized = address.strip().upper().replace("-", ":")
+        if not normalized:
+            return
+        try:
+            adapter = self._adapter()
+            path = self._device_path(f"{adapter}/dev_{normalized.replace(':', '_')}")
+            self._call(path, _DEVICE, "Disconnect", timeout=2000)
+        except BluetoothError:
+            return
 
     def cancel_pairing(self, path: str) -> None:
         """Ask BlueZ to cancel an active pairing operation."""
