@@ -113,7 +113,7 @@ class BluezGateway:
             self._discovery_loop.quit()
 
     def pair(self, path: str) -> BluetoothState:
-        """Pair with a device using a temporary, application-local agent."""
+        """Pair, trust, and attempt to connect so controllers become usable."""
         path = self._device_path(path)
         agent = QDBusObjectPath(self._agent_path)
         self._call("/org/bluez", _AGENT_MANAGER, "RegisterAgent", agent, "KeyboardDisplay")
@@ -130,11 +130,19 @@ class BluezGateway:
             raise
         if failure is not None:
             raise failure
+        self._call(path, _PROPERTIES, "Set", _DEVICE, "Trusted", QDBusVariant(True))
+        try:
+            self._call(path, _DEVICE, "Connect", timeout=30000)
+        except BluetoothError:
+            # Pairing and trust must stick even when the device is asleep.
+            pass
         return self.inspect()
 
     def connect(self, path: str) -> BluetoothState:
-        """Connect one currently known device."""
-        self._call(self._device_path(path), _DEVICE, "Connect", timeout=30000)
+        """Trust and connect one currently known device."""
+        path = self._device_path(path)
+        self._call(path, _PROPERTIES, "Set", _DEVICE, "Trusted", QDBusVariant(True))
+        self._call(path, _DEVICE, "Connect", timeout=30000)
         return self.inspect()
 
     def cancel_pairing(self, path: str) -> None:

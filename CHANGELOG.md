@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.64
+
+- Fixed: Bluetooth pairing now trusts the device and tries to connect, so
+  controllers like the Switch Pro stay usable after pairing instead of only
+  showing as paired.
+
 ## v0.5.63
 
 - Fixed: In Kodi, Back / Return stops fullscreen playback instead of leaving

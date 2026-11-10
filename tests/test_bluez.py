@@ -10,6 +10,7 @@ from pideck.infrastructure.bluez import BluezGateway
 
 
 DEVICE = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+_DEVICE = "org.bluez.Device1"
 
 
 class FakeBluez(BluezGateway):
@@ -19,6 +20,10 @@ class FakeBluez(BluezGateway):
         super().__init__("/org/pideck/agent/test")
         self.calls: list[tuple[str, str, str]] = []
         self.fail_pair = False
+        self.fail_connect = False
+        self.trusted = False
+        self.paired = False
+        self.connected = False
 
     def _call(self, path, interface, method, *arguments, timeout=10000):
         self.calls.append((path, interface, method))
@@ -26,10 +31,27 @@ class FakeBluez(BluezGateway):
             nodes = '<node name="hci0"/>' if path == "/org/bluez" else '<node name="dev_AA_BB_CC_DD_EE_FF"/>'
             return [f"<node>{nodes}</node>"]
         if method == "Get":
-            values = {"Powered": True, "Alias": "Headphones", "Paired": False, "Connected": False}
+            values = {
+                "Powered": True,
+                "Alias": "Headphones",
+                "Paired": self.paired,
+                "Connected": self.connected,
+            }
             return [QDBusVariant(values[arguments[1]])]
-        if method == "Pair" and self.fail_pair:
-            raise BluetoothError("Pairing rejected")
+        if method == "Set" and arguments[0] == _DEVICE and arguments[1] == "Trusted":
+            variant = arguments[2]
+            self.trusted = bool(variant.variant() if isinstance(variant, QDBusVariant) else variant)
+            return []
+        if method == "Pair":
+            if self.fail_pair:
+                raise BluetoothError("Pairing rejected")
+            self.paired = True
+            return []
+        if method == "Connect":
+            if self.fail_connect:
+                raise BluetoothError("Host is down")
+            self.connected = True
+            return []
         return []
 
 
@@ -54,6 +76,46 @@ def test_bluez_unregisters_agent_after_rejected_pairing() -> None:
         gateway.pair(DEVICE)
     methods = [method for _, _, method in gateway.calls]
     assert methods.index("RegisterAgent") < methods.index("Pair") < methods.index("UnregisterAgent")
+    assert "Connect" not in methods
+    assert gateway.trusted is False
+
+
+def test_bluez_pair_trusts_and_connects() -> None:
+    """Successful pairing marks the device trusted and opens the HID session."""
+    gateway = FakeBluez()
+    state = gateway.pair(DEVICE)
+    methods = [method for _, _, method in gateway.calls]
+    assert methods.index("Pair") < methods.index("UnregisterAgent")
+    assert methods.index("UnregisterAgent") < methods.index("Set") < methods.index("Connect")
+    assert gateway.trusted is True
+    assert gateway.paired is True
+    assert gateway.connected is True
+    assert state.devices[0].paired is True
+    assert state.devices[0].connected is True
+
+
+def test_bluez_pair_keeps_trust_when_connect_fails() -> None:
+    """An asleep controller still remains paired and trusted after pairing."""
+    gateway = FakeBluez()
+    gateway.fail_connect = True
+    state = gateway.pair(DEVICE)
+    assert gateway.trusted is True
+    assert gateway.paired is True
+    assert gateway.connected is False
+    assert state.devices[0].paired is True
+    assert state.devices[0].connected is False
+
+
+def test_bluez_connect_trusts_device() -> None:
+    """Manual connect marks the device trusted before opening the session."""
+    gateway = FakeBluez()
+    gateway.paired = True
+    state = gateway.connect(DEVICE)
+    methods = [method for _, _, method in gateway.calls]
+    assert methods.index("Set") < methods.index("Connect")
+    assert gateway.trusted is True
+    assert gateway.connected is True
+    assert state.devices[0].connected is True
 
 
 def test_cancelled_discovery_stops_the_bluez_session() -> None:
