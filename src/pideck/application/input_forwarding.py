@@ -1,7 +1,8 @@
 """Forward remote-control actions to a running application.
 
 PiDeck keeps the HDMI-CEC adapter for every launched application and
-translates remote actions into ordinary key presses. Overlay and menu
+translates remote actions into ordinary key presses. The same path also
+forwards normalized gamepad actions for TV-oriented apps. Overlay and menu
 actions are not forwarded; the presentation layer opens the session
 overlay instead.
 """
@@ -11,6 +12,7 @@ import logging
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.keyboard import KeyInjector, VirtualKey
 from pideck.application.session import SessionSnapshot, SessionState
+from pideck.domain.configuration import ApplicationDefinition, PreferredInput
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +42,18 @@ def _key_for(application_id: str, action: InputAction) -> VirtualKey | None:
     if action is InputAction.STOP and application_id in _ESCAPE_STOP_IDS:
         return VirtualKey.ESCAPE
     return _KEYS.get(action)
+
+
+def should_forward_gamepad(application: ApplicationDefinition | None) -> bool:
+    """Return whether gamepad actions should be injected as keys for ``application``.
+
+    Apps that prefer a native gamepad (Steam Link, RetroArch) keep exclusive
+    controller ownership. Everything else — including YouTube and Kodi — gets
+    the same keyboard synthesis used for HDMI-CEC.
+    """
+    if application is None:
+        return False
+    return application.preferred_input is not PreferredInput.GAMEPAD
 
 
 class InputForwardingService:

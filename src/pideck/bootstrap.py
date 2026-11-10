@@ -22,7 +22,7 @@ from pideck.application.settings import SettingsService, SettingsUpdate
 from pideck.application.app_management import ApplicationManagementService
 from pideck.application.catalog import catalog_window_modes
 from pideck.application.home_layout import normalize_home, set_application_order
-from pideck.application.input_forwarding import InputForwardingService
+from pideck.application.input_forwarding import InputForwardingService, should_forward_gamepad
 from pideck.application.updates import ApplicationUpdateService
 from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateService, PiDeckUpdateStatus
 from pideck.application.ports.input import InputAction, InputEvent
@@ -675,6 +675,17 @@ def main(arguments: Sequence[str] | None = None) -> int:
             event, session_service.snapshot, pideck_has_focus=pideck_owns_focus(),
         )
 
+    def forward_gamepad_to_application(event: InputEvent) -> bool:
+        """Send gamepad actions as keys for TV apps; leave native-pad apps alone."""
+        if session_overlay_visible() or pideck_dialog_visible():
+            return False
+        snapshot = session_service.snapshot
+        if not should_forward_gamepad(snapshot.application):
+            return False
+        return input_forwarding.handle(
+            event, snapshot, pideck_has_focus=pideck_owns_focus(),
+        )
+
     class GamepadBridge(QObject):
         """Marshal input reader-thread events onto the Qt event loop."""
 
@@ -687,7 +698,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     gamepad_bridge = GamepadBridge()
 
     def handle_gamepad_event(event: InputEvent) -> None:
-        """Route normalized input to the overlay, settings, or launcher surface."""
+        """Route normalized input to the overlay, settings, app, or launcher."""
         if event.pressed:
             cursor_visibility.hide_cursor()
         if event.pressed and event.action in (InputAction.MENU, InputAction.HOME):
@@ -696,6 +707,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 return
         if session_overlay_visible() and session_overlay is not None:
             session_overlay.handle_input(event)
+            return
+        if session_active() and forward_gamepad_to_application(event):
             return
         if bluetooth_window is not None and bluetooth_window.isVisible():
             bluetooth_window.handle_input(event)

@@ -4,11 +4,11 @@ import ctypes
 
 import pytest
 
-from pideck.application.input_forwarding import InputForwardingService
+from pideck.application.input_forwarding import InputForwardingService, should_forward_gamepad
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.keyboard import VirtualKey
 from pideck.application.session import SessionSnapshot, SessionState
-from pideck.domain.configuration import ApplicationDefinition, CecMode
+from pideck.domain.configuration import ApplicationDefinition, CecMode, PreferredInput
 from pideck.infrastructure.x11_key_injector import X11KeyInjector
 
 
@@ -25,9 +25,16 @@ class RecordingInjector:
         pass
 
 
-YOUTUBE = ApplicationDefinition("youtube", "YouTube", "flatpak", cec_mode=CecMode.KEYBOARD)
-KODI = ApplicationDefinition("kodi", "Kodi", "kodi", cec_mode=CecMode.KEYBOARD)
+YOUTUBE = ApplicationDefinition(
+    "youtube", "YouTube", "flatpak", preferred_input=PreferredInput.CEC, cec_mode=CecMode.KEYBOARD,
+)
+KODI = ApplicationDefinition(
+    "kodi", "Kodi", "kodi", preferred_input=PreferredInput.CEC, cec_mode=CecMode.KEYBOARD,
+)
 RELEASING = ApplicationDefinition("steam-link", "Steam Link", "flatpak")
+STEAM_LINK = ApplicationDefinition(
+    "steam-link", "Steam Link", "flatpak", preferred_input=PreferredInput.GAMEPAD,
+)
 RUNNING = SessionSnapshot(SessionState.RUNNING, YOUTUBE)
 
 
@@ -124,6 +131,44 @@ def test_kodi_receives_forwarded_remote_keys() -> None:
     assert service.handle(InputEvent(InputAction.ACTIVATE, "cec"), running, pideck_has_focus=False)
     assert not service.handle(InputEvent(InputAction.MENU, "cec"), running, pideck_has_focus=False)
     assert injector.keys == [VirtualKey.RETURN]
+
+
+def test_should_forward_gamepad_skips_native_gamepad_apps() -> None:
+    """Steam Link keeps the pad; YouTube and Kodi receive synthesized keys."""
+    assert should_forward_gamepad(YOUTUBE) is True
+    assert should_forward_gamepad(KODI) is True
+    assert should_forward_gamepad(STEAM_LINK) is False
+    assert should_forward_gamepad(None) is False
+
+
+def test_gamepad_actions_become_keys_for_youtube_and_kodi() -> None:
+    """Normalized Switch/Xbox actions inject the same keys as the TV remote."""
+    service, injector = _service()
+    assert service.handle(
+        InputEvent(InputAction.ACTIVATE, "gamepad"), RUNNING, pideck_has_focus=False,
+    )
+    assert service.handle(
+        InputEvent(InputAction.BACK, "gamepad"), RUNNING, pideck_has_focus=False,
+    )
+    kodi = SessionSnapshot(SessionState.RUNNING, KODI)
+    assert service.handle(
+        InputEvent(InputAction.ACTIVATE, "gamepad"), kodi, pideck_has_focus=False,
+    )
+    assert service.handle(
+        InputEvent(InputAction.LEFT, "gamepad"), kodi, pideck_has_focus=False,
+    )
+    assert injector.keys == [
+        VirtualKey.RETURN, VirtualKey.ESCAPE, VirtualKey.RETURN, VirtualKey.LEFT,
+    ]
+
+
+def test_gamepad_menu_is_not_forwarded() -> None:
+    """Guide/Home stay with the session overlay for gamepad sources too."""
+    service, injector = _service()
+    assert not service.handle(
+        InputEvent(InputAction.MENU, "gamepad"), RUNNING, pideck_has_focus=False,
+    )
+    assert injector.keys == []
 
 
 class FakeLibraries:
