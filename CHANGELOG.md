@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.77
+
+- Fixed: Switch Pro reconnect no longer wedges BlueZ in InProgress when the
+  pad is off (one Connect attempt waits, then cools down instead of retrying).
+
 ## v0.5.76
 
 - Added: Input settings can leave the TV off when PiDeck starts (Turn on TV /

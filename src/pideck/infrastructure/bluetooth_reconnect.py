@@ -5,9 +5,14 @@ import logging
 import time
 
 from pideck.application.ports.bluetooth import BluetoothError
-from pideck.infrastructure.bluez import BluezGateway
+from pideck.infrastructure.bluez import BluezGateway, ConnectAttempt
 
 _LOGGER = logging.getLogger(__name__)
+
+# BlueZ keeps a BR connect running after the client D-Bus wait times out; do not
+# start another Connect for the same device until this window ends.
+_DEFAULT_PENDING_SECONDS = 45.0
+_DEFAULT_CONNECT_TIMEOUT_MS = 10000
 
 
 class BluetoothReconnectService:
@@ -18,14 +23,16 @@ class BluetoothReconnectService:
         gateway: BluezGateway,
         *,
         pairing_active: Callable[[], bool] | None = None,
-        failure_backoff_seconds: float = 1.5,
+        pending_seconds: float = _DEFAULT_PENDING_SECONDS,
+        connect_timeout_ms: int = _DEFAULT_CONNECT_TIMEOUT_MS,
     ) -> None:
         """Create a single-flight reconnect helper bound to one BlueZ gateway."""
         self._gateway = gateway
         self._pairing_active = pairing_active or (lambda: False)
-        self._failure_backoff_seconds = failure_backoff_seconds
+        self._pending_seconds = pending_seconds
+        self._connect_timeout_ms = connect_timeout_ms
         self._busy = False
-        self._retry_after = 0.0
+        self._pending_until: dict[str, float] = {}
 
     @property
     def busy(self) -> bool:
@@ -33,11 +40,8 @@ class BluetoothReconnectService:
         return self._busy
 
     def tick(self) -> None:
-        """Attempt Connect for each reconnect candidate; no overlapping ticks."""
+        """Attempt Connect for candidates that are not already BlueZ-pending."""
         if self._busy or self._pairing_active():
-            return
-        now = time.monotonic()
-        if now < self._retry_after:
             return
         self._busy = True
         try:
@@ -46,16 +50,30 @@ class BluetoothReconnectService:
             except BluetoothError as error:
                 _LOGGER.debug("Bluetooth reconnect scan skipped: %s", error)
                 return
-            if not candidates:
-                return
-            connected_any = False
+            now = time.monotonic()
+            candidate_set = set(candidates)
+            for path in list(self._pending_until):
+                if path not in candidate_set:
+                    # Connected (or unpaired) — BlueZ finished; allow future retries.
+                    del self._pending_until[path]
             for path in candidates:
                 if self._pairing_active():
                     return
-                if self._gateway.try_connect(path):
+                pending_until = self._pending_until.get(path)
+                if pending_until is not None and now < pending_until:
+                    continue
+                result = self._gateway.try_connect(path, timeout=self._connect_timeout_ms)
+                if result is ConnectAttempt.OK:
+                    self._pending_until.pop(path, None)
                     _LOGGER.info("Bluetooth gamepad reconnected path=%s", path)
-                    connected_any = True
-            if not connected_any:
-                self._retry_after = time.monotonic() + self._failure_backoff_seconds
+                    continue
+                # Client timeout / busy / failure: BlueZ may still own the attempt.
+                self._pending_until[path] = time.monotonic() + self._pending_seconds
+                _LOGGER.debug(
+                    "Bluetooth reconnect deferred path=%s result=%s cooldown=%.0fs",
+                    path,
+                    result.value,
+                    self._pending_seconds,
+                )
         finally:
             self._busy = False

@@ -3,7 +3,7 @@
 from PySide6.QtDBus import QDBusVariant
 
 from pideck.application.ports.bluetooth import BluetoothError
-from pideck.infrastructure.bluez import BluezGateway, is_reconnect_gamepad
+from pideck.infrastructure.bluez import BluezGateway, ConnectAttempt, is_reconnect_gamepad
 from pideck.infrastructure.bluetooth_reconnect import BluetoothReconnectService
 
 
@@ -27,7 +27,7 @@ class FakeReconnectBluez(BluezGateway):
                 "Connected": False,
             },
         }
-        self.fail_connect = False
+        self.fail_connect: BluetoothError | None = None
         self.connect_calls = 0
 
     def _call(self, path, interface, method, *arguments, timeout=10000):
@@ -52,8 +52,8 @@ class FakeReconnectBluez(BluezGateway):
             return []
         if method == "Connect":
             self.connect_calls += 1
-            if self.fail_connect:
-                raise BluetoothError("Host is down")
+            if self.fail_connect is not None:
+                raise self.fail_connect
             self.devices[path]["Connected"] = True
             return []
         return []
@@ -91,35 +91,45 @@ def test_reconnect_candidates_skip_connected_and_non_gamepads() -> None:
     assert gateway.reconnect_candidates() == ()
 
 
-def test_try_connect_returns_false_when_pad_is_off() -> None:
-    """A sleeping controller must not raise into the reconnect timer."""
+def test_try_connect_returns_failed_when_pad_is_off() -> None:
+    """A rejected Connect must not raise into the reconnect timer."""
     gateway = FakeReconnectBluez()
-    gateway.fail_connect = True
-    assert gateway.try_connect(DEVICE) is False
+    gateway.fail_connect = BluetoothError("Host is down")
+    assert gateway.try_connect(DEVICE) is ConnectAttempt.FAILED
     assert gateway.connect_calls == 1
-    assert gateway.devices[DEVICE]["Connected"] is False
     methods = [method for _, _, method in gateway.calls]
-    assert methods.count("Disconnect") >= 2
-    assert methods.index("Disconnect") < methods.index("Connect")
+    assert "Disconnect" not in methods
+    assert "Connect" in methods
 
 
-def test_try_connect_disconnects_before_connect() -> None:
-    """Auto-reconnect must abort a stuck InProgress attempt first."""
+def test_try_connect_does_not_disconnect_first() -> None:
+    """Auto-reconnect must not Disconnect before Connect when Connected is false."""
     gateway = FakeReconnectBluez()
-    assert gateway.try_connect(DEVICE) is True
+    assert gateway.try_connect(DEVICE) is ConnectAttempt.OK
     methods = [method for _, _, method in gateway.calls]
-    assert methods.index("Disconnect") < methods.index("Set") < methods.index("Connect")
+    assert "Disconnect" not in methods
+    assert methods.index("Set") < methods.index("Connect")
+
+
+def test_try_connect_classifies_timeout_and_busy() -> None:
+    """Client timeout and BlueZ InProgress are distinct outcomes."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("Bluetooth service did not complete Connect")
+    assert gateway.try_connect(DEVICE) is ConnectAttempt.TIMEOUT
+
+    gateway.fail_connect = BluetoothError("org.bluez.Error.InProgress br-connection-busy")
+    assert gateway.try_connect(DEVICE) is ConnectAttempt.BUSY
 
 
 def test_reconnect_tick_connects_and_is_single_flight() -> None:
     """One tick connects a candidate; a nested tick while busy is ignored."""
     gateway = FakeReconnectBluez()
-    service = BluetoothReconnectService(gateway)
+    service = BluetoothReconnectService(gateway, pending_seconds=45.0)
     reentered = False
 
     original_try = gateway.try_connect
 
-    def blocking_try(path: str, *, timeout: int = 4000) -> bool:
+    def blocking_try(path: str, *, timeout: int = 10000) -> ConnectAttempt:
         nonlocal reentered
         assert service.busy is True
         service.tick()
@@ -140,3 +150,24 @@ def test_reconnect_tick_skips_while_pairing_ui_active() -> None:
     service = BluetoothReconnectService(gateway, pairing_active=lambda: True)
     service.tick()
     assert gateway.connect_calls == 0
+
+
+def test_reconnect_does_not_retry_within_cooldown_after_timeout() -> None:
+    """A timed-out Connect must not start another attempt while BlueZ may still run."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("Bluetooth service did not complete Connect")
+    service = BluetoothReconnectService(gateway, pending_seconds=45.0, connect_timeout_ms=10000)
+
+    service.tick()
+    assert gateway.connect_calls == 1
+
+    gateway.fail_connect = BluetoothError("org.bluez.Error.InProgress br-connection-busy")
+    service.tick()
+    assert gateway.connect_calls == 1
+
+    # After cooldown, a new Connect is allowed.
+    service._pending_until[DEVICE] = 0.0
+    gateway.fail_connect = None
+    service.tick()
+    assert gateway.connect_calls == 2
+    assert gateway.devices[DEVICE]["Connected"] is True

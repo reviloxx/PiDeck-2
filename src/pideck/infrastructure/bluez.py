@@ -1,5 +1,6 @@
 """BlueZ adapter and device operations over the system D-Bus."""
 
+from enum import Enum
 import re
 from threading import Event
 import xml.etree.ElementTree as ET
@@ -33,6 +34,15 @@ def is_reconnect_gamepad(alias: str, icon: str = "") -> bool:
         or folded.startswith("pro controller ")
         or any(word in folded for word in ("gamepad", "controller", "joystick"))
     )
+
+
+class ConnectAttempt(Enum):
+    """Outcome of one auto-reconnect Device1.Connect call."""
+
+    OK = "ok"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+    BUSY = "busy"
 
 
 class BluezGateway:
@@ -192,30 +202,27 @@ class BluezGateway:
             paths.append(path)
         return tuple(paths)
 
-    def try_connect(self, path: str, *, timeout: int = 4000) -> bool:
-        """Best-effort Connect for auto-reconnect; False when the pad is still off.
+    def try_connect(self, path: str, *, timeout: int = 10000) -> ConnectAttempt:
+        """Best-effort Connect for auto-reconnect.
 
-        Always Disconnect first so a prior timed-out Connect cannot leave BlueZ
-        stuck in ``InProgress`` / ``br-connection-busy``.
+        Does not Disconnect first: when ``Connected`` is false, Disconnect does not
+        cancel an in-flight BR connect, and retrying Connect causes ``InProgress``.
         """
         try:
             path = self._device_path(path)
         except BluetoothError:
-            return False
-        try:
-            self._call(path, _DEVICE, "Disconnect", timeout=2000)
-        except BluetoothError:
-            pass
+            return ConnectAttempt.FAILED
         try:
             self._call(path, _PROPERTIES, "Set", _DEVICE, "Trusted", QDBusVariant(True))
             self._call(path, _DEVICE, "Connect", timeout=timeout)
-        except BluetoothError:
-            try:
-                self._call(path, _DEVICE, "Disconnect", timeout=2000)
-            except BluetoothError:
-                pass
-            return False
-        return True
+        except BluetoothError as error:
+            message = str(error).casefold()
+            if "did not complete" in message:
+                return ConnectAttempt.TIMEOUT
+            if "in progress" in message or "inprogress" in message or "br-connection-busy" in message:
+                return ConnectAttempt.BUSY
+            return ConnectAttempt.FAILED
+        return ConnectAttempt.OK
 
     def disconnect_address(self, address: str) -> None:
         """Best-effort Disconnect for a Bluetooth MAC from a gamepad loss event."""
