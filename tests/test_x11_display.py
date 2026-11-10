@@ -271,6 +271,35 @@ def test_connected_names_lists_connected_outputs(display) -> None:
     """Hotplug polling reads connected output names from xrandr."""
     gateway, _, _ = display
     assert gateway.connected_names() == frozenset({"HDMI-1"})
+    assert gateway.connection_state() == (frozenset({"HDMI-1"}), frozenset({"HDMI-1"}))
+
+
+INACTIVE_QUERY = """\
+Screen 0: minimum 320 x 200, current 640 x 480, maximum 8192 x 8192
+HDMI-0 connected
+   1920x1080     60.00 +  50.00
+   1280x720      60.00
+DP-0 disconnected primary
+"""
+
+
+def test_reassert_active_enables_connected_output_without_crtc(display, monkeypatch) -> None:
+    """Late TV attach leaves HDMI connected with no *; recovery must still modeset."""
+    gateway, preferences, log = display
+    preferences.save("HDMI-0", DisplayMode("1920x1080", "60.00"))
+    monkeypatch.setenv("XRANDR_QUERY", INACTIVE_QUERY)
+    log.write_text("")
+    gateway.reassert_active(force=True)
+    assert "--output HDMI-0 --mode 1920x1080 --rate 60.00 --primary" in log.read_text()
+
+
+def test_connection_state_reports_inactive_connected_outputs(display, monkeypatch) -> None:
+    """Hotplug sees connected-without-mode as needing recovery."""
+    gateway, _, _ = display
+    monkeypatch.setenv("XRANDR_QUERY", INACTIVE_QUERY)
+    connected, active = gateway.connection_state()
+    assert connected == frozenset({"HDMI-0"})
+    assert active == frozenset()
 
 
 def test_display_hotplug_monitor_recovers_on_request(display) -> None:
@@ -301,15 +330,19 @@ def test_display_hotplug_monitor_recovers_when_outputs_change(display, monkeypat
     gateway, preferences, log = display
     preferences.save("HDMI-1", DisplayMode("1920x1080", "60.00"))
     after: list[str] = []
-    names = iter([frozenset(), frozenset({"HDMI-1"}), frozenset({"HDMI-1"})])
+    states = iter([
+        (frozenset(), frozenset()),
+        (frozenset({"HDMI-1"}), frozenset({"HDMI-1"})),
+        (frozenset({"HDMI-1"}), frozenset({"HDMI-1"})),
+    ])
 
-    def fake_names() -> frozenset[str]:
+    def fake_state() -> tuple[frozenset[str], frozenset[str]]:
         try:
-            return next(names)
+            return next(states)
         except StopIteration:
-            return frozenset({"HDMI-1"})
+            return frozenset({"HDMI-1"}), frozenset({"HDMI-1"})
 
-    monkeypatch.setattr(gateway, "connected_names", fake_names)
+    monkeypatch.setattr(gateway, "connection_state", fake_state)
     monitor = DisplayHotplugMonitor(
         gateway, after=lambda: after.append("done"), interval=0.05, debounce=0.05,
     )
@@ -320,3 +353,36 @@ def test_display_hotplug_monitor_recovers_when_outputs_change(display, monkeypat
     monitor.close()
     assert after == ["done"]
     assert "--primary" in log.read_text()
+
+
+def test_display_hotplug_monitor_recovers_inactive_connected(display, monkeypatch) -> None:
+    """Connected HDMI without a CRTC must trigger recovery even if the name set is stable."""
+    from pideck.infrastructure.x11_display import DisplayHotplugMonitor
+
+    gateway, preferences, log = display
+    preferences.save("HDMI-0", DisplayMode("1920x1080", "60.00"))
+    after: list[str] = []
+    states = iter([
+        (frozenset({"HDMI-0"}), frozenset()),
+        (frozenset({"HDMI-0"}), frozenset()),
+        (frozenset({"HDMI-0"}), frozenset({"HDMI-0"})),
+    ])
+
+    def fake_state() -> tuple[frozenset[str], frozenset[str]]:
+        try:
+            return next(states)
+        except StopIteration:
+            return frozenset({"HDMI-0"}), frozenset({"HDMI-0"})
+
+    monkeypatch.setattr(gateway, "connection_state", fake_state)
+    monkeypatch.setenv("XRANDR_QUERY", INACTIVE_QUERY)
+    monitor = DisplayHotplugMonitor(
+        gateway, after=lambda: after.append("done"), interval=0.05, debounce=0.05,
+    )
+    monitor.start()
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and not after:
+        time.sleep(0.02)
+    monitor.close()
+    assert after == ["done"]
+    assert "--output HDMI-0 --mode 1920x1080 --rate 60.00 --primary" in log.read_text()

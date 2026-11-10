@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.80
+
+- Fixed: Late TV power-on recovery now enables HDMI when it is connected but
+  has no mode yet (the common NVIDIA/AVR black-screen case). v0.5.79 only
+  retrained outputs that already had an active CRTC.
+
 ## v0.5.79
 
 - Fixed: Turning the TV on after PiDeck has already booted no longer leaves a

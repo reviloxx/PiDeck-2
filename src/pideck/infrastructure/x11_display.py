@@ -38,16 +38,28 @@ def clamp_brightness(percent: int) -> int:
     return max(_MIN_BRIGHTNESS, min(_MAX_BRIGHTNESS, int(percent)))
 
 
-def _parse_outputs(text: str) -> tuple[DisplayOutput, ...]:
-    """Parse active XRandR outputs while preserving supported mode/rate pairs."""
+def _parse_outputs(text: str, *, require_active: bool = True) -> tuple[DisplayOutput, ...]:
+    """Parse XRandR outputs while preserving supported mode/rate pairs.
+
+    When ``require_active`` is true (default), only outputs with a current CRTC
+    mode (``*``) are returned. When false, connected outputs without a CRTC are
+    included using the preferred (``+``) or first listed mode so recovery can
+    enable them after a late TV power-on.
+    """
     outputs: list[DisplayOutput] = []
     name: str | None = None
     modes: list[DisplayMode] = []
     current: DisplayMode | None = None
+    preferred: DisplayMode | None = None
 
     def finish() -> None:
-        if name is not None and current is not None:
-            outputs.append(DisplayOutput(name, current, tuple(dict.fromkeys(modes))))
+        if name is None or not modes:
+            return
+        unique = tuple(dict.fromkeys(modes))
+        if current is not None:
+            outputs.append(DisplayOutput(name, current, unique))
+        elif not require_active:
+            outputs.append(DisplayOutput(name, preferred or unique[0], unique))
 
     for line in text.splitlines():
         if line and not line[0].isspace():
@@ -56,6 +68,7 @@ def _parse_outputs(text: str) -> tuple[DisplayOutput, ...]:
             name = fields[0] if len(fields) >= 2 and fields[1] == "connected" and _OUTPUT.fullmatch(fields[0]) else None
             modes = []
             current = None
+            preferred = None
             continue
         if name is None:
             continue
@@ -68,10 +81,24 @@ def _parse_outputs(text: str) -> tuple[DisplayOutput, ...]:
                 continue
             mode = DisplayMode(fields[0], match.group(1))
             modes.append(mode)
+            if "+" in match.group(2):
+                preferred = mode
             if "*" in match.group(2):
                 current = mode
     finish()
     return tuple(outputs)
+
+
+def _connected_names(text: str) -> frozenset[str]:
+    """Return every XRandR output reported as connected."""
+    names: set[str] = set()
+    for line in text.splitlines():
+        if not line or line[0].isspace():
+            continue
+        fields = line.split()
+        if len(fields) >= 2 and fields[1] == "connected" and _OUTPUT.fullmatch(fields[0]):
+            names.add(fields[0])
+    return frozenset(names)
 
 
 class DisplayPreferences:
@@ -237,14 +264,16 @@ class X11DisplayGateway:
                 active is not None and (active.resolving or active.process_running())
             )
 
-    def connected_names(self) -> frozenset[str]:
-        """Return outputs that currently have an active mode (not merely connected).
+    def connection_state(self) -> tuple[frozenset[str], frozenset[str]]:
+        """Return connected output names and names that currently have a CRTC."""
+        text = self._run("--query")
+        connected = _connected_names(text)
+        active = frozenset(output.name for output in _parse_outputs(text))
+        return connected, active
 
-        NVIDIA can keep HDMI listed as connected with no CRTC after ``--off`` or
-        while a sink is dark; treating those as absent lets hotplug recovery run
-        when a mode appears again.
-        """
-        return frozenset(output.name for output in _parse_outputs(self._run("--query")))
+    def connected_names(self) -> frozenset[str]:
+        """Return connected XRandR output names (including inactive CRTCs)."""
+        return self.connection_state()[0]
 
     def _apply_brightness(self, percent: int, output_names: tuple[str, ...] | None = None) -> None:
         """Apply clamped software brightness to one or every connected output."""
@@ -347,7 +376,8 @@ class X11DisplayGateway:
         """Re-apply modes on connected outputs and move RandR primary onto one of them.
 
         Forced reassert re-runs xrandr even when the mode already matches so NVIDIA
-        can retrain HDMI after a late TV power-on behind an always-on AVR.
+        can retrain HDMI after a late TV power-on behind an always-on AVR. Connected
+        outputs without a CRTC are included so recovery can enable them.
         """
         if self._change_in_progress():
             _LOGGER.info("Skipping display reassert while a mode change is in progress")
@@ -356,7 +386,11 @@ class X11DisplayGateway:
             raise DisplayError("Display settings are still being restored")
         preferences = self._preferences.load()
         brightness = self._preferences.load_brightness()
-        outputs = self._inspect()
+        text = self._run("--query")
+        active_names = {output.name for output in _parse_outputs(text)}
+        outputs = _parse_outputs(text, require_active=False)
+        if not outputs:
+            raise DisplayError("No configurable active X11 displays were found")
         primary_name: str | None = None
         for name in preferences:
             if any(output.name == name for output in outputs):
@@ -368,7 +402,8 @@ class X11DisplayGateway:
             saved = preferences.get(output.name)
             mode = saved if saved is not None and saved in output.modes else output.current
             is_primary = output.name == primary_name
-            if force or output.current != mode:
+            inactive = output.name not in active_names
+            if force or inactive or output.current != mode:
                 self._apply(output.name, mode, primary=is_primary)
             elif is_primary:
                 self._run("--output", output.name, "--primary")
@@ -413,6 +448,7 @@ class DisplayHotplugMonitor:
         self._pending = False
         self._deadline = 0.0
         self._known: frozenset[str] | None = None
+        self._active: frozenset[str] | None = None
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -461,17 +497,33 @@ class DisplayHotplugMonitor:
             if due:
                 self._recover()
             try:
-                names = self._gateway.connected_names()
+                connected, active = self._gateway.connection_state()
             except DisplayError:
                 _LOGGER.debug("Display hotplug poll failed", exc_info=True)
                 continue
+            inactive = connected - active
             with self._condition:
-                previous = self._known
-                self._known = names
-            if previous is not None and names != previous:
+                previous_connected = self._known
+                self._known = connected
+                self._active = active
+            if previous_connected is None:
+                if inactive:
+                    _LOGGER.info(
+                        "Connected outputs without a mode at startup %s; scheduling reassert",
+                        sorted(inactive),
+                    )
+                    self.request()
+                continue
+            if connected != previous_connected:
                 _LOGGER.info(
                     "Display outputs changed from %s to %s; scheduling reassert",
-                    sorted(previous), sorted(names),
+                    sorted(previous_connected), sorted(connected),
+                )
+                self.request()
+            elif inactive:
+                _LOGGER.info(
+                    "Connected outputs without a mode %s; scheduling reassert",
+                    sorted(inactive),
                 )
                 self.request()
 
