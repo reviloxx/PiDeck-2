@@ -10,9 +10,12 @@ from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QTimer, Qt, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QFrame,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSlider,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -68,12 +71,24 @@ class AudioWindow(WallpaperDialog):
         self.setModal(True)
         frame = build_system_window(self, tr(language, "audio"), tr(language, "audio_description"))
         self.status = frame.status
-        layout = frame.content
 
-        mode_label = QLabel(tr(language, "audio_hdmi_mode"), self)
+        self.scroll = QScrollArea(self)
+        self.scroll.setObjectName("settings_scroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        frame.content.addWidget(self.scroll, stretch=1)
+        page = QWidget(self.scroll)
+        self.scroll.setWidget(page)
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 12, 14, 0)
+        layout.setSpacing(14)
+
+        mode_label = QLabel(tr(language, "audio_hdmi_mode"), page)
         mode_label.setObjectName("settings_label")
         layout.addWidget(mode_label)
-        self.mode = SettingsComboBox(self)
+        self.mode = SettingsComboBox(page)
         self.mode.setObjectName("settings_control")
         configure_combo_box(self.mode)
         self.mode.addItem(tr(language, "audio_hdmi_mode_surround"), HdmiAudioMode.SURROUND.value)
@@ -81,19 +96,19 @@ class AudioWindow(WallpaperDialog):
         self.mode.installEventFilter(self)
         layout.addWidget(self.mode)
 
-        output_label = QLabel(tr(language, "audio_output"), self)
+        output_label = QLabel(tr(language, "audio_output"), page)
         output_label.setObjectName("settings_label")
         layout.addWidget(output_label)
-        self.output = SettingsComboBox(self)
+        self.output = SettingsComboBox(page)
         self.output.setObjectName("settings_control")
         configure_combo_box(self.output)
         self.output.installEventFilter(self)
         layout.addWidget(self.output)
 
-        self.volume_label = QLabel("", self)
+        self.volume_label = QLabel("", page)
         self.volume_label.setObjectName("settings_label")
         layout.addWidget(self.volume_label)
-        self.volume = QSlider(Qt.Orientation.Horizontal, self)
+        self.volume = QSlider(Qt.Orientation.Horizontal, page)
         self.volume.setObjectName("system_volume")
         self.volume.setRange(0, 100)
         self.volume.setSingleStep(5)
@@ -101,14 +116,14 @@ class AudioWindow(WallpaperDialog):
         layout.addWidget(self.volume)
 
         if applications:
-            apps_label = QLabel(tr(language, "audio_applications"), self)
+            apps_label = QLabel(tr(language, "audio_applications"), page)
             apps_label.setObjectName("settings_label")
             layout.addWidget(apps_label)
             for app_id, app_name in applications:
-                app_label = QLabel(app_name, self)
+                app_label = QLabel(app_name, page)
                 app_label.setObjectName("settings_label")
                 layout.addWidget(app_label)
-                combo = SettingsComboBox(self)
+                combo = SettingsComboBox(page)
                 combo.setObjectName("settings_control")
                 configure_combo_box(combo)
                 combo.addItem(tr(language, "audio_layout_default"), _LAYOUT_DEFAULT)
@@ -149,6 +164,11 @@ class AudioWindow(WallpaperDialog):
         controls.extend(self._app_layouts.values())
         controls.extend(control for control in (self.refresh, self.back) if control.isEnabled())
         return [control for control in controls if control.isEnabled() or control is self.volume]
+
+    def _ensure_visible(self, control: QWidget) -> None:
+        if control in (self.refresh, self.back):
+            return
+        self.scroll.ensureWidgetVisible(control)
 
     def _submit(self, operation: Callable[[], AudioState]) -> None:
         self._focus_before_operation = self.focusWidget()
@@ -251,6 +271,7 @@ class AudioWindow(WallpaperDialog):
         if focus not in self._controls():
             focus = self.mode
         focus.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._ensure_visible(focus)
 
     def _apply_mode(self, index: int) -> None:
         value = self.mode.itemData(index)
@@ -376,6 +397,8 @@ class AudioWindow(WallpaperDialog):
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Navigate between audio controls with vertical directional input."""
+        if event.type() == QEvent.Type.FocusIn and isinstance(watched, QWidget):
+            self._ensure_visible(watched)
         if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
             if isinstance(watched, SettingsComboBox) and event.key() in (
                 Qt.Key.Key_Return,
@@ -395,6 +418,7 @@ class AudioWindow(WallpaperDialog):
                 step = -1 if event.key() == Qt.Key.Key_Up else 1
                 target = controls[max(0, min(len(controls) - 1, index + step))]
                 target.setFocus(Qt.FocusReason.OtherFocusReason)
+                self._ensure_visible(target)
                 return True
         return super().eventFilter(watched, event)
 

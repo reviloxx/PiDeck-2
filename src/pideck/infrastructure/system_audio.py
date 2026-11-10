@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from typing import Any
 
 from pideck.application.ports.audio import (
@@ -23,6 +24,8 @@ _HDMI_PORT = re.compile(
     re.IGNORECASE,
 )
 _PASSTHROUGH_FORMATS = "pcm;ac3-iec61937;dts-iec61937;eac3-iec61937"
+_SINK_LOOKUP_ATTEMPTS = 8
+_SINK_LOOKUP_DELAY = 0.05
 
 
 class PulseAudioGateway:
@@ -126,8 +129,8 @@ class PulseAudioGateway:
         if not isinstance(default, str) or not default:
             raise AudioError("No active audio output is available")
         promoted = self._promote_hdmi(default, hdmi_mode, pcm_layout=pcm_layout)
-        sink_name = promoted or default
-        if promoted is not None and promoted != default:
+        sink_name = promoted if promoted is not None else default
+        if promoted is not None:
             self._run("set-default-sink", promoted)
         if pcm_layout is None and hdmi_mode is HdmiAudioMode.BITSTREAM:
             self._enable_passthrough_formats(sink_name)
@@ -220,6 +223,27 @@ class PulseAudioGateway:
         return match.group(1) or ""
 
     @classmethod
+    def _first_port_key(cls, *texts: str | None) -> str | None:
+        """Return the first HDMI port key, keeping ``\"\"`` for the primary port."""
+        for text in texts:
+            if not isinstance(text, str) or not text:
+                continue
+            port = cls._hdmi_port_key(text)
+            if port is not None:
+                return port
+        return None
+
+    @staticmethod
+    def _profile_name(value: object) -> str | None:
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(value, dict):
+            name = value.get("name")
+            if isinstance(name, str) and name:
+                return name
+        return None
+
+    @classmethod
     def _sink_hdmi_port(cls, sink: object) -> str | None:
         if not isinstance(sink, dict):
             return None
@@ -268,7 +292,7 @@ class PulseAudioGateway:
             if not isinstance(card, dict):
                 raise AudioError("The audio service returned invalid output data")
             card_name = card.get("name")
-            active = card.get("active_profile")
+            active = self._profile_name(card.get("active_profile"))
             profiles = card.get("profiles")
             if not isinstance(card_name, str) or not card_name:
                 raise AudioError("The audio service returned invalid output data")
@@ -314,6 +338,8 @@ class PulseAudioGateway:
         lower = profile_name.lower()
         if "hdmi" not in lower:
             return None
+        if "dts" in lower or "ac3" in lower:
+            return None
         if hdmi_mode is HdmiAudioMode.BITSTREAM:
             if "surround71" in lower or "7.1" in lower:
                 return 2
@@ -345,29 +371,38 @@ class PulseAudioGateway:
         card = self._card_for_sink(sink_name)
         if card is None:
             return None
-        card_name, active, profiles = card
-        port = self._hdmi_port_key(active or "") or self._hdmi_port_key(sink_name)
+        card_name, active, profiles, sink_profile = card
+        port = self._first_port_key(sink_profile, active, sink_name)
         if pcm_layout is AppPcmLayout.PCM_21:
             if self._is_hdmi_pcm_21_profile(active):
-                return sink_name
+                return self._live_sink(card_name, active, sink_name)
             profile = self._best_hdmi_pcm_21_profile(profiles, port_key=port)
         elif pcm_layout is AppPcmLayout.PCM_51 or (
             pcm_layout is None and hdmi_mode is not HdmiAudioMode.BITSTREAM
         ):
             if self._is_hdmi_surround_51_profile(active):
-                return sink_name
+                return self._live_sink(card_name, active, sink_name)
             profile = self._best_hdmi_surround_profile(profiles, port_key=port)
         else:
             if self._is_hdmi_stereo_profile(active):
-                return sink_name
+                return self._live_sink(card_name, active, sink_name)
             profile = self._best_hdmi_stereo_profile(profiles, port_key=port)
         if profile is None:
             return None
         self._run("set-card-profile", card_name, profile)
-        found = self._find_sink_for_card(card_name, profile)
-        return found or sink_name
+        return self._find_sink_for_card(card_name, profile)
 
-    def _card_for_sink(self, sink_name: str) -> tuple[str, str | None, dict[str, object]] | None:
+    def _live_sink(self, card_name: str, profile: str | None, fallback: str) -> str:
+        """Return the live sink for an already-correct profile, not a stale name."""
+        if isinstance(profile, str) and profile:
+            found = self._find_sink_for_card(card_name, profile)
+            if found is not None:
+                return found
+        return fallback
+
+    def _card_for_sink(
+        self, sink_name: str,
+    ) -> tuple[str, str | None, dict[str, object], str | None] | None:
         sinks = self._load_json("list", "sinks")
         cards = self._load_json("list", "cards")
         if not isinstance(sinks, list) or not isinstance(cards, list):
@@ -380,23 +415,85 @@ class PulseAudioGateway:
                     sink_props = props
                 break
         else:
-            return None
+            return self._card_for_missing_sink(sink_name, sinks, cards)
         alsa_card = sink_props.get("alsa.card")
+        sink_profile = sink_props.get("device.profile.name")
+        sink_profile_name = sink_profile if isinstance(sink_profile, str) else None
+        matched = self._match_card(cards, sink_name=sink_name, alsa_card=alsa_card)
+        if matched is None:
+            return None
+        card_name, active, profiles = matched
+        return card_name, active, profiles, sink_profile_name
+
+    def _card_for_missing_sink(
+        self,
+        sink_name: str,
+        sinks: list[object],
+        cards: list[object],
+    ) -> tuple[str, str | None, dict[str, object], str | None] | None:
+        """Recover the HDMI card when default_sink_name is stale after a profile switch."""
+        matched = self._match_card(cards, sink_name=sink_name, alsa_card=None)
+        if matched is not None:
+            card_name, active, profiles = matched
+            return card_name, active, profiles, None
+        for sink in sinks:
+            if not self._sink_is_hdmi(sink) or not isinstance(sink, dict):
+                continue
+            name = sink.get("name")
+            if not isinstance(name, str):
+                continue
+            props = sink.get("properties") if isinstance(sink.get("properties"), dict) else {}
+            alsa_card = props.get("alsa.card")
+            sink_profile = props.get("device.profile.name")
+            sink_profile_name = sink_profile if isinstance(sink_profile, str) else None
+            live = self._match_card(cards, sink_name=name, alsa_card=alsa_card)
+            if live is not None:
+                card_name, active, profiles = live
+                return card_name, active, profiles, sink_profile_name
         for card in cards:
             if not isinstance(card, dict):
                 continue
             card_name = card.get("name")
             profiles = card.get("profiles")
-            active = card.get("active_profile")
+            active = self._profile_name(card.get("active_profile"))
+            if not isinstance(card_name, str) or not isinstance(profiles, dict):
+                continue
+            if active is not None and "hdmi" in active.lower():
+                return card_name, active, profiles, None
+            if any(
+                isinstance(name, str) and "hdmi" in name.lower()
+                for name in profiles
+            ):
+                return card_name, active, profiles, None
+        return None
+
+    def _match_card(
+        self,
+        cards: list[object],
+        *,
+        sink_name: str,
+        alsa_card: object,
+    ) -> tuple[str, str | None, dict[str, object]] | None:
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            card_name = card.get("name")
+            profiles = card.get("profiles")
+            active = self._profile_name(card.get("active_profile"))
             if not isinstance(card_name, str) or not isinstance(profiles, dict):
                 continue
             index = card.get("index")
-            if str(alsa_card).isdigit() and type(index) is int and int(alsa_card) == index:
-                return card_name, active if isinstance(active, str) else None, profiles
+            if (
+                alsa_card is not None
+                and str(alsa_card).isdigit()
+                and type(index) is int
+                and int(alsa_card) == index
+            ):
+                return card_name, active, profiles
             if card_name.startswith("alsa_card."):
                 suffix = card_name.removeprefix("alsa_card.")
                 if sink_name.startswith(f"alsa_output.{suffix}"):
-                    return card_name, active if isinstance(active, str) else None, profiles
+                    return card_name, active, profiles
         return None
 
     @staticmethod
@@ -423,6 +520,8 @@ class PulseAudioGateway:
             return False
         lower = profile.lower()
         if "hdmi" not in lower or "surround" not in lower:
+            return False
+        if "dts" in lower or "ac3" in lower:
             return False
         if "surround71" in lower or "7.1" in lower:
             return False
@@ -484,6 +583,8 @@ class PulseAudioGateway:
             lower = name.lower()
             if "hdmi" not in lower or "surround" not in lower:
                 continue
+            if "dts" in lower or "ac3" in lower:
+                continue
             if "surround21" in lower or "2.1" in lower:
                 continue
             this_port = cls._hdmi_port_key(name)
@@ -497,12 +598,19 @@ class PulseAudioGateway:
         return candidates[0][1]
 
     def _find_sink_for_card(self, card_name: str, profile_name: str) -> str | None:
+        for attempt in range(_SINK_LOOKUP_ATTEMPTS):
+            found = self._find_sink_for_card_once(card_name, profile_name)
+            if found is not None:
+                return found
+            if attempt + 1 < _SINK_LOOKUP_ATTEMPTS:
+                time.sleep(_SINK_LOOKUP_DELAY)
+        return None
+
+    def _find_sink_for_card_once(self, card_name: str, profile_name: str) -> str | None:
         sinks = self._load_json("list", "sinks")
         if not isinstance(sinks, list):
             raise AudioError("The audio service returned invalid data")
         card_index = self._card_index(card_name)
-        preferred: str | None = None
-        fallback: str | None = None
         for sink in sinks:
             if not isinstance(sink, dict):
                 continue
@@ -523,11 +631,7 @@ class PulseAudioGateway:
                 continue
             if profile == profile_name:
                 return name
-            if preferred is None and isinstance(profile, str) and profile in profile_name:
-                preferred = name
-            if fallback is None:
-                fallback = name
-        return preferred or fallback
+        return None
 
     def _card_index(self, card_name: str) -> int | None:
         cards = self._load_json("list", "cards")

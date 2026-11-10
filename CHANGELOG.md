@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.59
+
+- Fixed: Opening Kodi (or any app on system Surround) switches HDMI back to
+  PCM 5.1 after another app used 2.1/stereo. Pulse no longer keeps a stale
+  stereo sink or picks a DTS profile.
+- Fixed: Settings → Audio scrolls when many apps are listed, so controls no
+  longer overlap the footer.
+
 ## v0.5.58
 
 - Added: Settings → Audio can set per-application **2.1 PCM** or **5.1 PCM**
