@@ -1,0 +1,12 @@
+<keymap>
+  <FullscreenVideo>
+    <keyboard>
+      <escape>Stop</escape>
+    </keyboard>
+  </FullscreenVideo>
+  <FullscreenGame>
+    <keyboard>
+      <escape>Stop</escape>
+    </keyboard>
+  </FullscreenGame>
+</keymap>

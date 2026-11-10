@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.63
+
+- Fixed: In Kodi, Back / Return stops fullscreen playback instead of leaving
+  the video running in the background.
+
 ## v0.5.62
 
 - Changed: Fully restored the application tree from **v0.5.57** (before

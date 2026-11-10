@@ -47,6 +47,7 @@ from pideck.infrastructure.audio_preferences import AudioPreferencesStore
 from pideck.infrastructure.kodi_acceleration import configure_kodi_acceleration
 from pideck.infrastructure.kodi_audio import configure_kodi_audio
 from pideck.infrastructure.kodi_cec import disable_kodi_cec
+from pideck.infrastructure.kodi_keymap import configure_kodi_keymap
 from pideck.application.ports.audio import AudioError, HdmiAudioMode
 from pideck.infrastructure.session.openbox import apply_release_openbox
 from pideck.infrastructure.session.picom import apply_release_picom
@@ -762,6 +763,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             user_defaults.apply(entry)
         if application_definition.identifier == "kodi":
             disable_kodi_cec()
+            configure_kodi_keymap()
             configure_kodi_acceleration()
             try:
                 hdmi_mode = audio_preferences.load().hdmi_mode
