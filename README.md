@@ -49,7 +49,7 @@ Validate a configuration without starting Qt:
 pideck --validate-only --config config/pideck.yaml
 ```
 
-On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and the Guide (Xbox) button opens the session overlay while an application is running. Nintendo Switch controllers use face-button labels instead (A confirms, B goes Back). Controllers can be connected or removed while PiDeck is running.
+On Linux, gamepad navigation uses the optional `evdev` backend. The user needs access to `/dev/input/event*`, commonly through the `input` group. The D-pad navigates, the south/A button activates, the east/B button goes Back, and holding the Guide (Xbox) / Home button opens the session overlay while an application is running. Nintendo Switch controllers use face-button labels instead (A confirms, B goes Back). Controllers can be connected or removed while PiDeck is running.
 
 HDMI-CEC navigation uses the Linux CEC interface: a Pulse-Eight USB adapter on
 x86 or built-in CEC on Raspberry Pi. **Settings → Input** offers direct-TV
@@ -83,8 +83,9 @@ Images built before v0.3.10 without a release tag cannot self-update. See the
 image guides for setup and limitations. Hardware operation is not yet verified.
 
 Use the arrow keys or Tab to select an application, then Enter or Space to open
-it. While an application is running, the Windows (Super) key, Xbox Guide button
-or TV Exit / Root Menu key opens an overlay that asks whether to return home.
+it. While an application is running, the Windows (Super) key, holding the Xbox
+Guide / Home button, or the TV Exit / Root Menu key opens an overlay that asks
+whether to return home.
 Confirm closes the application; Cancel or the same hotkey again stays in the
 app. On images that include the picom compositor, the overlay blurs the current
 app behind the dialog; otherwise it uses a dark backdrop. The Samsung Return

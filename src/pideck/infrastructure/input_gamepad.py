@@ -17,8 +17,9 @@ _LOGGER = logging.getLogger(__name__)
 _BTN_SOUTH = 304
 _BTN_EAST = 305
 _BTN_NORTH = 307
-_BTN_START = 315
 _BTN_MODE = 316
+# Hold Guide/Home long enough to open the session overlay without stealing short taps.
+_MODE_HOLD_SECONDS = 0.8
 
 # linux/input.h bus types for physical keyboards users actually plug in / pair.
 _BUS_USB = 3
@@ -38,6 +39,7 @@ class _GamepadDevice:
     nintendo_layout: bool = False
     grabbed: bool = False
     address: str = ""
+    mode_hold_timer: threading.Timer | None = None
 
 
 class EvdevGamepadAdapter:
@@ -388,6 +390,7 @@ class EvdevGamepadAdapter:
                     self._suppress_addresses[path] = managed.address
         if managed is not None:
             managed.stop.set()
+            self._cancel_mode_hold(managed)
             self._apply_grab(managed, False)
             try:
                 managed.device.close()
@@ -434,6 +437,9 @@ class EvdevGamepadAdapter:
             for event in managed.device.read_loop():
                 if managed.stop.is_set() or self._stop.is_set():
                     return
+                if event.type == 1 and event.code == _BTN_MODE:
+                    self._handle_mode_key(managed, event.value)
+                    continue
                 action = self._map_event(event, nintendo_layout=managed.nintendo_layout)
                 if action is not None:
                     sink = self._sink
@@ -446,12 +452,43 @@ class EvdevGamepadAdapter:
             # a stale Bluetooth/USB node may still appear in list_devices().
             self._close_device(managed.path, suppress_reopen=True)
 
+    def _handle_mode_key(self, managed: _GamepadDevice, value: int) -> None:
+        """Open the session overlay only after Guide/Home is held long enough."""
+        if value == 1:
+            self._cancel_mode_hold(managed)
+            timer = threading.Timer(_MODE_HOLD_SECONDS, self._fire_mode_hold, args=(managed,))
+            timer.daemon = True
+            managed.mode_hold_timer = timer
+            timer.start()
+            return
+        if value == 0:
+            self._cancel_mode_hold(managed)
+
+    def _fire_mode_hold(self, managed: _GamepadDevice) -> None:
+        """Emit MENU once the Guide/Home hold threshold elapses while still held."""
+        managed.mode_hold_timer = None
+        if managed.stop.is_set() or self._stop.is_set():
+            return
+        sink = self._sink
+        if sink is not None:
+            sink.handle_input(InputEvent(InputAction.MENU, "gamepad"))
+
+    @staticmethod
+    def _cancel_mode_hold(managed: _GamepadDevice) -> None:
+        """Drop a pending Guide/Home hold without emitting MENU."""
+        timer = managed.mode_hold_timer
+        managed.mode_hold_timer = None
+        if timer is not None:
+            timer.cancel()
+
     @staticmethod
     def _map_event(event: Any, *, nintendo_layout: bool = False) -> InputAction | None:
         """Map Linux evdev codes to D-pad and controller actions.
 
         Default (Xbox-style) mapping uses physical positions: south confirms,
         east goes back. Nintendo face labels put A on east and B on south.
+        Guide/Home is handled separately as a long-press for the session overlay.
+        Start is left for the running application.
         """
         if event.type == 3:
             if event.code == 16:
@@ -466,8 +503,6 @@ class EvdevGamepadAdapter:
                 activate: InputAction.ACTIVATE,
                 back: InputAction.BACK,
                 _BTN_NORTH: InputAction.BACK,
-                _BTN_START: InputAction.MENU,
-                _BTN_MODE: InputAction.MENU,
             }.get(event.code)
         return None
 

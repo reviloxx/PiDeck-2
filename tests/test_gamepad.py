@@ -2,11 +2,14 @@
 
 from types import SimpleNamespace
 from pathlib import Path
+import threading
+import time
 
 import pytest
 
 from pideck.application.ports.input import InputAction, InputEvent
-from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
+from pideck.infrastructure import input_gamepad as gamepad_module
+from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter, _GamepadDevice
 
 
 def test_gamepad_maps_dpad_and_buttons() -> None:
@@ -17,8 +20,8 @@ def test_gamepad_maps_dpad_and_buttons() -> None:
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=3, code=17, value=1)) is InputAction.DOWN
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=304, value=1)) is InputAction.ACTIVATE
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=305, value=1)) is InputAction.BACK
-    assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=315, value=1)) is InputAction.MENU
-    assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=316, value=1)) is InputAction.MENU
+    assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=315, value=1)) is None
+    assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=316, value=1)) is None
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=304, value=0)) is None
 
 
@@ -40,8 +43,50 @@ def test_nintendo_layout_maps_a_to_activate_and_b_to_back() -> None:
         EvdevGamepadAdapter._map_event(
             SimpleNamespace(type=1, code=316, value=1), nintendo_layout=True,
         )
-        is InputAction.MENU
+        is None
     )
+
+
+def test_guide_hold_emits_menu_after_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guide/Home opens the overlay only after the hold threshold, not on tap."""
+    monkeypatch.setattr(gamepad_module, "_MODE_HOLD_SECONDS", 0.05)
+    events: list[InputEvent] = []
+
+    class _Sink:
+        def handle_input(self, event: InputEvent) -> None:
+            events.append(event)
+
+    adapter = EvdevGamepadAdapter()
+    adapter._sink = _Sink()
+    managed = _GamepadDevice(Path("/dev/input/event-test"), object(), threading.Event())
+    adapter._handle_mode_key(managed, 1)
+    assert events == []
+    deadline = time.monotonic() + 1.0
+    while not events and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert len(events) == 1
+    assert events[0].action is InputAction.MENU
+    assert events[0].source == "gamepad"
+    adapter._handle_mode_key(managed, 0)
+
+
+def test_guide_short_press_does_not_emit_menu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Releasing Guide/Home before the hold threshold leaves the overlay closed."""
+    monkeypatch.setattr(gamepad_module, "_MODE_HOLD_SECONDS", 0.2)
+    events: list[InputEvent] = []
+
+    class _Sink:
+        def handle_input(self, event: InputEvent) -> None:
+            events.append(event)
+
+    adapter = EvdevGamepadAdapter()
+    adapter._sink = _Sink()
+    managed = _GamepadDevice(Path("/dev/input/event-test"), object(), threading.Event())
+    adapter._handle_mode_key(managed, 1)
+    time.sleep(0.05)
+    adapter._handle_mode_key(managed, 0)
+    time.sleep(0.25)
+    assert events == []
 
 
 def test_nintendo_controller_detection() -> None:

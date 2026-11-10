@@ -392,6 +392,9 @@ class SettingsWindow(QDialog):
         self._pideck_row.activation_requested.connect(self._activate_pideck_update)
         self._pideck_row.navigation_requested.connect(self._handle_update_navigation)
         layout.addWidget(self._pideck_row)
+        self._pideck_check_button = self._pideck_row.check_button
+        self._pideck_check_button.installEventFilter(self)
+        self._pideck_check_button.clicked.connect(self._request_pideck_check)
         self._build_date_label = QLabel(page)
         self._build_date_label.setObjectName("settings_hint")
         layout.addWidget(self._build_date_label)
@@ -402,15 +405,9 @@ class SettingsWindow(QDialog):
         self._release_notes.installEventFilter(self)
         self._release_notes.navigation_requested.connect(self._handle_update_navigation)
         layout.addWidget(self._release_notes, stretch=1)
-        self._pideck_check_button = QPushButton(page)
-        self._pideck_check_button.setObjectName("settings_footer")
-        self._pideck_check_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._pideck_check_button.installEventFilter(self)
-        self._pideck_check_button.clicked.connect(self._request_pideck_check)
-        layout.addWidget(self._pideck_check_button, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addStretch()
         self._page_controls[self._pideck_page] = [
-            self._pideck_row, self._release_notes, self._pideck_check_button,
+            self._pideck_row, self._pideck_check_button, self._release_notes,
         ]
         self._set_pideck_check_enabled(self._pideck_info)
         self._show_release_notes(self._pideck_info)
@@ -1052,8 +1049,14 @@ class SettingsWindow(QDialog):
         """Display the latest application-independent PiDeck update state."""
         self._pideck_info = info
         if self._pideck_row is not None:
+            check_had_focus = self._pideck_check_button.hasFocus()
             self._pideck_row.set_pideck_info(info)
             self._set_pideck_check_enabled(info)
+            if check_had_focus and (
+                self._pideck_check_button.isHidden()
+                or not self._pideck_check_button.isEnabled()
+            ):
+                self._pideck_row.setFocus(Qt.FocusReason.OtherFocusReason)
             self._show_release_notes(info)
 
     def _show_release_notes(self, info: PiDeckUpdateInfo) -> None:

@@ -522,6 +522,8 @@ def test_pideck_manual_check_navigation_and_language(application: QApplication) 
     assert row is not None
     button = window._pideck_check_button
     assert button.text() == "Check for updates"
+    assert row.status_label.isHidden()
+    assert "Up to date" not in row.status_label.text()
     QTest.keyClick(row, Qt.Key.Key_Down)
     assert button.hasFocus()
     QTest.keyClick(button, Qt.Key.Key_Return)
@@ -533,6 +535,7 @@ def test_pideck_manual_check_navigation_and_language(application: QApplication) 
     assert button.text() == "Nach Aktualisierungen suchen"
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.CHECKING, "1.0.0"))
     assert not button.isEnabled()
+    assert button.isHidden()
     assert row.hasFocus()
     QTest.keyClick(row, Qt.Key.Key_Down)
     assert row.hasFocus()
@@ -1051,16 +1054,20 @@ def test_about_page_shows_scrollable_release_notes(application: QApplication) ->
     assert text.index("PiDeck 1.2.0") < text.index("PiDeck 1.1.0") and "Bold" in text and "**" not in text
     window._pideck_row.setFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert window._pideck_check_button.hasFocus()
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert notes.hasFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert notes.hasFocus() and notes.verticalScrollBar().value() > 0
-    notes.verticalScrollBar().setValue(notes.verticalScrollBar().maximum())
-    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    notes.verticalScrollBar().setValue(0)
+    window.handle_input(InputEvent(InputAction.UP, "gamepad"))
     assert window._pideck_check_button.hasFocus()
     window.apply_language("de")
     assert window._release_notes_title.text() == "Neu in PiDeck 1.2.0"
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.2.0"))
     assert notes.isHidden() and window._release_notes_title.isHidden()
+    assert window._pideck_row is not None
+    assert window._pideck_row.status_label.isHidden()
     window._pideck_row.setFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert window._pideck_check_button.hasFocus()

@@ -201,6 +201,12 @@ class PiDeckUpdateRow(UpdateRow):
         self._pideck_info = info
         super().__init__("", "PiDeck", parent)
         self.build_label.hide()
+        # Check replaces the idle "Up to date" hint in the status column.
+        self.check_button = QPushButton(tr(self._language, "check_for_updates"), self)
+        self.check_button.setObjectName("update_action")
+        self.check_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        status_index = self._layout.indexOf(self.status_label)
+        self._layout.insertWidget(status_index + 1, self.check_button)
         self.set_pideck_info(info)
 
     def set_pideck_info(self, info: PiDeckUpdateInfo) -> None:
@@ -219,12 +225,24 @@ class PiDeckUpdateRow(UpdateRow):
             "", "PiDeck", statuses[info.status],
             info.current_version or __version__, info.available_version, info.message,
         ))
+        if info.status is PiDeckUpdateStatus.UP_TO_DATE:
+            self.status_label.clear()
+            self.status_label.hide()
+        else:
+            self.status_label.show()
         if info.status is PiDeckUpdateStatus.AVAILABLE and info.message:
             self.status_label.setText(f"{self.status_label.text()} - {info.message}")
         if info.status is PiDeckUpdateStatus.FAILED:
             self.action.setText(tr(self._language, "retry"))
             self.action.setEnabled(True)
             self.action.setVisible(True)
+        checkable = info.status in (
+            PiDeckUpdateStatus.UP_TO_DATE,
+            PiDeckUpdateStatus.AVAILABLE,
+            PiDeckUpdateStatus.FAILED,
+        )
+        self.check_button.setVisible(checkable)
+        self.check_button.setText(tr(self._language, "check_for_updates"))
 
     def set_language(self, language: str) -> None:
         """Re-render PiDeck update state when the language changes."""

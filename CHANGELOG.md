@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.83
+
+- Changed: Hold Guide/Home to open the session overlay; Start no longer opens
+  it, so in-game pause and other Start actions stay with the app.
+- Changed: About no longer shows an “Up to date” hint next to the installed
+  version; Check for updates sits in that spot instead.
+
 ## v0.5.82
 
 - Fixed: Switch Pro Controllers no longer disconnect a few seconds after

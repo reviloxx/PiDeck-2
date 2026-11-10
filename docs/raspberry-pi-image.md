@@ -318,8 +318,9 @@ No Pi 5 hardware acceptance has yet been performed. PiDeck's application
 readiness detector currently uses X11 and `wmctrl`; compatibility with each
 application's real window and process lifecycle remains a release gate.
 
-While an application is running, Super (Windows), the Xbox Guide button and the
-TV Exit / Root Menu key open the session overlay so the user can return to PiDeck.
+While an application is running, Super (Windows), holding the Xbox Guide / Home
+button, and the TV Exit / Root Menu key open the session overlay so the user can
+return to PiDeck.
 The session starts picom with `unredir-if-possible` disabled so the overlay can
 blur fullscreen apps. The updatable release selects a profile under
 `…/python/pideck/infrastructure/session/` (xrender with vsync on the Pi;
