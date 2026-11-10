@@ -189,8 +189,18 @@ def test_opening_nintendo_gamepad_stores_nintendo_layout() -> None:
 
 def test_keyboard_hotplug_notifies_once_after_the_next_scan() -> None:
     """Keyboards present at startup are ignored; later ones trigger one callback."""
-    keyboard = SimpleNamespace(name="USB Keyboard", capabilities=lambda: {1: list(range(1, 100))}, close=lambda: None)
-    mouse = SimpleNamespace(name="USB Mouse", capabilities=lambda: {1: [272, 273]}, close=lambda: None)
+    keyboard = SimpleNamespace(
+        name="USB Keyboard",
+        info=SimpleNamespace(bustype=3),
+        capabilities=lambda: {1: list(range(1, 100))},
+        close=lambda: None,
+    )
+    mouse = SimpleNamespace(
+        name="USB Mouse",
+        info=SimpleNamespace(bustype=3),
+        capabilities=lambda: {1: [272, 273]},
+        close=lambda: None,
+    )
     devices = {"/dev/input/event0": mouse}
     notifications: list[bool] = []
     scans = 0
@@ -211,3 +221,109 @@ def test_keyboard_hotplug_notifies_once_after_the_next_scan() -> None:
     assert EvdevGamepadAdapter._is_keyboard(keyboard) is True
     assert EvdevGamepadAdapter._is_keyboard(mouse) is False
     assert notifications == [True]
+
+
+def test_platform_i8042_keyboard_is_not_counted() -> None:
+    """Motherboard AT/i8042 keyboards must not light the footer keyboard icon."""
+    platform = SimpleNamespace(
+        name="AT Raw Set 2 keyboard",
+        info=SimpleNamespace(bustype=17),
+        capabilities=lambda: {1: list(range(1, 100))},
+    )
+    assert EvdevGamepadAdapter._is_keyboard(platform) is False
+
+
+def test_usb_keyboard_without_power_supply_is_online(tmp_path: Path) -> None:
+    """Wired USB keyboards with no battery online attribute count as present."""
+    event = tmp_path / "event1"
+    device_dir = tmp_path / "sys" / "input1"
+    device_dir.mkdir(parents=True)
+    event.mkdir()
+    (event / "device").symlink_to(device_dir)
+    adapter = EvdevGamepadAdapter(sysfs_input_root=tmp_path)
+    assert adapter._input_device_online(Path("/dev/input/event1")) is True
+
+
+def test_wireless_keyboard_requires_power_supply_online(tmp_path: Path) -> None:
+    """Unifying-style keyboards expose online=0 while powered off."""
+    event = tmp_path / "event2"
+    hid = tmp_path / "sys" / "hid"
+    supply = hid / "power_supply" / "hidpp_battery_0"
+    supply.mkdir(parents=True)
+    event.mkdir()
+    (event / "device").symlink_to(hid)
+    adapter = EvdevGamepadAdapter(sysfs_input_root=tmp_path)
+
+    (supply / "online").write_text("0\n", encoding="utf-8")
+    assert adapter._input_device_online(Path("/dev/input/event2")) is False
+
+    (supply / "online").write_text("1\n", encoding="utf-8")
+    assert adapter._input_device_online(Path("/dev/input/event2")) is True
+
+
+def test_reader_stop_suppresses_reopen_and_notifies_presence() -> None:
+    """Power-off must clear the pad immediately and not re-open a lingering node."""
+    import threading
+
+    path = Path("/dev/input/event9")
+    presence: list[int] = []
+    open_calls = 0
+    fail_read = True
+    hold = threading.Event()
+
+    class FakeDevice:
+        name = "Xbox Wireless Controller"
+
+        def __init__(self) -> None:
+            nonlocal open_calls
+            open_calls += 1
+
+        def grab(self) -> None:
+            return None
+
+        def ungrab(self) -> None:
+            return None
+
+        def read_loop(self):  # type: ignore[no-untyped-def]
+            hold.wait(1)
+            if fail_read:
+                raise OSError("device gone")
+            return
+            yield  # pragma: no cover
+
+        def close(self) -> None:
+            hold.set()
+
+    adapter = EvdevGamepadAdapter(
+        discovery_interval=0,
+        presence_changed=lambda: presence.append(adapter.connected_gamepad_count()),
+    )
+    evdev = SimpleNamespace(InputDevice=lambda _path: FakeDevice())
+    adapter._open_device(evdev, path)
+    assert adapter.connected_gamepad_count() == 1
+    assert presence == [1]
+
+    # Simulate the reader dying (Bluetooth/USB power-off).
+    hold.set()
+    for _ in range(50):
+        if adapter.connected_gamepad_count() == 0:
+            break
+        threading.Event().wait(0.02)
+    assert adapter.connected_gamepad_count() == 0
+    assert presence[-1] == 0
+    assert path in adapter._suppress_until_absent
+
+    # Stale node still listed must not reopen while suppressed.
+    adapter._open_device(evdev, path)
+    assert adapter.connected_gamepad_count() == 0
+    assert open_calls == 1
+
+    # Once the node leaves list_devices, suppress clears and a later open works.
+    fail_read = False
+    hold = threading.Event()
+    with adapter._lock:
+        adapter._suppress_until_absent.discard(path)
+    adapter._open_device(evdev, path)
+    assert adapter.connected_gamepad_count() == 1
+    assert open_calls == 2
+    adapter.close()

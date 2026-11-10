@@ -18,6 +18,11 @@ _BTN_NORTH = 307
 _BTN_START = 315
 _BTN_MODE = 316
 
+# linux/input.h bus types for physical keyboards users actually plug in / pair.
+_BUS_USB = 3
+_BUS_BLUETOOTH = 5
+_KEYBOARD_BUSES = frozenset({_BUS_USB, _BUS_BLUETOOTH})
+
 
 @dataclass(slots=True)
 class _GamepadDevice:
@@ -34,19 +39,28 @@ class EvdevGamepadAdapter:
     """Read standard Linux gamepad events and normalize them for PiDeck."""
 
     def __init__(
-        self, discovery_interval: float = 1.0, keyboard_added: Callable[[], None] | None = None,
+        self,
+        discovery_interval: float = 1.0,
+        keyboard_added: Callable[[], None] | None = None,
+        presence_changed: Callable[[], None] | None = None,
+        *,
+        sysfs_input_root: Path | None = None,
     ) -> None:
         """Create an optional evdev adapter with runtime device discovery.
 
         ``keyboard_added`` is called from the discovery thread one scan after a
         keyboard appears, giving the X server time to register the device.
+        ``presence_changed`` fires when open gamepads or counted keyboards change.
         """
         self._discovery_interval = discovery_interval
         self.keyboard_added = keyboard_added
+        self.presence_changed = presence_changed
+        self._sysfs_input_root = sysfs_input_root or Path("/sys/class/input")
         self._keyboards: set[Path] | None = None
         self._lock = threading.RLock()
         self._sink: InputSink | None = None
         self._devices: dict[Path, _GamepadDevice] = {}
+        self._suppress_until_absent: set[Path] = set()
         self._stop = threading.Event()
         self._discovery_thread: threading.Thread | None = None
         self._exclusive = False
@@ -99,6 +113,7 @@ class EvdevGamepadAdapter:
             self._exclusive = False
             devices = list(self._devices.values())
             self._devices.clear()
+            self._suppress_until_absent.clear()
         for managed in devices:
             managed.stop.set()
             self._apply_grab(managed, False)
@@ -106,6 +121,16 @@ class EvdevGamepadAdapter:
                 managed.device.close()
             except OSError:
                 _LOGGER.debug("Gamepad device already closed path=%s", managed.path)
+
+    def _notify_presence_changed(self) -> None:
+        """Tell the UI that connected gamepad/keyboard presence may have changed."""
+        callback = self.presence_changed
+        if callback is None:
+            return
+        try:
+            callback()
+        except Exception:
+            _LOGGER.exception("Connected-input presence handler failed")
 
     def _discover_loop(self, evdev: Any) -> None:
         """Discover and remove gamepads while the adapter is active."""
@@ -125,7 +150,11 @@ class EvdevGamepadAdapter:
                 try:
                     device = evdev.InputDevice(raw_path)
                     is_gamepad = self._is_gamepad(device)
-                    is_keyboard = not is_gamepad and self._is_keyboard(device)
+                    is_keyboard = (
+                        not is_gamepad
+                        and self._is_keyboard(device)
+                        and self._input_device_online(path)
+                    )
                     device.close()
                 except (OSError, PermissionError):
                     continue
@@ -134,14 +163,24 @@ class EvdevGamepadAdapter:
                     self._open_device(evdev, path)
                 elif is_keyboard:
                     keyboards.add(path)
-            if self._keyboards is not None and keyboards.difference(self._keyboards):
-                _LOGGER.info("Keyboard connected paths=%s", sorted(map(str, keyboards - self._keyboards)))
+            previous_keyboards = self._keyboards
+            if previous_keyboards is not None and keyboards.difference(previous_keyboards):
+                _LOGGER.info(
+                    "Keyboard connected paths=%s",
+                    sorted(map(str, keyboards - previous_keyboards)),
+                )
                 keyboard_pending = True
+            keyboards_changed = previous_keyboards != keyboards
             self._keyboards = keyboards
             with self._lock:
                 removed = set(self._devices).difference(paths)
+                gone = self._suppress_until_absent.difference(paths)
+                if gone:
+                    self._suppress_until_absent.difference_update(gone)
             for path in removed:
-                self._close_device(path)
+                self._close_device(path, suppress_reopen=False)
+            if keyboards_changed:
+                self._notify_presence_changed()
             self._stop.wait(self._discovery_interval)
 
     @staticmethod
@@ -160,8 +199,12 @@ class EvdevGamepadAdapter:
 
     @staticmethod
     def _is_keyboard(device: Any) -> bool:
-        """Identify typing keyboards by the presence of letter keys A and Z."""
-        return {30, 44}.issubset(_capability_codes(device.capabilities().get(1, [])))
+        """Identify a USB/Bluetooth typing keyboard (not platform i8042 nodes)."""
+        if not {30, 44}.issubset(_capability_codes(device.capabilities().get(1, []))):
+            return False
+        info = getattr(device, "info", None)
+        bustype = getattr(info, "bustype", None)
+        return bustype in _KEYBOARD_BUSES
 
     @staticmethod
     def _is_nintendo_controller(name: str) -> bool:
@@ -175,10 +218,50 @@ class EvdevGamepadAdapter:
             or folded.startswith("pro controller ")
         )
 
+    def _input_device_online(self, path: Path) -> bool:
+        """Return whether a wireless input is powered on, if the kernel exposes it.
+
+        Wired USB keyboards usually have no ``power_supply/*/online`` attribute and
+        count as present. Logitech Unifying and similar HID devices expose
+        ``online`` (0 while the keyboard is off, 1 while it is awake).
+        """
+        online_values = list(self._power_supply_online_values(path))
+        if not online_values:
+            return True
+        return any(value == "1" for value in online_values)
+
+    def _power_supply_online_values(self, path: Path) -> list[str]:
+        """Read ``online`` attributes under the input device's sysfs parents."""
+        values: list[str] = []
+        try:
+            current = (self._sysfs_input_root / path.name / "device").resolve()
+        except OSError:
+            return values
+        for _ in range(8):
+            supply_root = current / "power_supply"
+            if supply_root.is_dir():
+                try:
+                    supplies = sorted(supply_root.iterdir())
+                except OSError:
+                    supplies = []
+                for supply in supplies:
+                    online = supply / "online"
+                    if not online.is_file():
+                        continue
+                    try:
+                        values.append(online.read_text(encoding="utf-8").strip())
+                    except OSError:
+                        continue
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        return values
+
     def _open_device(self, evdev: Any, path: Path) -> None:
         """Open one newly discovered gamepad and start its reader."""
         with self._lock:
-            if path in self._devices:
+            if path in self._devices or path in self._suppress_until_absent:
                 return
         try:
             device = evdev.InputDevice(str(path))
@@ -188,6 +271,12 @@ class EvdevGamepadAdapter:
         nintendo = self._is_nintendo_controller(getattr(device, "name", "") or "")
         managed = _GamepadDevice(path, device, threading.Event(), nintendo_layout=nintendo)
         with self._lock:
+            if path in self._devices or path in self._suppress_until_absent:
+                try:
+                    device.close()
+                except OSError:
+                    pass
+                return
             self._devices[path] = managed
             exclusive = self._exclusive
         self._apply_grab(managed, exclusive)
@@ -204,11 +293,14 @@ class EvdevGamepadAdapter:
             "nintendo" if nintendo else "xbox",
             exclusive,
         )
+        self._notify_presence_changed()
 
-    def _close_device(self, path: Path) -> None:
+    def _close_device(self, path: Path, *, suppress_reopen: bool = True) -> None:
         """Stop one disconnected gamepad reader."""
         with self._lock:
             managed = self._devices.pop(path, None)
+            if managed is not None and suppress_reopen:
+                self._suppress_until_absent.add(path)
         if managed is not None:
             managed.stop.set()
             self._apply_grab(managed, False)
@@ -217,6 +309,7 @@ class EvdevGamepadAdapter:
             except OSError:
                 pass
             _LOGGER.info("Gamepad disconnected path=%s", path)
+            self._notify_presence_changed()
 
     @staticmethod
     def _apply_grab(managed: _GamepadDevice, exclusive: bool, *, force: bool = False) -> None:
@@ -262,7 +355,9 @@ class EvdevGamepadAdapter:
         except (OSError, RuntimeError):
             _LOGGER.info("Gamepad reader stopped path=%s", managed.path)
         finally:
-            self._close_device(managed.path)
+            # Reader exit means the pad died or was closed; suppress re-open while
+            # a stale Bluetooth/USB node may still appear in list_devices().
+            self._close_device(managed.path, suppress_reopen=True)
 
     @staticmethod
     def _map_event(event: Any, *, nintendo_layout: bool = False) -> InputAction | None:

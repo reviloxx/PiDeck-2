@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.71
+
+- Fixed: Keyboard icon only shows for a plugged USB keyboard or a wireless
+  keyboard that is actually on; the motherboard keyboard is ignored.
+- Fixed: Gamepad icon disappears as soon as the controller is turned off.
+
 ## v0.5.70
 
 - Fixed: Startup crash that left the appliance on a black console after v0.5.69

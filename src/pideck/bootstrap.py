@@ -730,12 +730,18 @@ def main(arguments: Sequence[str] | None = None) -> int:
         """Marshal input reader-thread events onto the Qt event loop."""
 
         event_received = Signal(object)
+        presence_changed = Signal()
 
         def handle_input(self, event: InputEvent) -> None:
             """Emit one normalized event for queued Qt delivery."""
             self.event_received.emit(event)
 
+        def notify_presence_changed(self) -> None:
+            """Queue a connected-input strip refresh from a discovery thread."""
+            self.presence_changed.emit()
+
     gamepad_bridge = GamepadBridge()
+    gamepad_adapter.presence_changed = gamepad_bridge.notify_presence_changed
 
     def handle_gamepad_event(event: InputEvent) -> None:
         """Route normalized input to the overlay, settings, app, or launcher."""
@@ -775,6 +781,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     gamepad_bridge.event_received.connect(
         handle_gamepad_event,
+        Qt.ConnectionType.QueuedConnection,
+    )
+    gamepad_bridge.presence_changed.connect(
+        refresh_connected_inputs,
         Qt.ConnectionType.QueuedConnection,
     )
     if "gamepad" in current_configuration.input.enabled_sources:
