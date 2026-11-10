@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.70
+
+- Fixed: Startup crash that left the appliance on a black console after v0.5.69
+  (CEC connection status was read incorrectly).
+
 ## v0.5.69
 
 - Fixed: YouTube (Red) can no longer read the controller natively, so inputs

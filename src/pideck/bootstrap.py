@@ -579,7 +579,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     def snapshot_connected_inputs() -> ConnectedInputs:
         """Collect live CEC / gamepad / keyboard presence for the footer strip."""
         return ConnectedInputs(
-            cec=cec_adapter is not None and cec_adapter.status() == "Connected",
+            cec=cec_adapter is not None and cec_adapter.status == "Connected",
             gamepad=gamepad_adapter.connected_gamepad_count() > 0,
             keyboard=gamepad_adapter.connected_keyboard_count() > 0,
         )
