@@ -111,6 +111,8 @@ def test_share_operations_write_conf_and_reject_unsafe_paths(
     assert commands == [["systemctl", "reload", "smbd.service"]]
     with pytest.raises(ValueError, match="data mount"):
         shares.enable(MEDIA_UUID, "/etc/passwd", "MEDIA")
+    with pytest.raises(ValueError, match="data mount"):
+        shares.enable(MEDIA_UUID, f"{real}\n   root preexec = true", "MEDIA")
     with pytest.raises(ValueError, match="Invalid share name"):
         shares.enable(MEDIA_UUID, str(real), "../evil")
     with pytest.raises(ValueError, match="missing"):

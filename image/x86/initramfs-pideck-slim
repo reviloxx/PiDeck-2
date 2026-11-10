@@ -1,9 +1,8 @@
 #!/bin/sh
-# Keep GPU drivers (including the proprietary NVIDIA DKMS modules) and their
-# firmware out of the initramfs. The Plymouth hook
-# queues every DRM driver, adding over 100 MiB of firmware that the boot
-# loader must read from slow USB media. The drivers load from the root
-# filesystem instead; tty1 waits for udev before X starts.
+# Keep GPU drivers (including proprietary NVIDIA DKMS) and their firmware out
+# of the initramfs image. The Plymouth hook would otherwise add over 100 MiB
+# that the bootloader must read from slow media. NVIDIA is loaded from the
+# mounted root in scripts/local-bottom/pideck-nvidia before switch_root.
 set -e
 
 PREREQ="plymouth"

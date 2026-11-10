@@ -32,6 +32,11 @@ while ! wmctrl -m >/dev/null 2>&1; do
     sleep 0.1
 done
 
+# Hand the display to the session; keep Plymouth up through NVIDIA load until now.
+if command -v plymouth >/dev/null 2>&1; then
+    plymouth quit >/dev/null 2>&1 || true
+fi
+
 # Chromium-family browsers read this for client-side window buttons.
 if command -v gsettings >/dev/null 2>&1; then
     gsettings set org.gnome.desktop.wm.preferences button-layout ':close' >/dev/null 2>&1 || true

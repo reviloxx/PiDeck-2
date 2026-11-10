@@ -1,0 +1,33 @@
+#!/bin/sh
+# After the real root is mounted, load proprietary NVIDIA from that root so
+# modeset happens before switch_root without stuffing ~80 MiB of DKMS modules
+# into the initrd image (large initrds slow the kernel phase more than they
+# save in userspace).
+PREREQ=""
+
+prereqs()
+{
+	echo "${PREREQ}"
+}
+
+case "${1}" in
+	prereqs)
+		prereqs
+		exit 0
+		;;
+esac
+
+. /scripts/functions
+
+if [ -z "${rootmnt:-}" ] || [ ! -d "${rootmnt}/lib/modules" ]; then
+	exit 0
+fi
+
+# Prefer Debian DKMS names; fall back to the generic alias.
+if modprobe -d "${rootmnt}" nvidia-current-drm 2>/dev/null \
+	|| modprobe -d "${rootmnt}" nvidia-drm 2>/dev/null; then
+	log_begin_msg "PiDeck: NVIDIA DRM loaded from root before switch_root"
+	log_end_msg
+fi
+
+exit 0

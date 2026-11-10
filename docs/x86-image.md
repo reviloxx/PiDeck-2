@@ -40,7 +40,9 @@ Everything those applications need from the image is included:
   pinned in the catalog; when NoMachine withdraws
   that version, a PiDeck release with an updated pin is needed.
 
-The system locale is `de_DE.UTF-8` and the time zone Europe/Berlin. Flatpak
+The system locale is `de_DE.UTF-8` and the time zone Europe/Berlin. Images
+install and enable `systemd-timesyncd` so the clock stays correct (without NTP
+the RTC can drift by an hour after daylight-saving changes). Flatpak
 installs German translations (`languages de;en`), Firefox ESR gets the
 `firefox-esr-l10n-de` language pack and a `RequestedLocales` policy in
 `/etc/firefox/policies/policies.json`, and Kodi's German language add-on is
@@ -298,37 +300,40 @@ requires selecting a different boot entry. GRUB uses a text console to avoid an
 extra display mode change, which can be slow on TVs.
 
 To shorten boots from USB media, new builds keep GPU drivers and GPU firmware
-(NVIDIA, AMD and Intel) out of the initramfs; the Plymouth hook would
-otherwise add over 100 MiB. The drivers load from the root filesystem via
-`pideck-nvidia-load.service` as soon as udev is up, in parallel with the rest
-of early userspace (including Plymouth, dbus and NetworkManager), instead of
-blocking `systemd-modules-load`. Only the first console waits for that load,
-then for `/dev/dri/card0` (up to 20 seconds) before starting X, so the session
-does not start before the graphics driver is ready. The initramfs is compressed
-with zstd, which decompresses faster than the gzip fallback used when `zstd` is
-missing, and it skips the resume lookup because the image has no swap. New
-builds install `intel-microcode` so Intel CPUs apply microcode updates from the
+(NVIDIA, AMD and Intel) out of the initramfs image; the Plymouth hook would
+otherwise add over 100 MiB that slows the kernel phase. After the real root is
+mounted, `scripts/local-bottom/pideck-nvidia` loads proprietary NVIDIA from
+that root (`modprobe -d "$rootmnt"`) so modeset happens before switch_root
+without bloating the initrd. `pideck-nvidia-load` then becomes a cheap ensure
+plus `plymouth show-splash`. Only the first console waits for `/dev/dri/card0`
+(up to 20 seconds) before starting X. The initramfs is compressed with zstd,
+which decompresses faster than the gzip fallback used when `zstd` is missing,
+and it skips the resume lookup because the image has no swap. New builds
+install `intel-microcode` so Intel CPUs apply microcode updates from the
 initramfs. Steam Link's Flatpak runtime is installed with the default GL
 drivers and the GL extension for the image's NVIDIA driver, never one for the
 build host's driver.
 
 On physical hardware, unused PCIe root ports that fail link retraining can
 each cost about a second during early kernel init; disable empty slots or
-unused ports in the system firmware when possible. Booting the image from an
-internal disk is faster than USB because the kernel does not wait for
-usb-storage to enumerate the root device.
+unused ports in the system firmware when possible. When firmware cannot do
+that, the image GRUB cmdline uses `pcie_ports=compat` and disables the idle
+`ata4` link with `libata.force=4.00:disable` (software savings are smaller than
+BIOS). Booting from an internal disk is faster than USB because the kernel
+does not wait for usb-storage to enumerate the root device. Do not turn off
+CPU spectre/meltdown mitigations by default.
 
 New builds use a PiDeck Plymouth splash while Linux starts. Firmware and
-VirtualBox screens before Linux starts are outside its control. Because GPU
-drivers load after the initramfs, the splash may appear before modeset is
-ready and can look incomplete until the driver finishes; when booting in BIOS
-mode it may not appear until later. Press Escape to switch to boot details,
-and use the system journal when diagnosing failures; the splash does not
-remove journal entries. Graphics-driver availability may affect the splash on
-physical hardware. The splash uses the default theme's colors because it
-starts before user theme settings are available. Boot components are not
-updated by PiDeck's application updater: an existing installation needs a
-separately applied system update or a newly built image.
+VirtualBox screens before Linux starts are outside its control. The theme draws
+with regular DejaVu Sans (Bold is not in the slim initramfs). After
+`pideck-nvidia-load` finishes it re-shows the splash; the X session quits
+Plymouth once Openbox is ready so the gap is not a black screen. Press Escape
+for boot details; use the system journal when diagnosing failures.
+`NetworkManager-wait-online` and `plymouth-quit-wait` are masked so Samba and
+splash teardown do not stall graphical target / getty. `pideck-grow-root`
+skips grow/resize after the first settle via `/var/lib/pideck/root-grown`.
+Boot components are not updated by PiDeck's application updater: an existing
+installation needs a system patch or a newly built image.
 
 The launcher wallpaper fills the window while preserving its aspect ratio;
 edges are cropped on screens with a different shape. The image's default
@@ -428,10 +433,10 @@ passwords and may still be required.
 Common non-free firmware is included for hardware compatibility, but no
 particular graphics, Wi-Fi, audio or controller chipset is guaranteed.
 Settings includes X11 display modes with timed rollback, PulseAudio-compatible
-audio controls (system output, volume, and HDMI surround-PCM vs bitstream mode)
-and BlueZ Bluetooth pairing; these require compatible hardware and an
-authorized active session. See [Settings](../README.md#settings) for backend
-limitations and behavior.
+audio controls (system output, volume, HDMI surround-PCM vs bitstream mode, and
+per-app 2.1/5.1 PCM layouts) and BlueZ Bluetooth pairing; these require
+compatible hardware and an authorized active session. See
+[Settings](../README.md#settings) for backend limitations and behavior.
 Network setup is authorized only for the active local appliance account.
 Third-party app updates use the existing apt/Flatpak integration when
 available; NoMachine Player has no update repository and is reported as
@@ -450,7 +455,8 @@ partition and package manifests, and test:
 - Offline Wi-Fi prompt, skip, Settings entry, WPA connection and reconnect;
   Ethernet; keyboard, mouse and controller navigation.
 - Display mode confirmation, timeout rollback, and restoration after reboot;
-  audio device selection, HDMI mode (surround PCM vs bitstream), and volume;
+  audio device selection, HDMI mode (surround PCM vs bitstream), per-app PCM
+  layout, and volume;
   Bluetooth discovery, pairing confirmation, connect/disconnect and cancellation;
   restart and shutdown authorization.
 - Installing, launching and removing every catalog application from Settings,
@@ -472,8 +478,8 @@ partition and package manifests, and test:
   Link and YouTube start with GPU rendering; YouTube playback at 1080p does not
   drop frames; a kernel upgrade rebuilds the module; System information shows
   the expected hardware, drivers and audio devices; Settings → Audio lists each
-  HDMI port and offers Surround PCM 5.1 (AVR) or Bitstream (TV ARC); Kodi follows
-  that mode on launch.
+  HDMI port and offers Surround PCM 5.1 (AVR) or Bitstream (TV ARC), plus per-app
+  2.1/5.1 PCM overrides; Kodi follows the selected mode or override on launch.
 
 These are release gates, not claims that the current experimental builder
 has already passed them.

@@ -29,7 +29,7 @@ def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
 
 def _safe_path(path: str) -> Path:
     """Accept only absolute data-drive paths without traversal."""
-    if "\x00" in path:
+    if "\x00" in path or any(character in path for character in "\n\r\t"):
         raise ValueError("Share path must be under a data mount location")
     candidate = Path(path)
     if not candidate.is_absolute() or ".." in candidate.parts:

@@ -4,6 +4,20 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.58
+
+- Added: Settings → Audio can set per-application **2.1 PCM** or **5.1 PCM**
+  (never bitstream). Choices are stored in ``audio.yaml`` and applied at launch
+  (Pulse profile for every app; Kodi also gets matching channel settings).
+- Fixed: Samba share paths reject newlines and tabs so a crafted path cannot
+  inject share conf lines.
+- Fixed: New x86 images install and enable ``systemd-timesyncd`` so the home
+  clock stays on time. Rebuild the image for this; OTA does not add the package.
+- Changed: New x86 images load NVIDIA earlier (initramfs local-bottom), mask
+  ``NetworkManager-wait-online`` and ``plymouth-quit-wait``, and skip grow-root
+  after the first settle. Rebuild the image for these; OTA does not change the
+  boot stack.
+
 ## v0.5.57
 
 - Fixed: Chrome and Brave use NVIDIA hardware video decoding again (NVDEC via

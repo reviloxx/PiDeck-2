@@ -10,7 +10,13 @@ from PySide6.QtTest import QTest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
-from pideck.application.ports.audio import AudioError, AudioOutput, AudioState, HdmiAudioMode
+from pideck.application.ports.audio import (
+    AppPcmLayout,
+    AudioError,
+    AudioOutput,
+    AudioState,
+    HdmiAudioMode,
+)
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.audio_preferences import AudioPreferencesStore
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
@@ -33,6 +39,7 @@ class Audio:
         self.current = "sink:one"
         self.volume = 50
         self.last_mode: HdmiAudioMode | None = None
+        self.last_layout: AppPcmLayout | None = None
 
     def inspect(self, *, hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND) -> AudioState:
         self.last_mode = hdmi_mode
@@ -54,8 +61,14 @@ class Audio:
         self.current = identifier
         self.last_mode = hdmi_mode
 
-    def ensure_hdmi(self, *, hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND) -> None:
+    def ensure_hdmi(
+        self,
+        *,
+        hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND,
+        pcm_layout: AppPcmLayout | None = None,
+    ) -> None:
         self.last_mode = hdmi_mode
+        self.last_layout = pcm_layout
 
     def set_volume(self, volume: int) -> None:
         self.volume = volume
@@ -113,6 +126,32 @@ def test_hdmi_mode_change_is_persisted(application: QApplication, tmp_path: Path
     window._apply_mode(bitstream)
     _wait(application, lambda: preferences.load().hdmi_mode is HdmiAudioMode.BITSTREAM)
     assert audio.last_mode is HdmiAudioMode.BITSTREAM
+    window.close()
+    parent.close()
+
+
+def test_per_app_pcm_layout_is_persisted(application: QApplication, tmp_path: Path) -> None:
+    """Choosing 2.1 PCM for an application writes audio.yaml without touching Pulse."""
+    parent = QWidget()
+    audio = Audio()
+    preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
+    window = AudioWindow(
+        audio,
+        preferences,
+        DEFAULT_THEME,
+        "en",
+        parent,
+        applications=(("kodi", "Kodi"), ("firefox", "Firefox")),
+    )
+    window.show()
+    _wait(application, lambda: window.mode.isEnabled())
+    combo = window._app_layouts["kodi"]
+    index = combo.findData(AppPcmLayout.PCM_21.value)
+    assert index >= 0
+    combo.setCurrentIndex(index)
+    window._apply_layout("kodi", combo, index)
+    assert preferences.load().applications["kodi"] is AppPcmLayout.PCM_21
+    assert audio.last_layout is None
     window.close()
     parent.close()
 

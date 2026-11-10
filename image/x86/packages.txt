@@ -1,6 +1,7 @@
 linux-image-amd64
 intel-microcode
 systemd-sysv
+systemd-timesyncd
 plymouth
 plymouth-label
 libpam-systemd

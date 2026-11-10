@@ -191,7 +191,9 @@ able to replace both the release and its manifest can distribute altered code.
   such as HDMI vs HDMI 2). An **HDMI mode** chooses the path:
   **Surround PCM 5.1 (AVR)** for PC→AVR→TV (Digital Surround 5.1 + Kodi 5.1,
   passthrough off), or **Bitstream (TV ARC)** for PC→TV→ARC (Digital Stereo +
-  Kodi passthrough/AC3). The mode and default output are stored in `audio.yaml`.
+  Kodi passthrough/AC3). Per application, Settings can also force **2.1 PCM**
+  or **5.1 PCM** (never bitstream); that override is applied at launch. The
+  mode, default output and per-app layouts are stored in `audio.yaml`.
 - Bluetooth power, eight-second discovery, pairing and connecting or
   disconnecting devices through BlueZ. PiDeck uses the first available adapter
   and asks before authorizing a pairing or confirming a displayed code; it

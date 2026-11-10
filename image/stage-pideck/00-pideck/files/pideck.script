@@ -1,7 +1,8 @@
 Window.SetBackgroundTopColor(0.063, 0.071, 0.078);
 Window.SetBackgroundBottomColor(0.063, 0.071, 0.078);
 
-logo = Image.Text("PiDeck", 0.957, 0.969, 0.969, 1, "DejaVu Sans Bold 36");
+# Regular DejaVu Sans is present in the slim initramfs; Bold is not.
+logo = Image.Text("PiDeck", 0.957, 0.969, 0.969, 1, "DejaVu Sans 36");
 logo_sprite = Sprite(logo);
 logo_sprite.SetX((Window.GetWidth() - logo.GetWidth()) / 2);
 logo_sprite.SetY((Window.GetHeight() - logo.GetHeight()) / 2);

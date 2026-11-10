@@ -223,6 +223,11 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(INPUTS / "grub-pideck.cfg", root / "etc/default/grub.d/90-pideck.cfg")
     _install(INPUTS / "initramfs-pideck.conf", root / "etc/initramfs-tools/conf.d/pideck.conf")
     _install(INPUTS / "initramfs-pideck-slim", root / "etc/initramfs-tools/hooks/pideck-slim", 0o755)
+    _install(
+        INPUTS / "initramfs-pideck-nvidia-load",
+        root / "etc/initramfs-tools/scripts/local-bottom/pideck-nvidia",
+        0o755,
+    )
     _install(INPUTS / "nvidia-pideck.conf", root / "etc/modprobe.d/pideck-nvidia.conf")
     # Replace Debian's modules-load symlink so nvidia-drm does not block sysinit.
     modules_load = root / "etc/modules-load.d/nvidia.conf"
@@ -358,6 +363,11 @@ def _configure(root: Path, loop: str, tag: str | None) -> None:
         raise RuntimeError(f"Flathub did not provide the {gl_driver} GL extension")
     # A NoMachine Player installed later from Settings must never start a server.
     _run("systemctl", "--root", str(root), "mask", "nxserver.service")
+    # Samba does not need to block boot on a default route; the launcher path
+    # never waited on this unit, but graphical.target did.
+    _run("systemctl", "--root", str(root), "mask", "NetworkManager-wait-online.service")
+    # Splash is owned by nvidia show-splash + xsession quit; do not hold getty.
+    _run("systemctl", "--root", str(root), "mask", "plymouth-quit-wait.service")
     policy.unlink()
     _write_inputs(root, tag)
     _install_kodi_language(root)
@@ -377,7 +387,7 @@ def _configure(root: Path, loop: str, tag: str | None) -> None:
     )
     _run("systemctl", "--root", str(root), "enable", "NetworkManager", "bluetooth.service", "smbd.service",
          "nmbd.service", "pideck-updater.service", "pideck-grow-root.service", "pideck-nvidia-load.service",
-         "getty@tty1.service")
+         "systemd-timesyncd.service", "getty@tty1.service")
     chroot("grub-install", "--target=i386-pc", "--no-nvram", loop)
     chroot("grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",
            "--bootloader-id=PiDeck", "--removable", "--no-nvram")

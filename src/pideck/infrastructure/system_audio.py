@@ -8,11 +8,20 @@ import re
 import subprocess
 from typing import Any
 
-from pideck.application.ports.audio import AudioError, AudioOutput, AudioState, HdmiAudioMode
+from pideck.application.ports.audio import (
+    AppPcmLayout,
+    AudioError,
+    AudioOutput,
+    AudioState,
+    HdmiAudioMode,
+)
 
 _SINK_PREFIX = "sink:"
 _PROFILE_PREFIX = "profile:"
-_HDMI_PORT = re.compile(r"hdmi-(?:stereo|surround71|surround)(?:-(extra\d+))?", re.IGNORECASE)
+_HDMI_PORT = re.compile(
+    r"hdmi-(?:stereo|surround71|surround21|surround)(?:-(extra\d+))?",
+    re.IGNORECASE,
+)
 _PASSTHROUGH_FORMATS = "pcm;ac3-iec61937;dts-iec61937;eac3-iec61937"
 
 
@@ -103,19 +112,24 @@ class PulseAudioGateway:
         if hdmi_mode is HdmiAudioMode.BITSTREAM:
             self._enable_passthrough_formats(sink_name)
 
-    def ensure_hdmi(self, *, hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND) -> None:
-        """Promote the default sink for surround PCM or bitstream passthrough."""
+    def ensure_hdmi(
+        self,
+        *,
+        hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND,
+        pcm_layout: AppPcmLayout | None = None,
+    ) -> None:
+        """Promote the default sink for surround PCM, bitstream, or a PCM layout."""
         info = self._load_json("info")
         if not isinstance(info, dict):
             raise AudioError("The audio service returned invalid data")
         default = info.get("default_sink_name")
         if not isinstance(default, str) or not default:
             raise AudioError("No active audio output is available")
-        promoted = self._promote_hdmi(default, hdmi_mode)
+        promoted = self._promote_hdmi(default, hdmi_mode, pcm_layout=pcm_layout)
         sink_name = promoted or default
         if promoted is not None and promoted != default:
             self._run("set-default-sink", promoted)
-        if hdmi_mode is HdmiAudioMode.BITSTREAM:
+        if pcm_layout is None and hdmi_mode is HdmiAudioMode.BITSTREAM:
             self._enable_passthrough_formats(sink_name)
 
     def set_volume(self, volume: int) -> None:
@@ -303,6 +317,8 @@ class PulseAudioGateway:
         if hdmi_mode is HdmiAudioMode.BITSTREAM:
             if "surround71" in lower or "7.1" in lower:
                 return 2
+            if "surround21" in lower or "2.1" in lower:
+                return 2
             if "surround" in lower:
                 return 1
             if "stereo" in lower:
@@ -310,28 +326,41 @@ class PulseAudioGateway:
             return None
         if "surround71" in lower or "7.1" in lower:
             return 1
+        if "surround21" in lower or "2.1" in lower:
+            return 2
         if "surround" in lower:
             return 0
         if "stereo" in lower:
             return 2
         return None
 
-    def _promote_hdmi(self, sink_name: str, hdmi_mode: HdmiAudioMode) -> str | None:
+    def _promote_hdmi(
+        self,
+        sink_name: str,
+        hdmi_mode: HdmiAudioMode,
+        *,
+        pcm_layout: AppPcmLayout | None = None,
+    ) -> str | None:
         """Switch the sink's card to the preferred profile on the same HDMI port."""
         card = self._card_for_sink(sink_name)
         if card is None:
             return None
         card_name, active, profiles = card
-        if hdmi_mode is HdmiAudioMode.BITSTREAM:
-            if self._is_hdmi_stereo_profile(active):
+        port = self._hdmi_port_key(active or "") or self._hdmi_port_key(sink_name)
+        if pcm_layout is AppPcmLayout.PCM_21:
+            if self._is_hdmi_pcm_21_profile(active):
                 return sink_name
-            port = self._hdmi_port_key(active or "") or self._hdmi_port_key(sink_name)
-            profile = self._best_hdmi_stereo_profile(profiles, port_key=port)
-        else:
+            profile = self._best_hdmi_pcm_21_profile(profiles, port_key=port)
+        elif pcm_layout is AppPcmLayout.PCM_51 or (
+            pcm_layout is None and hdmi_mode is not HdmiAudioMode.BITSTREAM
+        ):
             if self._is_hdmi_surround_51_profile(active):
                 return sink_name
-            port = self._hdmi_port_key(active or "") or self._hdmi_port_key(sink_name)
             profile = self._best_hdmi_surround_profile(profiles, port_key=port)
+        else:
+            if self._is_hdmi_stereo_profile(active):
+                return sink_name
+            profile = self._best_hdmi_stereo_profile(profiles, port_key=port)
         if profile is None:
             return None
         self._run("set-card-profile", card_name, profile)
@@ -378,11 +407,28 @@ class PulseAudioGateway:
         return "hdmi" in lower and "stereo" in lower and "surround" not in lower
 
     @staticmethod
+    def _is_hdmi_surround_21_profile(profile: str | None) -> bool:
+        if not isinstance(profile, str):
+            return False
+        lower = profile.lower()
+        return "hdmi" in lower and ("surround21" in lower or "2.1" in lower)
+
+    @classmethod
+    def _is_hdmi_pcm_21_profile(cls, profile: str | None) -> bool:
+        return cls._is_hdmi_surround_21_profile(profile) or cls._is_hdmi_stereo_profile(profile)
+
+    @staticmethod
     def _is_hdmi_surround_51_profile(profile: str | None) -> bool:
         if not isinstance(profile, str):
             return False
         lower = profile.lower()
-        return "hdmi" in lower and "surround" in lower and "surround71" not in lower and "7.1" not in lower
+        if "hdmi" not in lower or "surround" not in lower:
+            return False
+        if "surround71" in lower or "7.1" in lower:
+            return False
+        if "surround21" in lower or "2.1" in lower:
+            return False
+        return True
 
     @classmethod
     def _best_hdmi_stereo_profile(
@@ -403,6 +449,28 @@ class PulseAudioGateway:
         return None
 
     @classmethod
+    def _best_hdmi_pcm_21_profile(
+        cls,
+        profiles: dict[str, object],
+        *,
+        port_key: str | None,
+    ) -> str | None:
+        """Prefer a true 2.1 HDMI profile; otherwise fall back to stereo PCM."""
+        surround21 = None
+        stereo = None
+        for name in profiles:
+            if not isinstance(name, str) or name == "off":
+                continue
+            this_port = cls._hdmi_port_key(name)
+            if port_key is not None and this_port != port_key:
+                continue
+            if surround21 is None and cls._is_hdmi_surround_21_profile(name):
+                surround21 = name
+            elif stereo is None and cls._is_hdmi_stereo_profile(name):
+                stereo = name
+        return surround21 or stereo
+
+    @classmethod
     def _best_hdmi_surround_profile(
         cls,
         profiles: dict[str, object],
@@ -415,6 +483,8 @@ class PulseAudioGateway:
                 continue
             lower = name.lower()
             if "hdmi" not in lower or "surround" not in lower:
+                continue
+            if "surround21" in lower or "2.1" in lower:
                 continue
             this_port = cls._hdmi_port_key(name)
             if port_key is not None and this_port != port_key:

@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-from pideck.application.ports.audio import HdmiAudioMode
+from pideck.application.ports.audio import AppPcmLayout, HdmiAudioMode
 
 _LOGGER = logging.getLogger(__name__)
 _GUISETTINGS = Path(".kodi") / "userdata" / "guisettings.xml"
@@ -15,6 +15,19 @@ _SURROUND_SETTINGS = {
     "audiooutput.audiodevice": "PULSE:Default",
     # Kodi Omega option value for 5.1 (1=2.0 … 8=5.1).
     "audiooutput.channels": "8",
+    "audiooutput.passthrough": "false",
+    "audiooutput.ac3passthrough": "false",
+    "audiooutput.dtspassthrough": "false",
+    "audiooutput.eac3passthrough": "false",
+    "audiooutput.ac3transcode": "false",
+    "audiooutput.truehdpassthrough": "false",
+    "audiooutput.dtshdpassthrough": "false",
+}
+
+_PCM_21_SETTINGS = {
+    "audiooutput.audiodevice": "PULSE:Default",
+    # Kodi Omega option value for 2.1 (1=2.0, 2=2.1 … 8=5.1).
+    "audiooutput.channels": "2",
     "audiooutput.passthrough": "false",
     "audiooutput.ac3passthrough": "false",
     "audiooutput.dtspassthrough": "false",
@@ -43,12 +56,24 @@ def configure_kodi_audio(
     *,
     home: Path | None = None,
     hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND,
+    pcm_layout: AppPcmLayout | None = None,
 ) -> None:
-    """Apply Kodi HDMI settings for surround PCM or ARC bitstream passthrough.
+    """Apply Kodi HDMI settings for PCM layout, surround, or ARC bitstream.
 
     Failures are logged and never raised.
     """
-    settings = _BITSTREAM_SETTINGS if hdmi_mode is HdmiAudioMode.BITSTREAM else _SURROUND_SETTINGS
+    if pcm_layout is AppPcmLayout.PCM_21:
+        settings = _PCM_21_SETTINGS
+        label = pcm_layout.value
+    elif pcm_layout is AppPcmLayout.PCM_51:
+        settings = _SURROUND_SETTINGS
+        label = pcm_layout.value
+    elif hdmi_mode is HdmiAudioMode.BITSTREAM:
+        settings = _BITSTREAM_SETTINGS
+        label = hdmi_mode.value
+    else:
+        settings = _SURROUND_SETTINGS
+        label = hdmi_mode.value
     path = (home or Path.home()) / _GUISETTINGS
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,7 +91,7 @@ def configure_kodi_audio(
     except ET.ParseError as error:
         _LOGGER.warning("Unable to parse Kodi guisettings %s: %s", path, error)
         return
-    _LOGGER.info("Configured Kodi HDMI %s settings at %s", hdmi_mode.value, path)
+    _LOGGER.info("Configured Kodi HDMI %s settings at %s", label, path)
 
 
 def _apply_settings(text: str, settings: dict[str, str]) -> str:

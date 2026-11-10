@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 import logging
 
@@ -16,7 +16,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pideck.application.ports.audio import AudioError, AudioGateway, AudioOutput, AudioState, HdmiAudioMode
+from pideck.application.ports.audio import (
+    AppPcmLayout,
+    AudioError,
+    AudioGateway,
+    AudioOutput,
+    AudioState,
+    HdmiAudioMode,
+)
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.domain.theme import ThemeDefinition
 from pideck.infrastructure.audio_preferences import AudioPreferencesStore
@@ -27,6 +34,7 @@ from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperDialog
 
 _LOGGER = logging.getLogger(__name__)
+_LAYOUT_DEFAULT = ""
 
 
 class AudioWindow(WallpaperDialog):
@@ -41,6 +49,7 @@ class AudioWindow(WallpaperDialog):
         theme: ThemeDefinition,
         language: str,
         parent: QWidget,
+        applications: Sequence[tuple[str, str]] = (),
     ) -> None:
         """Create an audio settings dialog around a platform audio gateway."""
         super().__init__(parent)
@@ -54,6 +63,7 @@ class AudioWindow(WallpaperDialog):
         self._popup_initial_index: int | None = None
         self._focus_before_operation: QWidget | None = None
         self._outputs: tuple[AudioOutput, ...] = ()
+        self._app_layouts: dict[str, SettingsComboBox] = {}
         self.setWindowTitle(tr(language, "audio"))
         self.setModal(True)
         frame = build_system_window(self, tr(language, "audio"), tr(language, "audio_description"))
@@ -89,6 +99,30 @@ class AudioWindow(WallpaperDialog):
         self.volume.setSingleStep(5)
         self.volume.installEventFilter(self)
         layout.addWidget(self.volume)
+
+        if applications:
+            apps_label = QLabel(tr(language, "audio_applications"), self)
+            apps_label.setObjectName("settings_label")
+            layout.addWidget(apps_label)
+            for app_id, app_name in applications:
+                app_label = QLabel(app_name, self)
+                app_label.setObjectName("settings_label")
+                layout.addWidget(app_label)
+                combo = SettingsComboBox(self)
+                combo.setObjectName("settings_control")
+                configure_combo_box(combo)
+                combo.addItem(tr(language, "audio_layout_default"), _LAYOUT_DEFAULT)
+                combo.addItem(tr(language, "audio_layout_21"), AppPcmLayout.PCM_21.value)
+                combo.addItem(tr(language, "audio_layout_51"), AppPcmLayout.PCM_51.value)
+                combo.installEventFilter(self)
+                combo.activated.connect(
+                    lambda index, identifier=app_id, control=combo: self._apply_layout(
+                        identifier, control, index,
+                    )
+                )
+                layout.addWidget(combo)
+                self._app_layouts[app_id] = combo
+
         layout.addStretch()
 
         self.refresh = add_action_button(self, frame.footer, tr(language, "audio_refresh"))
@@ -107,10 +141,12 @@ class AudioWindow(WallpaperDialog):
         self.operation_finished.connect(self._finish_operation)
         self.finished.connect(self._finish)
         apply_theme(self, theme)
+        self._load_application_layouts()
         self._refresh()
 
     def _controls(self) -> list[QWidget]:
         controls: list[QWidget] = [self.mode, self.output, self.volume]
+        controls.extend(self._app_layouts.values())
         controls.extend(control for control in (self.refresh, self.back) if control.isEnabled())
         return [control for control in controls if control.isEnabled() or control is self.volume]
 
@@ -121,6 +157,8 @@ class AudioWindow(WallpaperDialog):
         self.output.setEnabled(False)
         self.volume.setEnabled(False)
         self.refresh.setEnabled(False)
+        for combo in self._app_layouts.values():
+            combo.setEnabled(False)
         future = self._executor.submit(operation)
 
         def finish(result: Future[AudioState]) -> None:
@@ -141,6 +179,20 @@ class AudioWindow(WallpaperDialog):
 
         self._submit(inspect)
 
+    def _load_application_layouts(self) -> None:
+        try:
+            saved = self._preferences.load()
+        except AudioError:
+            saved_layouts: dict[str, AppPcmLayout] = {}
+        else:
+            saved_layouts = dict(saved.applications)
+        for app_id, combo in self._app_layouts.items():
+            layout = saved_layouts.get(app_id)
+            value = layout.value if layout is not None else _LAYOUT_DEFAULT
+            with QSignalBlocker(combo):
+                index = combo.findData(value)
+                combo.setCurrentIndex(index if index >= 0 else 0)
+
     def _finish_operation(self, future: Future[AudioState]) -> None:
         if self._closed:
             return
@@ -150,6 +202,8 @@ class AudioWindow(WallpaperDialog):
         except AudioError as error:
             set_status(self.status, tr(self._language, "audio_error", message=str(error)), error=True)
             self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
+            for combo in self._app_layouts.values():
+                combo.setEnabled(True)
             return
         except Exception:
             _LOGGER.exception("Unexpected audio operation failure")
@@ -159,6 +213,8 @@ class AudioWindow(WallpaperDialog):
                 error=True,
             )
             self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
+            for combo in self._app_layouts.values():
+                combo.setEnabled(True)
             return
         self._outputs = state.outputs
         try:
@@ -188,6 +244,9 @@ class AudioWindow(WallpaperDialog):
         self.mode.setEnabled(True)
         self.output.setEnabled(True)
         self.volume.setEnabled(True)
+        for combo in self._app_layouts.values():
+            combo.setEnabled(True)
+        self._load_application_layouts()
         focus = self._focus_before_operation
         if focus not in self._controls():
             focus = self.mode
@@ -232,6 +291,20 @@ class AudioWindow(WallpaperDialog):
 
         self._submit(change)
 
+    def _apply_layout(self, app_id: str, combo: SettingsComboBox, index: int) -> None:
+        value = combo.itemData(index)
+        if not isinstance(value, str):
+            set_status(self.status, tr(self._language, "audio_unavailable"), error=True)
+            return
+        try:
+            layout = None if value == _LAYOUT_DEFAULT else AppPcmLayout(value)
+            self._preferences.set_application_layout(app_id, layout)
+        except (AudioError, ValueError) as error:
+            set_status(self.status, tr(self._language, "audio_error", message=str(error)), error=True)
+            self._load_application_layouts()
+            return
+        set_status(self.status, "")
+
     def _volume_changed(self, value: int) -> None:
         self.volume_label.setText(tr(self._language, "audio_volume", volume=value))
         self._volume_timer.start()
@@ -264,8 +337,13 @@ class AudioWindow(WallpaperDialog):
                 if index != initial:
                     if combo is self.mode:
                         self._apply_mode(index)
-                    else:
+                    elif combo is self.output:
                         self._apply_output(index)
+                    else:
+                        for app_id, control in self._app_layouts.items():
+                            if control is combo:
+                                self._apply_layout(app_id, control, index)
+                                break
             elif event.action is InputAction.BACK:
                 with QSignalBlocker(combo):
                     combo.setCurrentIndex(self._popup_initial_index)

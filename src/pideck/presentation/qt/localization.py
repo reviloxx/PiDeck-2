@@ -98,13 +98,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "keyboard_layout_de": "German (QWERTZ)",
         "keyboard_layout_us": "English (US, QWERTY)",
         "audio": "Audio",
-        "audio_description": "Choose HDMI mode, output and volume. Use Surround PCM with PC→AVR→TV; Bitstream with TV ARC.",
+        "audio_description": (
+            "Choose HDMI mode, output, volume and per-app PCM layout. "
+            "Use Surround PCM with PC→AVR→TV; Bitstream with TV ARC."
+        ),
         "audio_open": "Open audio settings",
         "audio_hdmi_mode": "HDMI mode",
         "audio_hdmi_mode_surround": "Surround PCM 5.1 (AVR)",
         "audio_hdmi_mode_bitstream": "Bitstream (TV ARC)",
         "audio_output": "Audio output",
         "audio_volume": "Volume: {volume}%",
+        "audio_applications": "Per application",
+        "audio_layout_default": "Default (follow HDMI mode)",
+        "audio_layout_21": "2.1 PCM",
+        "audio_layout_51": "5.1 PCM",
         "audio_refresh": "Refresh audio devices",
         "audio_unavailable": "Audio settings are unavailable.",
         "audio_error": "Audio error: {message}",
@@ -415,13 +422,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "keyboard_layout_de": "Deutsch (QWERTZ)",
         "keyboard_layout_us": "Englisch (US, QWERTY)",
         "audio": "Audio",
-        "audio_description": "HDMI-Modus, Ausgabe und Lautstärke festlegen. Surround-PCM bei PC→AVR→TV; Bitstream bei TV-ARC.",
+        "audio_description": (
+            "HDMI-Modus, Ausgabe, Lautstärke und PCM-Layout pro App festlegen. "
+            "Surround-PCM bei PC→AVR→TV; Bitstream bei TV-ARC."
+        ),
         "audio_open": "Audioeinstellungen öffnen",
         "audio_hdmi_mode": "HDMI-Modus",
         "audio_hdmi_mode_surround": "Surround-PCM 5.1 (AVR)",
         "audio_hdmi_mode_bitstream": "Bitstream (TV-ARC)",
         "audio_output": "Audioausgabe",
         "audio_volume": "Lautstärke: {volume} %",
+        "audio_applications": "Pro Anwendung",
+        "audio_layout_default": "Standard (HDMI-Modus folgen)",
+        "audio_layout_21": "2.1-PCM",
+        "audio_layout_51": "5.1-PCM",
         "audio_refresh": "Audiogeräte aktualisieren",
         "audio_unavailable": "Audioeinstellungen sind nicht verfügbar.",
         "audio_error": "Audiofehler: {message}",
