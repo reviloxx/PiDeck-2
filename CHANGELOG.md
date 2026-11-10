@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.61
+
+- Changed: Removed per-application 2.1/5.1 PCM layouts. Surround PCM is
+  system-wide again for every app; Kodi still uses Fixed 5.1 in surround mode.
+- Fixed: Changing HDMI mode no longer hits Pulse ``No such entity`` when the
+  pre-switch stereo sink was destroyed during the surround profile promote.
+
 ## v0.5.60
 
 - Fixed: Kodi PCM surround uses Output configuration **Fixed** with 5.1

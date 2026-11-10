@@ -19,16 +19,6 @@ class HdmiAudioMode(StrEnum):
     """Stereo HDMI + AC3/DTS passthrough — use with PC → TV → ARC → AVR."""
 
 
-class AppPcmLayout(StrEnum):
-    """Per-application PCM channel layout override (never bitstream)."""
-
-    PCM_21 = "2.1"
-    """2.1 PCM — stereo HDMI profile, or surround21 when available."""
-
-    PCM_51 = "5.1"
-    """5.1 multichannel PCM on Digital Surround HDMI."""
-
-
 @dataclass(frozen=True, slots=True)
 class AudioOutput:
     """Describe one selectable output exposed by the audio server."""
@@ -63,13 +53,8 @@ class AudioGateway(Protocol):
         """Select the system default output using the chosen HDMI mode."""
         ...
 
-    def ensure_hdmi(
-        self,
-        *,
-        hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND,
-        pcm_layout: AppPcmLayout | None = None,
-    ) -> None:
-        """Promote the default sink for the chosen HDMI mode or PCM layout."""
+    def ensure_hdmi(self, *, hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND) -> None:
+        """Promote the default sink for the chosen HDMI mode."""
         ...
 
     def set_volume(self, volume: int) -> None:

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pideck.application.ports.audio import AppPcmLayout, HdmiAudioMode
+from pideck.application.ports.audio import HdmiAudioMode
 from pideck.infrastructure.kodi_audio import configure_kodi_audio
 
 
@@ -16,32 +16,11 @@ def test_surround_mode_sets_51_pcm(tmp_path: Path) -> None:
     assert '<setting id="audiooutput.passthrough">false</setting>' in text
 
 
-def test_pcm_21_layout_sets_channels_without_passthrough(tmp_path: Path) -> None:
-    """Per-app 2.1 PCM forces Fixed channels 2 with passthrough off."""
-    configure_kodi_audio(
-        home=tmp_path,
-        hdmi_mode=HdmiAudioMode.BITSTREAM,
-        pcm_layout=AppPcmLayout.PCM_21,
-    )
-    text = (tmp_path / ".kodi/userdata/guisettings.xml").read_text(encoding="utf-8")
-    assert '<setting id="audiooutput.config">1</setting>' in text
-    assert '<setting id="audiooutput.channels">2</setting>' in text
-    assert '<setting id="audiooutput.passthrough">false</setting>' in text
-    assert '<setting id="audiooutput.ac3transcode">false</setting>' in text
-
-
-def test_pcm_51_layout_matches_surround(tmp_path: Path) -> None:
-    """Per-app 5.1 PCM uses the same channel settings as surround mode."""
-    configure_kodi_audio(home=tmp_path, pcm_layout=AppPcmLayout.PCM_51)
-    text = (tmp_path / ".kodi/userdata/guisettings.xml").read_text(encoding="utf-8")
-    assert '<setting id="audiooutput.channels">8</setting>' in text
-    assert '<setting id="audiooutput.passthrough">false</setting>' in text
-
-
 def test_bitstream_mode_sets_passthrough(tmp_path: Path) -> None:
-    """ARC bitstream mode forces 2.0 channels and passthrough codecs."""
+    """ARC bitstream mode forces Fixed 2.0 channels and passthrough codecs."""
     configure_kodi_audio(home=tmp_path, hdmi_mode=HdmiAudioMode.BITSTREAM)
     text = (tmp_path / ".kodi/userdata/guisettings.xml").read_text(encoding="utf-8")
+    assert '<setting id="audiooutput.config">1</setting>' in text
     assert '<setting id="audiooutput.channels">1</setting>' in text
     assert '<setting id="audiooutput.passthrough">true</setting>' in text
     assert '<setting id="audiooutput.ac3transcode">true</setting>' in text

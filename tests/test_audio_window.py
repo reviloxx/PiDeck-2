@@ -11,7 +11,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
 from pideck.application.ports.audio import (
-    AppPcmLayout,
     AudioError,
     AudioOutput,
     AudioState,
@@ -39,7 +38,6 @@ class Audio:
         self.current = "sink:one"
         self.volume = 50
         self.last_mode: HdmiAudioMode | None = None
-        self.last_layout: AppPcmLayout | None = None
 
     def inspect(self, *, hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND) -> AudioState:
         self.last_mode = hdmi_mode
@@ -61,14 +59,8 @@ class Audio:
         self.current = identifier
         self.last_mode = hdmi_mode
 
-    def ensure_hdmi(
-        self,
-        *,
-        hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND,
-        pcm_layout: AppPcmLayout | None = None,
-    ) -> None:
+    def ensure_hdmi(self, *, hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND) -> None:
         self.last_mode = hdmi_mode
-        self.last_layout = pcm_layout
 
     def set_volume(self, volume: int) -> None:
         self.volume = volume
@@ -126,56 +118,6 @@ def test_hdmi_mode_change_is_persisted(application: QApplication, tmp_path: Path
     window._apply_mode(bitstream)
     _wait(application, lambda: preferences.load().hdmi_mode is HdmiAudioMode.BITSTREAM)
     assert audio.last_mode is HdmiAudioMode.BITSTREAM
-    window.close()
-    parent.close()
-
-
-def test_per_app_pcm_layout_is_persisted(application: QApplication, tmp_path: Path) -> None:
-    """Choosing 2.1 PCM for an application writes audio.yaml without touching Pulse."""
-    parent = QWidget()
-    audio = Audio()
-    preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
-    window = AudioWindow(
-        audio,
-        preferences,
-        DEFAULT_THEME,
-        "en",
-        parent,
-        applications=(("kodi", "Kodi"), ("firefox", "Firefox")),
-    )
-    window.show()
-    _wait(application, lambda: window.mode.isEnabled())
-    combo = window._app_layouts["kodi"]
-    index = combo.findData(AppPcmLayout.PCM_21.value)
-    assert index >= 0
-    combo.setCurrentIndex(index)
-    window._apply_layout("kodi", combo, index)
-    assert preferences.load().applications["kodi"] is AppPcmLayout.PCM_21
-    assert audio.last_layout is None
-    window.close()
-    parent.close()
-
-
-def test_audio_form_scrolls_with_footer_outside(application: QApplication, tmp_path: Path) -> None:
-    """Per-app rows live in a scroll area; Refresh/Back stay in the footer."""
-    parent = QWidget()
-    audio = Audio()
-    preferences = AudioPreferencesStore(tmp_path / "audio.yaml")
-    apps = tuple((f"app{i}", f"App {i}") for i in range(8))
-    window = AudioWindow(
-        audio, preferences, DEFAULT_THEME, "en", parent, applications=apps,
-    )
-    window.show()
-    _wait(application, lambda: window.mode.isEnabled())
-    assert window.scroll.objectName() == "settings_scroll"
-    assert window.scroll.isAncestorOf(window.mode)
-    assert window.scroll.isAncestorOf(window._app_layouts["app7"])
-    assert not window.scroll.isAncestorOf(window.refresh)
-    assert not window.scroll.isAncestorOf(window.back)
-    window.mode.setFocus(Qt.FocusReason.OtherFocusReason)
-    for _ in range(10):
-        window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
-    assert window._app_layouts["app7"].hasFocus()
     window.close()
     parent.close()
 

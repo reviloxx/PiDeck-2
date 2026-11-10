@@ -433,10 +433,10 @@ passwords and may still be required.
 Common non-free firmware is included for hardware compatibility, but no
 particular graphics, Wi-Fi, audio or controller chipset is guaranteed.
 Settings includes X11 display modes with timed rollback, PulseAudio-compatible
-audio controls (system output, volume, HDMI surround-PCM vs bitstream mode, and
-per-app 2.1/5.1 PCM layouts) and BlueZ Bluetooth pairing; these require
-compatible hardware and an authorized active session. See
-[Settings](../README.md#settings) for backend limitations and behavior.
+audio controls (system output, volume, and HDMI surround-PCM vs bitstream mode)
+and BlueZ Bluetooth pairing; these require compatible hardware and an
+authorized active session. See [Settings](../README.md#settings) for backend
+limitations and behavior.
 Network setup is authorized only for the active local appliance account.
 Third-party app updates use the existing apt/Flatpak integration when
 available; NoMachine Player has no update repository and is reported as
@@ -455,8 +455,7 @@ partition and package manifests, and test:
 - Offline Wi-Fi prompt, skip, Settings entry, WPA connection and reconnect;
   Ethernet; keyboard, mouse and controller navigation.
 - Display mode confirmation, timeout rollback, and restoration after reboot;
-  audio device selection, HDMI mode (surround PCM vs bitstream), per-app PCM
-  layout, and volume;
+  audio device selection, HDMI mode (surround PCM vs bitstream), and volume;
   Bluetooth discovery, pairing confirmation, connect/disconnect and cancellation;
   restart and shutdown authorization.
 - Installing, launching and removing every catalog application from Settings,
@@ -478,8 +477,8 @@ partition and package manifests, and test:
   Link and YouTube start with GPU rendering; YouTube playback at 1080p does not
   drop frames; a kernel upgrade rebuilds the module; System information shows
   the expected hardware, drivers and audio devices; Settings → Audio lists each
-  HDMI port and offers Surround PCM 5.1 (AVR) or Bitstream (TV ARC), plus per-app
-  2.1/5.1 PCM overrides; Kodi follows the selected mode or override on launch.
+  HDMI port and offers Surround PCM 5.1 (AVR) or Bitstream (TV ARC); Kodi
+  follows the selected mode on launch (Fixed 5.1 for surround).
 
 These are release gates, not claims that the current experimental builder
 has already passed them.

@@ -760,34 +760,18 @@ def main(arguments: Sequence[str] | None = None) -> int:
         entry = catalog_by_id.get(application_definition.identifier)
         if entry is not None:
             user_defaults.apply(entry)
-        try:
-            audio_saved = audio_preferences.load()
-        except AudioError:
-            audio_saved = None
-        pcm_layout = (
-            None
-            if audio_saved is None
-            else audio_saved.applications.get(application_definition.identifier)
-        )
-        hdmi_mode = (
-            HdmiAudioMode.SURROUND
-            if audio_saved is None
-            else audio_saved.hdmi_mode
-        )
         if application_definition.identifier == "kodi":
             disable_kodi_cec()
             configure_kodi_acceleration()
-        if pcm_layout is not None or application_definition.identifier == "kodi":
             try:
-                audio_gateway.ensure_hdmi(hdmi_mode=hdmi_mode, pcm_layout=pcm_layout)
+                hdmi_mode = audio_preferences.load().hdmi_mode
+            except AudioError:
+                hdmi_mode = HdmiAudioMode.SURROUND
+            try:
+                audio_gateway.ensure_hdmi(hdmi_mode=hdmi_mode)
             except AudioError as error:
-                dependencies.logger.warning(
-                    "Unable to prepare HDMI audio for %s: %s",
-                    application_definition.identifier,
-                    error,
-                )
-            if application_definition.identifier == "kodi":
-                configure_kodi_audio(hdmi_mode=hdmi_mode, pcm_layout=pcm_layout)
+                dependencies.logger.warning("Unable to prepare HDMI audio for Kodi: %s", error)
+            configure_kodi_audio(hdmi_mode=hdmi_mode)
         result = session_service.request_launch(application_definition)
         if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
             selected_profile = window.choose_profile(result.profiles)
@@ -1236,10 +1220,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
             theme,
             current_configuration.settings.language,
             parent,
-            applications=tuple(
-                (application.identifier, application.name)
-                for application in current_configuration.applications
-            ),
         )
         audio_window.showFullScreen()
 
