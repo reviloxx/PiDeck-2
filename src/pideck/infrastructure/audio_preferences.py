@@ -28,10 +28,7 @@ class AudioPreferencesStore:
         self.path = path
 
     def load(self) -> SavedAudioPreferences:
-        """Load preferences; a missing file means surround mode and no output override.
-
-        An obsolete ``applications`` key from older releases is ignored.
-        """
+        """Load preferences; a missing file means surround mode and no output override."""
         try:
             document = yaml.safe_load(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -66,7 +63,7 @@ class AudioPreferencesStore:
         default: str | None,
         hdmi_mode: HdmiAudioMode = HdmiAudioMode.SURROUND,
     ) -> None:
-        """Atomically replace audio preferences (without per-app layouts)."""
+        """Atomically replace audio preferences."""
         if default is not None and (not isinstance(default, str) or not default.strip()):
             raise AudioError("Invalid audio output")
         if not isinstance(hdmi_mode, HdmiAudioMode):

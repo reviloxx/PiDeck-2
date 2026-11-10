@@ -235,7 +235,7 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert config.settings.language == "de"
     assert {
         "bluez", "python3-pyside6.qtdbus", "pulseaudio-utils",
-        "cec-utils", "inputattach", "systemd-timesyncd",
+        "cec-utils", "inputattach",
     } <= packages
     assert "alsa-utils" not in packages
     assert (tmp_path / "etc/udev/rules.d/71-pideck-cec-attach.rules").is_file()
@@ -308,8 +308,6 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "GRUB_TIMEOUT=0\n" in grub
     assert "GRUB_RECORDFAIL_TIMEOUT=0\n" in grub
     assert "quiet splash loglevel=3" in grub
-    assert "pcie_ports=compat" in grub
-    assert "libata.force=4.00:disable" in grub
     assert "GRUB_TERMINAL=console\n" in grub
     nvidia_load = (tmp_path / "etc/systemd/system/pideck-nvidia-load.service").read_text()
     assert "modprobe nvidia-drm" in nvidia_load
@@ -319,7 +317,6 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "local-fs.target" not in nvidia_load
     assert "plymouth-start.service" not in nvidia_load
     assert not (tmp_path / "etc/systemd/system/plymouth-start.service.d/pideck.conf").exists()
-    assert not (tmp_path / "etc/systemd/system/plymouth-quit.service.d/pideck-nvidia.conf").exists()
     modules_load = (tmp_path / "etc/modules-load.d/nvidia.conf").read_text()
     assert not any(
         line.strip() and not line.lstrip().startswith("#")
@@ -328,9 +325,6 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "pideck-nvidia-load.service" in modules_load
     assert "RESUME=none" in (tmp_path / "etc/initramfs-tools/conf.d/pideck.conf").read_text()
     assert (tmp_path / "etc/initramfs-tools/hooks/pideck-slim").stat().st_mode & 0o111
-    nvidia_bottom = tmp_path / "etc/initramfs-tools/scripts/local-bottom/pideck-nvidia"
-    assert nvidia_bottom.stat().st_mode & 0o111
-    assert "nvidia-current-drm" in nvidia_bottom.read_text()
     assert (tmp_path / "usr/share/plymouth/themes/pideck/pideck.script").is_file()
     assert {"plymouth", "plymouth-label"} <= packages
 
@@ -577,10 +571,7 @@ def test_source_changes_abort_before_compression(tmp_path: Path, monkeypatch: py
 
 @pytest.mark.parametrize(
     "name",
-    [
-        "pideck-getty", "pideck-grow-root", "pideck-wait-drm",
-        "initramfs-pideck-slim", "initramfs-pideck-nvidia-load",
-    ],
+    ["pideck-getty", "pideck-grow-root", "pideck-wait-drm", "initramfs-pideck-slim"],
 )
 def test_x86_session_shell_is_valid(name: str) -> None:
     """Keep installed shell scripts syntactically valid."""
@@ -594,21 +585,19 @@ def test_resize_service_is_scoped_to_the_image_root() -> None:
     assert 'PARTN "$root")" != "3"' in script
     assert 'PTTYPE "$disk")" != "gpt"' in script
     assert 'growpart "$disk" 3' in script
-    assert "root-grown" in script
 
 
 @pytest.mark.parametrize(
-    ("label", "grow_result", "expected", "should_resize", "should_mark"),
+    ("label", "grow_result", "expected", "should_resize"),
     [
-        ("wrong-root", "success", 1, False, False),
-        ("pideck-root", "success", 0, True, True),
-        ("pideck-root", "nochange", 0, False, True),
-        ("pideck-root", "failure", 1, False, False),
+        ("wrong-root", "success", 1, False),
+        ("pideck-root", "success", 0, True),
+        ("pideck-root", "nochange", 0, True),
+        ("pideck-root", "failure", 1, False),
     ],
 )
 def test_resize_behavior_without_touching_real_disks(
-    tmp_path: Path, label: str, grow_result: str, expected: int,
-    should_resize: bool, should_mark: bool,
+    tmp_path: Path, label: str, grow_result: str, expected: int, should_resize: bool,
 ) -> None:
     """Only grow the checked root disk and tolerate an already full partition."""
     commands = tmp_path / "bin"
@@ -634,13 +623,11 @@ def test_resize_behavior_without_touching_real_disks(
         path.write_text("#!/bin/sh\n" + body + "\n")
         path.chmod(0o755)
     calls = tmp_path / "calls"
-    marker = tmp_path / "root-grown"
     result = subprocess.run(
         ["sh", str(x86_build.INPUTS / "pideck-grow-root")],
         env={
             **os.environ, "PATH": f"{commands}:/usr/bin:/bin", "CALLS": str(calls),
             "LABEL": label, "GROW_RESULT": grow_result,
-            "PIDECK_ROOT_GROWN_MARKER": str(marker),
         },
         capture_output=True, text=True, check=False,
     )
@@ -648,23 +635,10 @@ def test_resize_behavior_without_touching_real_disks(
     lines = calls.read_text().splitlines() if calls.exists() else []
     assert ("resize /dev/fake3" in lines) is should_resize
     assert all(line in {"/dev/fake 3", "resize /dev/fake3"} for line in lines)
-    assert marker.is_file() is should_mark
-
-
-def test_resize_skips_when_marker_exists(tmp_path: Path) -> None:
-    """Settled images skip growpart entirely after the first successful pass."""
-    marker = tmp_path / "root-grown"
-    marker.write_text("already\n", encoding="utf-8")
-    result = subprocess.run(
-        ["sh", str(x86_build.INPUTS / "pideck-grow-root")],
-        env={**os.environ, "PIDECK_ROOT_GROWN_MARKER": str(marker)},
-        capture_output=True, text=True, check=False,
-    )
-    assert result.returncode == 0
 
 
 def test_initramfs_hook_removes_gpu_drivers_and_firmware(tmp_path: Path) -> None:
-    """Strip GPU payloads after Plymouth copies them; NVIDIA loads from root later."""
+    """Strip GPU payloads after Plymouth copies them while keeping other files."""
     version = "6.12.0-test"
     modules = tmp_path / f"usr/lib/modules/{version}/kernel/drivers"
     (modules / "gpu/drm/nouveau").mkdir(parents=True)
@@ -694,14 +668,6 @@ def test_initramfs_hook_removes_gpu_drivers_and_firmware(tmp_path: Path) -> None
     assert sorted(path.name for path in dkms.iterdir()) == ["other.ko.xz"]
     assert not (firmware / "nvidia").exists() and not (firmware / "amdgpu").exists()
     assert (firmware / "rtl_nic").is_dir()
-
-
-def test_initramfs_nvidia_bottom_loads_from_root() -> None:
-    """local-bottom script must modprobe NVIDIA from the mounted root, not the initrd."""
-    script = (x86_build.INPUTS / "initramfs-pideck-nvidia-load").read_text()
-    assert "modprobe -d" in script
-    assert "nvidia-current-drm" in script
-    assert "rootmnt" in script
 
 
 def test_container_build_command_maps_inputs_and_owner(tmp_path: Path) -> None:

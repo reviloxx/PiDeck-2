@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.62
+
+- Changed: Fully restored the application tree from **v0.5.57** (before
+  per-app PCM, Fixed Kodi channels, and related HDMI promote changes).
+  Use this when later audio OTAs leave the AVR on stereo.
+
 ## v0.5.61
 
 - Changed: Removed per-application 2.1/5.1 PCM layouts. Surround PCM is

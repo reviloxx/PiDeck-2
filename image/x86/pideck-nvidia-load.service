@@ -10,8 +10,6 @@ Type=oneshot
 RemainAfterExit=yes
 # Soft-fail on machines without an NVIDIA GPU so Intel/AMD images still boot.
 ExecStart=-/sbin/modprobe nvidia-drm
-# Re-show the splash after NVIDIA modeset replaces the early efifb frame.
-ExecStartPost=-/usr/bin/plymouth show-splash
 TimeoutStartSec=30
 
 [Install]

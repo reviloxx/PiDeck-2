@@ -13,9 +13,6 @@ _GUISETTINGS = Path(".kodi") / "userdata" / "guisettings.xml"
 
 _SURROUND_SETTINGS = {
     "audiooutput.audiodevice": "PULSE:Default",
-    # Kodi Omega: 1=Fixed (always use channels), 2=Optimized, 3=Best match.
-    # Fixed keeps a 5.1 Pulse stream so the AVR does not fall back to 2 CH STEREO.
-    "audiooutput.config": "1",
     # Kodi Omega option value for 5.1 (1=2.0 … 8=5.1).
     "audiooutput.channels": "8",
     "audiooutput.passthrough": "false",
@@ -29,7 +26,6 @@ _SURROUND_SETTINGS = {
 
 _BITSTREAM_SETTINGS = {
     "audiooutput.audiodevice": "PULSE:Default",
-    "audiooutput.config": "1",
     "audiooutput.channels": "1",
     "audiooutput.passthrough": "true",
     "audiooutput.passthroughdevice": "PULSE:Default",

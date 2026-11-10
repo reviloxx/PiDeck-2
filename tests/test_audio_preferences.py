@@ -39,23 +39,6 @@ def test_round_trip_default_and_mode(tmp_path: Path) -> None:
     assert store.load().hdmi_mode is HdmiAudioMode.SURROUND
 
 
-def test_obsolete_applications_key_is_ignored_and_not_rewritten(tmp_path: Path) -> None:
-    """Older per-app layouts load without error; save drops the applications key."""
-    path = tmp_path / "audio.yaml"
-    path.write_text(
-        "version: 1\nhdmi_mode: surround\napplications:\n  kodi: 5.1\n  firefox: mono\n",
-        encoding="utf-8",
-    )
-    store = AudioPreferencesStore(path)
-    saved = store.load()
-    assert saved.hdmi_mode is HdmiAudioMode.SURROUND
-    assert saved.default is None
-    store.set_hdmi_mode(HdmiAudioMode.SURROUND)
-    document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert "applications" not in document
-    assert document["hdmi_mode"] == "surround"
-
-
 def test_invalid_documents_are_rejected(tmp_path: Path) -> None:
     """Corrupt preference files surface as AudioError."""
     path = tmp_path / "audio.yaml"

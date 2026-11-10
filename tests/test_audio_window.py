@@ -10,12 +10,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
-from pideck.application.ports.audio import (
-    AudioError,
-    AudioOutput,
-    AudioState,
-    HdmiAudioMode,
-)
+from pideck.application.ports.audio import AudioError, AudioOutput, AudioState, HdmiAudioMode
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.audio_preferences import AudioPreferencesStore
 from pideck.infrastructure.config.defaults import DEFAULT_THEME

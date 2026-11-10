@@ -189,10 +189,9 @@ able to replace both the release and its manifest can distribute altered code.
   server, including PipeWire's PulseAudio compatibility service. When HDMI is
   available, Settings lists HDMI ports only (including inactive NVIDIA ports
   such as HDMI vs HDMI 2). An **HDMI mode** chooses the path:
-  **Surround PCM 5.1 (AVR)** for PC→AVR→TV (Digital Surround 5.1 + Kodi Fixed
-  5.1, passthrough off), or **Bitstream (TV ARC)** for PC→TV→ARC (Digital Stereo
-  + Kodi passthrough/AC3). The mode and default output are stored in
-  `audio.yaml`.
+  **Surround PCM 5.1 (AVR)** for PC→AVR→TV (Digital Surround 5.1 + Kodi 5.1,
+  passthrough off), or **Bitstream (TV ARC)** for PC→TV→ARC (Digital Stereo +
+  Kodi passthrough/AC3). The mode and default output are stored in `audio.yaml`.
 - Bluetooth power, eight-second discovery, pairing and connecting or
   disconnecting devices through BlueZ. PiDeck uses the first available adapter
   and asks before authorizing a pairing or confirming a displayed code; it
