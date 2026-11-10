@@ -2,6 +2,7 @@
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 import re
 import select
@@ -221,9 +222,29 @@ class X11DisplayGateway:
             raise DisplayError("No configurable active X11 displays were found")
         return outputs
 
-    def _apply(self, output: str, mode: DisplayMode) -> None:
+    def _apply(self, output: str, mode: DisplayMode, *, primary: bool = False) -> None:
         _validate(output, mode)
-        self._run("--output", output, "--mode", mode.resolution, "--rate", mode.rate)
+        arguments = ["--output", output, "--mode", mode.resolution, "--rate", mode.rate]
+        if primary:
+            arguments.append("--primary")
+        self._run(*arguments)
+
+    def _change_in_progress(self) -> bool:
+        """Return whether a guarded mode change owns the outputs."""
+        with self._change_lock:
+            active = self._active_change
+            return self._starting_change or (
+                active is not None and (active.resolving or active.process_running())
+            )
+
+    def connected_names(self) -> frozenset[str]:
+        """Return outputs that currently have an active mode (not merely connected).
+
+        NVIDIA can keep HDMI listed as connected with no CRTC after ``--off`` or
+        while a sink is dark; treating those as absent lets hotplug recovery run
+        when a mode appears again.
+        """
+        return frozenset(output.name for output in _parse_outputs(self._run("--query")))
 
     def _apply_brightness(self, percent: int, output_names: tuple[str, ...] | None = None) -> None:
         """Apply clamped software brightness to one or every connected output."""
@@ -322,6 +343,37 @@ class X11DisplayGateway:
         if unavailable:
             raise DisplayError(f"Saved display modes are unavailable for: {', '.join(unavailable)}")
 
+    def reassert_active(self, *, force: bool = True) -> None:
+        """Re-apply modes on connected outputs and move RandR primary onto one of them.
+
+        Forced reassert re-runs xrandr even when the mode already matches so NVIDIA
+        can retrain HDMI after a late TV power-on behind an always-on AVR.
+        """
+        if self._change_in_progress():
+            _LOGGER.info("Skipping display reassert while a mode change is in progress")
+            return
+        if not self._startup_ready.wait(timeout=30):
+            raise DisplayError("Display settings are still being restored")
+        preferences = self._preferences.load()
+        brightness = self._preferences.load_brightness()
+        outputs = self._inspect()
+        primary_name: str | None = None
+        for name in preferences:
+            if any(output.name == name for output in outputs):
+                primary_name = name
+                break
+        if primary_name is None:
+            primary_name = outputs[0].name
+        for output in outputs:
+            saved = preferences.get(output.name)
+            mode = saved if saved is not None and saved in output.modes else output.current
+            is_primary = output.name == primary_name
+            if force or output.current != mode:
+                self._apply(output.name, mode, primary=is_primary)
+            elif is_primary:
+                self._run("--output", output.name, "--primary")
+        self._apply_brightness(brightness, tuple(output.name for output in outputs))
+
     def restore_saved_async(self) -> None:
         """Restore saved modes off the UI thread before allowing new changes."""
         if not self._preferences.path.exists():
@@ -338,6 +390,102 @@ class X11DisplayGateway:
                 self._startup_ready.set()
 
         threading.Thread(target=restore, name="pideck-display-restore", daemon=True).start()
+
+
+class DisplayHotplugMonitor:
+    """Debounced recovery when outputs appear or the TV powers on over CEC."""
+
+    def __init__(
+        self,
+        gateway: X11DisplayGateway,
+        *,
+        after: Callable[[], None] | None = None,
+        interval: float = 2.5,
+        debounce: float = 1.5,
+    ) -> None:
+        """Watch connected outputs and invoke forced reassert after quiet periods."""
+        self._gateway = gateway
+        self._after = after
+        self._interval = interval
+        self._debounce = debounce
+        self._condition = threading.Condition()
+        self._closed = False
+        self._pending = False
+        self._deadline = 0.0
+        self._known: frozenset[str] | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Begin polling connected outputs in a background thread."""
+        with self._condition:
+            if self._thread is not None or self._closed:
+                return
+            self._thread = threading.Thread(
+                target=self._run, name="pideck-display-hotplug", daemon=True,
+            )
+            self._thread.start()
+
+    def request(self) -> None:
+        """Schedule a debounced forced reassert (CEC TV power-on or external trigger)."""
+        with self._condition:
+            if self._closed:
+                return
+            self._pending = True
+            self._deadline = time.monotonic() + self._debounce
+            self._condition.notify_all()
+
+    def close(self) -> None:
+        """Stop the watcher thread."""
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
+            thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=5)
+
+    def _run(self) -> None:
+        while True:
+            with self._condition:
+                if self._closed:
+                    return
+                if self._pending:
+                    timeout = max(0.0, min(self._interval, self._deadline - time.monotonic()))
+                else:
+                    timeout = self._interval
+                self._condition.wait(timeout=timeout)
+                if self._closed:
+                    return
+                due = self._pending and time.monotonic() >= self._deadline
+                if due:
+                    self._pending = False
+            if due:
+                self._recover()
+            try:
+                names = self._gateway.connected_names()
+            except DisplayError:
+                _LOGGER.debug("Display hotplug poll failed", exc_info=True)
+                continue
+            with self._condition:
+                previous = self._known
+                self._known = names
+            if previous is not None and names != previous:
+                _LOGGER.info(
+                    "Display outputs changed from %s to %s; scheduling reassert",
+                    sorted(previous), sorted(names),
+                )
+                self.request()
+
+    def _recover(self) -> None:
+        try:
+            self._gateway.reassert_active(force=True)
+        except DisplayError as error:
+            _LOGGER.warning("Unable to reassert display after hotplug: %s", error)
+            return
+        if self._after is not None:
+            try:
+                self._after()
+            except Exception:
+                _LOGGER.warning("Display reassert after-hook failed", exc_info=True)
 
 
 class X11DisplayChange:

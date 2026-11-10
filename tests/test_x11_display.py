@@ -232,3 +232,91 @@ def test_failed_apply_restores_previous_mode(display, monkeypatch) -> None:
         gateway.begin("HDMI-1", DisplayMode("1280x720", "60.00"))
     assert "--output HDMI-1 --mode 1920x1080 --rate 60.00" in log.read_text()
     assert preferences.load() == {}
+
+
+def test_reassert_active_force_reapplies_matching_mode_and_primary(display) -> None:
+    """Forced reassert re-runs xrandr and moves primary onto the active output."""
+    gateway, preferences, log = display
+    preferences.save("HDMI-1", DisplayMode("1920x1080", "60.00"))
+    preferences.save_brightness(90)
+    log.write_text("")
+    gateway.reassert_active(force=True)
+    text = log.read_text()
+    assert "--output HDMI-1 --mode 1920x1080 --rate 60.00 --primary" in text
+    assert "--output HDMI-1 --brightness 0.90" in text
+
+
+def test_reassert_active_without_force_only_sets_primary_when_mode_matches(display) -> None:
+    """Non-forced reassert leaves a matching mode alone and only sets primary."""
+    gateway, preferences, log = display
+    preferences.save("HDMI-1", DisplayMode("1920x1080", "60.00"))
+    log.write_text("")
+    gateway.reassert_active(force=False)
+    text = log.read_text()
+    assert "--mode" not in text
+    assert "--output HDMI-1 --primary" in text
+
+
+def test_reassert_active_skips_while_change_in_progress(display) -> None:
+    """Reassert must not fight an open confirmation watchdog."""
+    gateway, _, log = display
+    change = gateway.begin("HDMI-1", DisplayMode("1280x720", "60.00"))
+    before = log.read_text()
+    gateway.reassert_active(force=True)
+    assert log.read_text() == before
+    change.cancel()
+
+
+def test_connected_names_lists_connected_outputs(display) -> None:
+    """Hotplug polling reads connected output names from xrandr."""
+    gateway, _, _ = display
+    assert gateway.connected_names() == frozenset({"HDMI-1"})
+
+
+def test_display_hotplug_monitor_recovers_on_request(display) -> None:
+    """CEC-style request debounces then forces reassert and runs the after hook."""
+    from pideck.infrastructure.x11_display import DisplayHotplugMonitor
+
+    gateway, preferences, log = display
+    preferences.save("HDMI-1", DisplayMode("1920x1080", "60.00"))
+    after: list[str] = []
+    monitor = DisplayHotplugMonitor(
+        gateway, after=lambda: after.append("done"), interval=0.05, debounce=0.05,
+    )
+    monitor.start()
+    log.write_text("")
+    monitor.request()
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and not after:
+        time.sleep(0.02)
+    monitor.close()
+    assert after == ["done"]
+    assert "--output HDMI-1 --mode 1920x1080 --rate 60.00 --primary" in log.read_text()
+
+
+def test_display_hotplug_monitor_recovers_when_outputs_change(display, monkeypatch) -> None:
+    """A new connected output set schedules the same forced reassert path."""
+    from pideck.infrastructure.x11_display import DisplayHotplugMonitor
+
+    gateway, preferences, log = display
+    preferences.save("HDMI-1", DisplayMode("1920x1080", "60.00"))
+    after: list[str] = []
+    names = iter([frozenset(), frozenset({"HDMI-1"}), frozenset({"HDMI-1"})])
+
+    def fake_names() -> frozenset[str]:
+        try:
+            return next(names)
+        except StopIteration:
+            return frozenset({"HDMI-1"})
+
+    monkeypatch.setattr(gateway, "connected_names", fake_names)
+    monitor = DisplayHotplugMonitor(
+        gateway, after=lambda: after.append("done"), interval=0.05, debounce=0.05,
+    )
+    monitor.start()
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and not after:
+        time.sleep(0.02)
+    monitor.close()
+    assert after == ["done"]
+    assert "--primary" in log.read_text()

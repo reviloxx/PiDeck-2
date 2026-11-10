@@ -74,7 +74,11 @@ from pideck.infrastructure.system_power import SystemPower
 from pideck.infrastructure.system_audio import PulseAudioGateway
 from pideck.infrastructure.samba_shares import SambaShareGateway
 from pideck.infrastructure.udisks_storage import DrivePreferences, UDisksStorageGateway
-from pideck.infrastructure.x11_display import DisplayPreferences, X11DisplayGateway
+from pideck.infrastructure.x11_display import (
+    DisplayHotplugMonitor,
+    DisplayPreferences,
+    X11DisplayGateway,
+)
 from pideck.infrastructure.x11_hotkey import X11HotkeyListener
 from pideck.infrastructure.x11_key_injector import X11KeyInjector
 from pideck.infrastructure.config.themes import apply_shipped_themes
@@ -483,6 +487,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     cec_status_bridge.status_received.connect(handle_cec_status, Qt.ConnectionType.QueuedConnection)
     cec_key_bridge.key_received.connect(handle_cec_key, Qt.ConnectionType.QueuedConnection)
     display_gateway = X11DisplayGateway(DisplayPreferences(parsed_arguments.config.parent / "display.yaml"))
+    display_hotplug: DisplayHotplugMonitor | None = None
     audio_gateway = PulseAudioGateway()
     audio_preferences = AudioPreferencesStore(parsed_arguments.config.parent / "audio.yaml")
     drive_preferences = DrivePreferences(parsed_arguments.config.parent / "drives.yaml")
@@ -940,6 +945,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
         gamepad_adapter.close()
         hotkey_listener.close()
         key_injector.close()
+        if display_hotplug is not None:
+            display_hotplug.close()
+        cec_adapter.set_tv_power_on_handler(None)
         try:
             cec_adapter.close()
         except ProcessError:
@@ -1492,6 +1500,23 @@ def main(arguments: Sequence[str] | None = None) -> int:
     window.settings_requested.connect(handle_settings_request)
     window.shutdown_requested.connect(handle_shutdown_request)
     display_gateway.restore_saved_async()
+
+    class DisplayRecoveryBridge(QObject):
+        """Marshal forced display recovery onto the Qt thread for fullscreen."""
+
+        recovered = Signal()
+
+    display_recovery_bridge = DisplayRecoveryBridge()
+    display_recovery_bridge.recovered.connect(
+        lambda: window.schedule_fullscreen_reassert(100),
+        Qt.ConnectionType.QueuedConnection,
+    )
+    display_hotplug = DisplayHotplugMonitor(
+        display_gateway,
+        after=display_recovery_bridge.recovered.emit,
+    )
+    cec_adapter.set_tv_power_on_handler(display_hotplug.request)
+    display_hotplug.start()
 
     def restore_drives_and_shares() -> None:
         """Remount remembered drives, then re-apply preferred Samba exports."""

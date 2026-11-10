@@ -272,7 +272,11 @@ def test_cec_claims_active_source_on_tv_wake_without_restart(
 ) -> None:
     """TV wake reclaims Anynet with as; standby alone and disabled switch do not."""
     stopped: list[object] = []
-    adapter = CecClientAdapter(settings=CecSettings(switch_input=True))
+    power_on: list[str] = []
+    adapter = CecClientAdapter(
+        settings=CecSettings(switch_input=True),
+        on_tv_power_on=lambda: power_on.append("tv"),
+    )
     sink = RecordingSink()
     process = MagicMock(spec=subprocess.Popen)
     process.stdin = MagicMock()
@@ -292,6 +296,7 @@ def test_cec_claims_active_source_on_tv_wake_without_restart(
     assert stopped == []
     assert adapter.generation == generation
     assert process.stdin.write.call_count == 1
+    assert power_on == []
     process.stdin.write.reset_mock()
     adapter._read_output(
         io.StringIO(
@@ -306,6 +311,7 @@ def test_cec_claims_active_source_on_tv_wake_without_restart(
     assert adapter.generation == generation
     assert [call.args[0] for call in process.stdin.write.call_args_list] == ["as\n", "as\n"]
     assert [event.action for event in sink.events] == [InputAction.ACTIVATE]
+    assert power_on == ["tv"]
 
     quiet = MagicMock(spec=subprocess.Popen)
     quiet.stdin = MagicMock()
@@ -330,7 +336,11 @@ def test_cec_skips_active_source_on_connect_when_wake_tv_disabled(
 ) -> None:
     """wake_tv off skips as on connect but still reclaims after the TV wakes."""
     stopped: list[object] = []
-    adapter = CecClientAdapter(settings=CecSettings(switch_input=True, wake_tv=False))
+    power_on: list[str] = []
+    adapter = CecClientAdapter(
+        settings=CecSettings(switch_input=True, wake_tv=False),
+        on_tv_power_on=lambda: power_on.append("tv"),
+    )
     sink = RecordingSink()
     process = MagicMock(spec=subprocess.Popen)
     process.stdin = MagicMock()
@@ -351,6 +361,34 @@ def test_cec_skips_active_source_on_connect_when_wake_tv_disabled(
     assert stopped == []
     assert [call.args[0] for call in process.stdin.write.call_args_list] == ["as\n"]
     assert [event.action for event in sink.events] == [InputAction.ACTIVATE]
+    assert power_on == ["tv"]
+
+
+def test_cec_tv_power_on_handler_can_be_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Display recovery can be wired after construction."""
+    first: list[str] = []
+    second: list[str] = []
+    adapter = CecClientAdapter(
+        settings=CecSettings(switch_input=True),
+        on_tv_power_on=lambda: first.append("a"),
+    )
+    adapter.set_tv_power_on_handler(lambda: second.append("b"))
+    process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
+    adapter._sink = RecordingSink()
+    adapter._suspended = False
+    adapter._process = process
+    monkeypatch.setattr(adapter, "_stop_async", lambda *_: None)
+    adapter._read_output(
+        io.StringIO(
+            "waiting for input\n"
+            "DEBUG: [1] TV (0): power status changed from 'standby' to 'on'\n"
+        ),
+        process,
+        adapter.generation,
+    )
+    assert first == []
+    assert second == ["b"]
 
 
 def test_cec_releases_process_and_restarts_after_resume(monkeypatch: pytest.MonkeyPatch) -> None:

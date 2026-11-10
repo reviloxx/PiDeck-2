@@ -72,6 +72,7 @@ class CecClientAdapter:
         self, retry_interval: float = 3.0, *, settings: CecSettings | None = None,
         status_changed: Callable[[str], None] | None = None,
         key_observed: Callable[[CecKeyObservation], None] | None = None,
+        on_tv_power_on: Callable[[], None] | None = None,
     ) -> None:
         """Create an adapter with bounded retry intervals for missing hardware."""
         self._retry_interval = retry_interval
@@ -87,10 +88,15 @@ class CecClientAdapter:
         self._desired = settings is None or (settings.enabled and settings.auto_connect)
         self._status_changed = status_changed
         self._key_observed = key_observed
+        self._on_tv_power_on = on_tv_power_on
         self._status = "Disconnected"
         self._stop_lock = threading.Lock()
         self._logged_unmapped: set[int] = set()
         self._history: deque[CecKeyObservation] = deque(maxlen=_HISTORY_LIMIT)
+
+    def set_tv_power_on_handler(self, handler: Callable[[], None] | None) -> None:
+        """Install or clear the late-TV display recovery callback."""
+        self._on_tv_power_on = handler
 
     @property
     def status(self) -> str:
@@ -412,6 +418,11 @@ class CecClientAdapter:
             if connected and _TV_POWER_ON.search(line):
                 # Reclaim Anynet without restarting; Samsung often stays on Fernseher.
                 self._claim_active_source(process)
+                if self._on_tv_power_on is not None:
+                    try:
+                        self._on_tv_power_on()
+                    except Exception:
+                        _LOGGER.warning("TV power-on display recovery failed", exc_info=True)
                 continue
             if _KEY_IDLE.search(line):
                 held.clear()
