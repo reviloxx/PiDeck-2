@@ -7,22 +7,24 @@ from pideck.infrastructure.kodi_audio import configure_kodi_audio
 
 
 def test_surround_mode_sets_51_pcm(tmp_path: Path) -> None:
-    """AVR surround mode forces Pulse Default, 5.1 channels, passthrough off."""
+    """AVR surround mode forces Pulse Default, Fixed 5.1, passthrough off."""
     configure_kodi_audio(home=tmp_path, hdmi_mode=HdmiAudioMode.SURROUND)
     text = (tmp_path / ".kodi/userdata/guisettings.xml").read_text(encoding="utf-8")
     assert '<setting id="audiooutput.audiodevice">PULSE:Default</setting>' in text
+    assert '<setting id="audiooutput.config">1</setting>' in text
     assert '<setting id="audiooutput.channels">8</setting>' in text
     assert '<setting id="audiooutput.passthrough">false</setting>' in text
 
 
 def test_pcm_21_layout_sets_channels_without_passthrough(tmp_path: Path) -> None:
-    """Per-app 2.1 PCM forces channels 2 with passthrough off."""
+    """Per-app 2.1 PCM forces Fixed channels 2 with passthrough off."""
     configure_kodi_audio(
         home=tmp_path,
         hdmi_mode=HdmiAudioMode.BITSTREAM,
         pcm_layout=AppPcmLayout.PCM_21,
     )
     text = (tmp_path / ".kodi/userdata/guisettings.xml").read_text(encoding="utf-8")
+    assert '<setting id="audiooutput.config">1</setting>' in text
     assert '<setting id="audiooutput.channels">2</setting>' in text
     assert '<setting id="audiooutput.passthrough">false</setting>' in text
     assert '<setting id="audiooutput.ac3transcode">false</setting>' in text

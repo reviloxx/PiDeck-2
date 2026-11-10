@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.60
+
+- Fixed: Kodi PCM surround uses Output configuration **Fixed** with 5.1
+  channels so a 5.1 movie is sent as multichannel PCM. Optimized mode was
+  opening a stereo Pulse stream, so the AVR kept showing 2 CH STEREO.
+
 ## v0.5.59
 
 - Fixed: Opening Kodi (or any app on system Surround) switches HDMI back to
