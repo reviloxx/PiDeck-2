@@ -51,6 +51,11 @@ class FileThemeRepository:
     def _existing_asset(self, path: Path, asset_name: str) -> Path:
         """Resolve one relative asset path and require that it exists."""
         resolved_path = path if path.is_absolute() else self._asset_root / path
+        # Normalize so config/../assets still works if asset_root is missing briefly.
+        try:
+            resolved_path = resolved_path.resolve(strict=False)
+        except OSError as error:
+            raise ThemeValidationError(f"Missing {asset_name} asset: {resolved_path}") from error
         if not resolved_path.is_file():
             raise ThemeValidationError(f"Missing {asset_name} asset: {resolved_path}")
         return resolved_path

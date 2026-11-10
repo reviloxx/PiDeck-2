@@ -29,8 +29,36 @@ def test_theme_repository_resolves_existing_assets(tmp_path: Path) -> None:
 
     theme = repository.get("default")
 
-    assert theme.icons["browser"] == icon_path
-    assert theme.wallpaper == wallpaper_path
+    assert theme.icons["browser"] == icon_path.resolve()
+    assert theme.wallpaper == wallpaper_path.resolve()
+
+
+def test_theme_repository_resolves_parent_relative_assets(tmp_path: Path) -> None:
+    """Shipped ../assets paths still resolve when asset_root is release/config."""
+    release = tmp_path / "release"
+    config = release / "config"
+    assets = release / "assets" / "themes" / "aurora"
+    icons = release / "assets" / "icons"
+    config.mkdir(parents=True)
+    assets.mkdir(parents=True)
+    icons.mkdir(parents=True)
+    wallpaper = assets / "wallpaper.svg"
+    icon = icons / "settings.svg"
+    wallpaper.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
+    icon.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
+    document = configuration_document()
+    document["home"]["theme"] = "aurora"
+    theme_data = document["themes"][0]
+    theme_data["id"] = "aurora"
+    theme_data["icons"] = {"settings": "../assets/icons/settings.svg"}
+    theme_data["wallpaper"] = "../assets/themes/aurora/wallpaper.svg"
+    configuration = YamlConfigurationParser().parse(document)
+    repository = FileThemeRepository(configuration.themes, config, DEFAULT_THEME)
+
+    theme = repository.get("aurora")
+
+    assert theme.wallpaper == wallpaper.resolve()
+    assert theme.icons["settings"] == icon.resolve()
 
 
 def test_theme_repository_uses_fallback_for_missing_assets(tmp_path: Path) -> None:
