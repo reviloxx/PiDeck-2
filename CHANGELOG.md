@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.65
+
+- Fixed: Switch Pro Controller Home opens the session overlay (BTN_MODE).
+- Fixed: IMU motion nodes are ignored so they no longer compete with the
+  gamepad reader.
+- Changed: Appliance images set BlueZ ``UserspaceHID=true`` so Bluetooth
+  gamepads create input devices on CSR USB adapters.
+
 ## v0.5.64
 
 - Fixed: Bluetooth pairing now trusts the device and tries to connect, so

@@ -62,6 +62,7 @@ install -m 644 files/google-chrome.default "${ROOTFS_DIR}/etc/default/google-chr
 install -m 644 files/firefox-policies.json "${ROOTFS_DIR}/etc/firefox/policies/policies.json"
 install -m 644 files/56-steamlink.rules "${ROOTFS_DIR}/usr/lib/udev/rules.d/56-steamlink.rules"
 install -m 644 files/uinput.conf "${ROOTFS_DIR}/etc/modules-load.d/pideck-uinput.conf"
+install -m 644 files/bluetooth-input.conf "${ROOTFS_DIR}/etc/bluetooth/input.conf"
 
 # Kodi's German language add-on, pinned and verified, so Kodi starts in German offline.
 . files/kodi-language.env

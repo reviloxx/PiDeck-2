@@ -191,6 +191,7 @@ def test_prepare_stage_copies_snapshot_and_enables_only_custom_export(tmp_path: 
     assert "systemctl mask nxserver.service" in run_script
     assert 'sha256sum -c -' in run_script and "usr/share/kodi/addons" in run_script
     assert "usr/lib/udev/rules.d/56-steamlink.rules" in run_script
+    assert "etc/bluetooth/input.conf" in run_script
     for name in ("google-chrome.sources", "brave-browser.sources", "keyrings/brave-browser.gpg"):
         assert (stage / "00-pideck" / "files" / name).is_file()
     assert "etc/polkit-1/rules.d/50-pideck-udisks.rules" in run_script

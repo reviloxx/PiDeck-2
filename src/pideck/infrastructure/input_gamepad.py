@@ -117,6 +117,8 @@ class EvdevGamepadAdapter:
         capabilities = device.capabilities()
         absolute_codes = _capability_codes(capabilities.get(3, []))
         button_codes = _capability_codes(capabilities.get(1, []))
+        if "(imu)" in name:
+            return False
         return bool(absolute_codes.intersection({16, 17}) or button_codes.intersection({304, 305, 307, 308})) or any(
             word in name for word in ("gamepad", "controller", "joystick")
         )
@@ -189,6 +191,7 @@ class EvdevGamepadAdapter:
                 305: InputAction.BACK,
                 307: InputAction.BACK,
                 315: InputAction.MENU,
+                316: InputAction.MENU,
             }.get(event.code)
         return None
 

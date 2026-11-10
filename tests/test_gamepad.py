@@ -16,7 +16,17 @@ def test_gamepad_maps_dpad_and_buttons() -> None:
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=304, value=1)) is InputAction.ACTIVATE
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=305, value=1)) is InputAction.BACK
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=315, value=1)) is InputAction.MENU
+    assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=316, value=1)) is InputAction.MENU
     assert EvdevGamepadAdapter._map_event(SimpleNamespace(type=1, code=304, value=0)) is None
+
+
+def test_gamepad_detection_skips_imu_nodes() -> None:
+    """Motion sensors that share a controller name must not be treated as gamepads."""
+    imu = SimpleNamespace(
+        name="Pro Controller (IMU)",
+        capabilities=lambda: {3: [0, 1, 2]},
+    )
+    assert EvdevGamepadAdapter._is_gamepad(imu) is False
 
 
 def test_gamepad_event_is_source_tagged() -> None:
