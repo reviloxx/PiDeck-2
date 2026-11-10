@@ -62,6 +62,7 @@ from pideck.infrastructure.image_update_client import ImageUpdateError, request 
 from pideck.infrastructure.pideck_releases import find_latest_release, version_key
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
 from pideck.infrastructure.input_cec import CecClientAdapter
+from pideck.infrastructure.red_flatpak import configure_red_without_input_devices
 from pideck.infrastructure.input_settings import InputPreferences, InputSettingsError
 from pideck.infrastructure.keyboard_layout import KeyboardPreferences, X11KeyboardLayout
 from pideck.domain.keyboard_layout import KeyboardLayout
@@ -102,11 +103,13 @@ class _QtSessionObserver:
         window: "LauncherWindow",
         on_session_end: Callable[[], None] | None = None,
         on_session_start: Callable[[ApplicationDefinition], None] | None = None,
+        on_session_visible: Callable[[ApplicationDefinition], None] | None = None,
     ) -> None:
         """Create an observer for one launcher window."""
         self._window = window
         self._on_session_end = on_session_end
         self._on_session_start = on_session_start
+        self._on_session_visible = on_session_visible
 
     def started(self, application: ApplicationDefinition, profile: ApplicationProfile | None) -> None:
         """Forward a successful process start to the window."""
@@ -116,6 +119,8 @@ class _QtSessionObserver:
 
     def visible(self, application: ApplicationDefinition) -> None:
         """Forward application-window readiness to the launcher."""
+        if self._on_session_visible is not None:
+            self._on_session_visible(application)
         self._window.notify_session_visible(application)
 
     def visibility_timeout(self, application: ApplicationDefinition) -> None:
@@ -563,12 +568,28 @@ def main(arguments: Sequence[str] | None = None) -> int:
     release_timer.setInterval(current_configuration.settings.update_check_interval_hours * 60 * 60 * 1000)
     release_timer.timeout.connect(pideck_update_service.check_async)
     release_timer.start()
+    from pideck.presentation.qt.connected_inputs import ConnectedInputs
     from pideck.presentation.qt.session_overlay import SessionOverlay
 
     overlay_theme = dependencies.theme_repository.get(current_configuration.home.theme)
     overlay_language = current_configuration.settings.language
     # Recreate on each open so picom never keeps a stale redirected pixmap.
     session_overlay: SessionOverlay | None = None
+
+    def snapshot_connected_inputs() -> ConnectedInputs:
+        """Collect live CEC / gamepad / keyboard presence for the footer strip."""
+        return ConnectedInputs(
+            cec=cec_adapter is not None and cec_adapter.status() == "Connected",
+            gamepad=gamepad_adapter.connected_gamepad_count() > 0,
+            keyboard=gamepad_adapter.connected_keyboard_count() > 0,
+        )
+
+    def refresh_connected_inputs() -> None:
+        """Push the latest connected-input snapshot to launcher and overlay."""
+        inputs = snapshot_connected_inputs()
+        window.set_connected_inputs(inputs)
+        if session_overlay is not None:
+            session_overlay.set_connected_inputs(inputs)
 
     def clear_session_overlay() -> None:
         """Destroy any overlay instance so it cannot keep Qt focus after dismiss."""
@@ -588,7 +609,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         clear_session_overlay()
         cursor_visibility.show_cursor()
 
-    def begin_application_session(application: ApplicationDefinition) -> None:
+    def sync_gamepad_exclusive(application: ApplicationDefinition) -> None:
         """Take exclusive pad ownership when PiDeck will synthesize keys for the app."""
         gamepad_adapter.set_exclusive(should_forward_gamepad(application))
 
@@ -598,7 +619,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
         hide_session_overlay()
 
     session_observer: SessionObserver = _QtSessionObserver(
-        window, end_application_session, begin_application_session,
+        window,
+        end_application_session,
+        sync_gamepad_exclusive,
+        sync_gamepad_exclusive,
     )
     visibility_detector = X11WindowVisibilityDetector()
     session_service = ApplicationSessionService(
@@ -669,6 +693,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return
         clear_session_overlay()
         session_overlay = SessionOverlay(overlay_theme, overlay_language)
+        session_overlay.set_connected_inputs(snapshot_connected_inputs())
         session_overlay.return_requested.connect(return_to_pideck_from_overlay)
         session_overlay.dismissed.connect(clear_session_overlay)
         session_overlay.open_overlay()
@@ -754,6 +779,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
     )
     if "gamepad" in current_configuration.input.enabled_sources:
         gamepad_adapter.start(gamepad_bridge)
+    connected_inputs_timer = QTimer(application)
+    connected_inputs_timer.setInterval(1000)
+    connected_inputs_timer.timeout.connect(refresh_connected_inputs)
+    connected_inputs_timer.start()
+    refresh_connected_inputs()
     if cec_adapter is not None:
         class CecBridge(QObject):
             """Reject CEC events queued before an application handoff."""
@@ -807,11 +837,20 @@ def main(arguments: Sequence[str] | None = None) -> int:
             except AudioError as error:
                 dependencies.logger.warning("Unable to prepare HDMI audio for Kodi: %s", error)
             configure_kodi_audio(hdmi_mode=hdmi_mode)
+        if application_definition.identifier == "youtube":
+            configure_red_without_input_devices()
+        # Grab before the child starts so Flatpak/Red cannot open the pad first.
+        launching_while_idle = session_service.snapshot.state is SessionState.IDLE
+        if launching_while_idle:
+            sync_gamepad_exclusive(application_definition)
         result = session_service.request_launch(application_definition)
         if result.status is LaunchStatus.PROFILE_SELECTION_REQUIRED:
             selected_profile = window.choose_profile(result.profiles)
             if selected_profile is None:
+                if launching_while_idle:
+                    gamepad_adapter.set_exclusive(False)
                 return
+            sync_gamepad_exclusive(application_definition)
             result = session_service.request_launch(application_definition, selected_profile)
         if result.status is LaunchStatus.CONFIRMATION_REQUIRED:
             if not window.confirm_application_replacement(result.application):
@@ -823,6 +862,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             )
             if application_definition.profiles and selected_profile is None:
                 return
+            sync_gamepad_exclusive(application_definition)
             result = session_service.replace_running(application_definition, selected_profile)
         if result.status is LaunchStatus.FAILED:
             dependencies.logger.error(

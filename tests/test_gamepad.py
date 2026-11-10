@@ -143,11 +143,13 @@ def test_exclusive_mode_grabs_and_releases_open_pads() -> None:
     evdev = SimpleNamespace(InputDevice=lambda path: device)
     adapter._open_device(evdev, Path("/dev/input/event0"))
     assert device.grab_calls == 0
+    assert adapter.connected_gamepad_count() == 1
 
     adapter.set_exclusive(True)
     assert device.grab_calls == 1
+    # Re-applying exclusive must retry grab so a prior failure can recover.
     adapter.set_exclusive(True)
-    assert device.grab_calls == 1
+    assert device.grab_calls == 2
     adapter.set_exclusive(False)
     assert device.ungrab_calls == 1
     adapter.close()

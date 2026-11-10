@@ -354,6 +354,11 @@ def _configure(root: Path, loop: str, tag: str | None) -> None:
     chroot("flatpak", "config", "--system", "--set", "languages", "de;en")
     chroot("env", f"FLATPAK_GL_DRIVERS={gl_driver}:default", "flatpak", "install", "--system",
            "--noninteractive", "--assumeyes", "--arch=x86_64", "flathub", PREINSTALLED_FLATPAK)
+    # PiDeck injects controller keys; keep GPU but block native gamepad in Red.
+    chroot(
+        "flatpak", "override", "--system",
+        "--nodevice=all", "--device=dri", "--device=shm", PREINSTALLED_FLATPAK,
+    )
     runtimes = chroot("flatpak", "list", "--system", "--runtime", "--columns=application", capture=True)
     if f"org.freedesktop.Platform.GL.{gl_driver}" not in runtimes.split():
         raise RuntimeError(f"Flathub did not provide the {gl_driver} GL extension")

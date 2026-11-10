@@ -25,6 +25,7 @@ from pideck.domain.configuration import Configuration
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, PreferredInput
 from pideck.domain.theme import ThemeDefinition
 
+from .connected_inputs import ConnectedInputs, ConnectedInputsStrip
 from .theme import FocusGlow, apply_theme, icon_for_path
 from .localization import clock_text, tr
 from .power_dialog import ConfirmationDialog, PowerDialog
@@ -337,11 +338,14 @@ class LauncherWindow(QMainWindow):
         self._language = language if language in {"en", "de"} else "en"
         self._settings_button.setText(tr(self._language, "settings"))
         self._shutdown_button.setText(tr(self._language, "shutdown"))
+        self._connected_inputs.set_language(self._language)
         self._update_clock()
 
     def _build_footer(self) -> None:
-        """Create intent-only settings and shutdown controls."""
+        """Create connected-input strip (left) and settings/shutdown (right)."""
         footer = QHBoxLayout()
+        self._connected_inputs = ConnectedInputsStrip(self._theme, self._language, self._root)
+        footer.addWidget(self._connected_inputs, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         footer.addStretch()
         settings = LauncherAction(tr(self._language, "settings"), self._root)
         settings.setObjectName("launcher_action")
@@ -367,6 +371,10 @@ class LauncherWindow(QMainWindow):
         footer.addWidget(settings)
         footer.addWidget(shutdown)
         self._root_layout.addLayout(footer)
+
+    def set_connected_inputs(self, inputs: ConnectedInputs) -> None:
+        """Refresh the footer strip of currently connected input sources."""
+        self._connected_inputs.set_inputs(inputs)
 
     def _apply_footer_icon_size(self) -> None:
         """Scale footer icons with the theme's body text."""
@@ -520,6 +528,7 @@ class LauncherWindow(QMainWindow):
         self._grid_layout.setVerticalSpacing(theme.tile.gap)
         self._settings_button.setIcon(icon_for_path(theme.icons.get("settings")))
         self._shutdown_button.setIcon(icon_for_path(theme.icons.get("power")))
+        self._connected_inputs.set_theme(theme)
         self._apply_footer_icon_size()
         apply_theme(self, theme)
         self._rebuild_tiles()

@@ -24,6 +24,7 @@ from .blurred_backdrop import (
     compose_backdrop,
     grab_is_useful,
 )
+from .connected_inputs import ConnectedInputs, ConnectedInputsStrip
 from .fullscreen import cancel_fullscreen_reassert, present_fullscreen
 from .localization import clock_text, tr
 from .theme import apply_theme
@@ -118,12 +119,24 @@ class SessionOverlay(QDialog):
         root.addLayout(center)
         root.addStretch(1)
 
+        footer = QHBoxLayout()
+        self._connected_inputs = ConnectedInputsStrip(theme, language, self)
+        footer.addWidget(
+            self._connected_inputs, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        footer.addStretch()
+        root.addLayout(footer)
+
         self.cancel_button.clicked.connect(self.dismiss)
         self.confirm_button.clicked.connect(self._request_return)
         self._clock_timer = QTimer(self)
         self._clock_timer.setInterval(1000)
         self._clock_timer.timeout.connect(self._update_clock)
         apply_theme(self, theme)
+
+    def set_connected_inputs(self, inputs: ConnectedInputs) -> None:
+        """Refresh the footer strip of currently connected input sources."""
+        self._connected_inputs.set_inputs(inputs)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Keep the backdrop label matched to the dialog size."""

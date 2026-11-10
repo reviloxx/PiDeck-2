@@ -187,6 +187,10 @@ def test_prepare_stage_copies_snapshot_and_enables_only_custom_export(tmp_path: 
     assert "TIMEZONE_DEFAULT='Europe/Berlin'\n" in config.read_text()
     run_script = (stage / "00-pideck" / "01-run.sh").read_text()
     assert "flatpak install --system --noninteractive --assumeyes flathub com.ktechpit.red" in run_script
+    assert (
+        "flatpak override --system --nodevice=all --device=dri --device=shm com.ktechpit.red"
+        in run_script
+    )
     assert 'flatpak config --system --set languages "de;en"' in run_script
     assert "systemctl mask nxserver.service" in run_script
     assert 'sha256sum -c -' in run_script and "usr/share/kodi/addons" in run_script

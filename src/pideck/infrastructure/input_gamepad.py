@@ -73,15 +73,24 @@ class EvdevGamepadAdapter:
         """Grab or release all open pads so apps cannot also read them.
 
         Used while PiDeck forwards gamepad actions as keys (YouTube/Kodi). Native
-        gamepad apps (Steam Link) leave ``exclusive`` false.
+        gamepad apps (Steam Link) leave ``exclusive`` false. Always re-applies
+        grab/ungrab to every open device so a prior failed grab is retried.
         """
         with self._lock:
-            if self._exclusive == exclusive:
-                return
             self._exclusive = exclusive
             devices = list(self._devices.values())
         for managed in devices:
-            self._apply_grab(managed, exclusive)
+            self._apply_grab(managed, exclusive, force=True)
+
+    def connected_gamepad_count(self) -> int:
+        """Return how many gamepad event nodes are currently open."""
+        with self._lock:
+            return len(self._devices)
+
+    def connected_keyboard_count(self) -> int:
+        """Return how many keyboard event nodes the discovery loop last saw."""
+        with self._lock:
+            return 0 if self._keyboards is None else len(self._keyboards)
 
     def close(self) -> None:
         """Stop discovery and all gamepad reader threads."""
@@ -210,23 +219,34 @@ class EvdevGamepadAdapter:
             _LOGGER.info("Gamepad disconnected path=%s", path)
 
     @staticmethod
-    def _apply_grab(managed: _GamepadDevice, exclusive: bool) -> None:
+    def _apply_grab(managed: _GamepadDevice, exclusive: bool, *, force: bool = False) -> None:
         """Grab or ungrab one device; ignore devices that reject the ioctl."""
-        if exclusive == managed.grabbed:
+        if not force and exclusive == managed.grabbed:
             return
         try:
             if exclusive:
                 managed.device.grab()
-            else:
+                managed.grabbed = True
+            elif managed.grabbed:
                 managed.device.ungrab()
-            managed.grabbed = exclusive
+                managed.grabbed = False
+            _LOGGER.info(
+                "Gamepad %s path=%s",
+                "grabbed" if exclusive else "released",
+                managed.path,
+            )
         except (OSError, AttributeError, IOError) as error:
+            if exclusive and managed.grabbed:
+                _LOGGER.debug("Gamepad already grabbed path=%s error=%s", managed.path, error)
+                return
             _LOGGER.warning(
                 "Unable to %s gamepad path=%s error=%s",
                 "grab" if exclusive else "ungrab",
                 managed.path,
                 error,
             )
+            if exclusive:
+                managed.grabbed = False
 
     def _read_device(self, managed: _GamepadDevice) -> None:
         """Read and normalize events from one controller."""

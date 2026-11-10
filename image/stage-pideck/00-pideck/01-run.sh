@@ -94,6 +94,8 @@ systemctl mask nxserver.service
 flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 flatpak config --system --set languages "de;en"
 flatpak install --system --noninteractive --assumeyes flathub com.ktechpit.red
+# PiDeck injects controller keys; keep GPU but block native gamepad in Red.
+flatpak override --system --nodevice=all --device=dri --device=shm com.ktechpit.red
 EOF
 
 cmdline="${ROOTFS_DIR}/boot/firmware/cmdline.txt"
