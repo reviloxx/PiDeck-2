@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 from pathlib import Path
 
+import pytest
+
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.input_gamepad import EvdevGamepadAdapter
 
@@ -407,14 +409,11 @@ def test_reader_stop_suppresses_reopen_until_bluez_drops(tmp_path: Path) -> None
     adapter.close()
 
 
-def test_silent_bluetooth_gamepad_closes_before_bluez_drops(tmp_path: Path) -> None:
-    """HID silence clears the icon even while BlueZ Connected lingers."""
+def test_idle_bluetooth_gamepad_stays_open_while_connected(tmp_path: Path) -> None:
+    """No HID events must not Disconnect a live BlueZ session (Switch Pro idle)."""
     import threading
-    import time
 
-    from pideck.infrastructure import input_gamepad as gamepad_mod
-
-    path = Path("/dev/input/pideck-silent-pad")
+    path = Path("/dev/input/pideck-idle-pad")
     lost: list[str] = []
     hold = threading.Event()
 
@@ -422,6 +421,9 @@ def test_silent_bluetooth_gamepad_closes_before_bluez_drops(tmp_path: Path) -> N
         name = "Pro Controller"
         info = SimpleNamespace(bustype=5)
         uniq = "98:B6:E9:B2:4F:2C"
+
+        def __init__(self) -> None:
+            self._reading = False
 
         def capabilities(self) -> dict[int, list[int]]:
             return {1: [304, 305], 3: [16, 17]}
@@ -433,12 +435,15 @@ def test_silent_bluetooth_gamepad_closes_before_bluez_drops(tmp_path: Path) -> N
             return None
 
         def read_loop(self):  # type: ignore[no-untyped-def]
+            self._reading = True
             hold.wait(5)
             return
             yield  # pragma: no cover
 
         def close(self) -> None:
-            hold.set()
+            # Classification probes also close(); only wake an active reader.
+            if self._reading:
+                hold.set()
 
     adapter = EvdevGamepadAdapter(
         discovery_interval=0,
@@ -451,20 +456,51 @@ def test_silent_bluetooth_gamepad_closes_before_bluez_drops(tmp_path: Path) -> N
     evdev = SimpleNamespace(InputDevice=lambda _path: FakeDevice())
     adapter._open_device(evdev, path)
     assert adapter.connected_gamepad_count() == 1
-    with adapter._lock:
-        managed = adapter._devices[path]
-        managed.last_event_at = time.monotonic() - (gamepad_mod._BLUETOOTH_SILENCE_SECONDS + 0.1)
 
     scans = 0
 
     def list_devices() -> list[str]:
         nonlocal scans
         scans += 1
-        if scans >= 2:
+        if scans >= 3:
             adapter._stop.set()
         return [str(path)]
 
     adapter._discover_loop(SimpleNamespace(list_devices=list_devices, InputDevice=lambda _p: FakeDevice()))
-    assert adapter.connected_gamepad_count() == 0
-    assert lost == ["98:B6:E9:B2:4F:2C"]
+    assert adapter.connected_gamepad_count() == 1
+    assert lost == []
     adapter.close()
+
+
+def test_bluez_scan_error_keeps_previous_connected_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed BlueZ query must not report an empty connected set."""
+    from pideck.infrastructure import input_gamepad as gamepad_mod
+
+    adapter = EvdevGamepadAdapter(sysfs_input_root=tmp_path)
+    adapter._bt_connected_cache = frozenset({"98:B6:E9:B2:4F:2C"})
+
+    class _Bus:
+        def isConnected(self) -> bool:
+            return True
+
+    class _QDBusConnection:
+        @staticmethod
+        def systemBus() -> _Bus:
+            return _Bus()
+
+    monkeypatch.setattr(
+        gamepad_mod,
+        "_dbus_child_names",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("dbus down")),
+    )
+    # Force the in-method import to see our stub bus as connected.
+    import sys
+    from types import ModuleType
+
+    fake_dbus = ModuleType("PySide6.QtDBus")
+    fake_dbus.QDBusConnection = _QDBusConnection  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "PySide6.QtDBus", fake_dbus)
+
+    assert adapter._bluetooth_connected_addresses() == frozenset({"98:B6:E9:B2:4F:2C"})

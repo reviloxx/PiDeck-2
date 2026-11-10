@@ -12,8 +12,9 @@ _LOGGER = logging.getLogger(__name__)
 # BlueZ keeps a BR connect running after the client D-Bus wait times out; do not
 # start another Connect for the same device until this window ends.
 _DEFAULT_PENDING_SECONDS = 45.0
-# Host is down / similar: BlueZ already finished; retry soon for wake-ups.
-_DEFAULT_FAILED_COOLDOWN_SECONDS = 3.0
+# Host is down / similar: BlueZ already finished. Keep this long enough that
+# inbound page-in (Connectable) can win instead of hammering host Connect.
+_DEFAULT_FAILED_COOLDOWN_SECONDS = 20.0
 _DEFAULT_CONNECT_TIMEOUT_MS = 10000
 
 

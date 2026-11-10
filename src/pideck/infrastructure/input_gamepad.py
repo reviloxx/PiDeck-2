@@ -1,22 +1,17 @@
 """Optional Linux evdev gamepad adapter with hot-plug discovery."""
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import logging
 from pathlib import Path
 import re
 import threading
-import time
 from typing import Any
 import xml.etree.ElementTree as ET
 
 from pideck.application.ports.input import InputAction, InputEvent, InputSink
 
 _LOGGER = logging.getLogger(__name__)
-
-# Switch Pro HID keeps reporting while powered; silence means the link is dead
-# even when BlueZ still reports Connected for many seconds.
-_BLUETOOTH_SILENCE_SECONDS = 2.5
 
 # Linux gamepad face buttons are position-based (south/east), not label-based.
 _BTN_SOUTH = 304
@@ -43,7 +38,6 @@ class _GamepadDevice:
     nintendo_layout: bool = False
     grabbed: bool = False
     address: str = ""
-    last_event_at: float = field(default_factory=time.monotonic)
 
 
 class EvdevGamepadAdapter:
@@ -77,6 +71,7 @@ class EvdevGamepadAdapter:
         self._devices: dict[Path, _GamepadDevice] = {}
         self._suppress_until_absent: set[Path] = set()
         self._suppress_addresses: dict[Path, str] = {}
+        self._bt_connected_cache: frozenset[str] = frozenset()
         self._stop = threading.Event()
         self._discovery_thread: threading.Thread | None = None
         self._exclusive = False
@@ -131,6 +126,7 @@ class EvdevGamepadAdapter:
             self._devices.clear()
             self._suppress_until_absent.clear()
             self._suppress_addresses.clear()
+            self._bt_connected_cache = frozenset()
         for managed in devices:
             managed.stop.set()
             self._apply_grab(managed, False)
@@ -220,23 +216,7 @@ class EvdevGamepadAdapter:
             self._keyboards = keyboards
             with self._lock:
                 removed = set(self._devices).difference(live_paths)
-                open_devices = list(self._devices.items())
             for path in removed:
-                self._close_device(path, suppress_reopen=True)
-            # BlueZ often keeps Connected=true ~20s after power-off; HID goes
-            # silent immediately, so drop the icon and Disconnect early.
-            now = time.monotonic()
-            for path, managed in open_devices:
-                if path in removed or not managed.address:
-                    continue
-                if now - managed.last_event_at < _BLUETOOTH_SILENCE_SECONDS:
-                    continue
-                _LOGGER.info(
-                    "Gamepad silent; closing path=%s address=%s age=%.1fs",
-                    path,
-                    managed.address,
-                    now - managed.last_event_at,
-                )
                 self._close_device(path, suppress_reopen=True)
             if keyboards_changed:
                 self._notify_presence_changed()
@@ -325,14 +305,18 @@ class EvdevGamepadAdapter:
         return values
 
     def _bluetooth_connected_addresses(self) -> frozenset[str]:
-        """Return normalized MAC addresses BlueZ currently reports as Connected."""
+        """Return normalized MAC addresses BlueZ currently reports as Connected.
+
+        On D-Bus failure keep the previous snapshot so one bad scan cannot make
+        every open Bluetooth pad look dead and trigger mass Disconnect.
+        """
         try:
             from PySide6.QtDBus import QDBusConnection
         except ImportError:
-            return frozenset()
+            return self._bt_connected_cache
         bus = QDBusConnection.systemBus()
         if not bus.isConnected():
-            return frozenset()
+            return self._bt_connected_cache
         addresses: set[str] = set()
         try:
             for adapter in _dbus_child_names(bus, "/org/bluez"):
@@ -350,8 +334,9 @@ class EvdevGamepadAdapter:
                     )
         except Exception:
             _LOGGER.debug("Unable to query BlueZ connected devices", exc_info=True)
-            return frozenset()
-        return frozenset(addresses)
+            return self._bt_connected_cache
+        self._bt_connected_cache = frozenset(addresses)
+        return self._bt_connected_cache
 
     def _open_device(self, evdev: Any, path: Path) -> None:
         """Open one newly discovered gamepad and start its reader."""
@@ -449,7 +434,6 @@ class EvdevGamepadAdapter:
             for event in managed.device.read_loop():
                 if managed.stop.is_set() or self._stop.is_set():
                     return
-                managed.last_event_at = time.monotonic()
                 action = self._map_event(event, nintendo_layout=managed.nintendo_layout)
                 if action is not None:
                     sink = self._sink

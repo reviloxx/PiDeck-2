@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.82
+
+- Fixed: Switch Pro Controllers no longer disconnect a few seconds after
+  connecting (idle HID silence no longer forces a BlueZ Disconnect).
+- Fixed: Host reconnect waits longer between failed attempts so inbound
+  reconnect can succeed without Connect spam.
+
 ## v0.5.81
 
 - Fixed: Theme wallpapers and icons load again after an update that lacked the

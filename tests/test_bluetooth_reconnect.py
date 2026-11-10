@@ -202,8 +202,8 @@ def test_reconnect_enables_page_scan_before_connect() -> None:
     assert gateway.connect_calls == 1
 
 
-def test_reconnect_retries_soon_after_host_is_down() -> None:
-    """Finished failures must not use the long in-flight Connect cooldown."""
+def test_reconnect_retries_after_failed_cooldown_clears() -> None:
+    """Finished failures use a short cooldown, not the 45s in-flight window."""
     gateway = FakeReconnectBluez()
     gateway.fail_connect = BluetoothError("Host is down")
     service = BluetoothReconnectService(
@@ -214,3 +214,15 @@ def test_reconnect_retries_soon_after_host_is_down() -> None:
     gateway.fail_connect = None
     service.tick()
     assert gateway.connect_calls == 2
+
+
+def test_reconnect_default_failed_cooldown_blocks_immediate_retry() -> None:
+    """Host-is-down must not hammer Connect every timer tick."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("Host is down")
+    service = BluetoothReconnectService(gateway, pending_seconds=45.0)
+    service.tick()
+    assert gateway.connect_calls == 1
+    service.tick()
+    assert gateway.connect_calls == 1
+    assert service._pending_until[DEVICE] > 0
