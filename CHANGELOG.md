@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.68
+
+- Fixed: YouTube no longer double-handles the controller. PiDeck takes exclusive
+  ownership while forwarding keys, so Switch A confirms and B goes back once.
+
 ## v0.5.67
 
 - Fixed: Controllers work in YouTube and Kodi again (D-pad, A confirm, B back),

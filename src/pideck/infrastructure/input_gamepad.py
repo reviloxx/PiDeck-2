@@ -27,6 +27,7 @@ class _GamepadDevice:
     device: Any
     stop: threading.Event
     nintendo_layout: bool = False
+    grabbed: bool = False
 
 
 class EvdevGamepadAdapter:
@@ -48,6 +49,7 @@ class EvdevGamepadAdapter:
         self._devices: dict[Path, _GamepadDevice] = {}
         self._stop = threading.Event()
         self._discovery_thread: threading.Thread | None = None
+        self._exclusive = False
         self.available = False
 
     def start(self, sink: InputSink) -> None:
@@ -67,14 +69,30 @@ class EvdevGamepadAdapter:
         )
         self._discovery_thread.start()
 
+    def set_exclusive(self, exclusive: bool) -> None:
+        """Grab or release all open pads so apps cannot also read them.
+
+        Used while PiDeck forwards gamepad actions as keys (YouTube/Kodi). Native
+        gamepad apps (Steam Link) leave ``exclusive`` false.
+        """
+        with self._lock:
+            if self._exclusive == exclusive:
+                return
+            self._exclusive = exclusive
+            devices = list(self._devices.values())
+        for managed in devices:
+            self._apply_grab(managed, exclusive)
+
     def close(self) -> None:
         """Stop discovery and all gamepad reader threads."""
         self._stop.set()
         with self._lock:
+            self._exclusive = False
             devices = list(self._devices.values())
             self._devices.clear()
         for managed in devices:
             managed.stop.set()
+            self._apply_grab(managed, False)
             try:
                 managed.device.close()
             except OSError:
@@ -162,6 +180,8 @@ class EvdevGamepadAdapter:
         managed = _GamepadDevice(path, device, threading.Event(), nintendo_layout=nintendo)
         with self._lock:
             self._devices[path] = managed
+            exclusive = self._exclusive
+        self._apply_grab(managed, exclusive)
         threading.Thread(
             target=self._read_device,
             args=(managed,),
@@ -169,10 +189,11 @@ class EvdevGamepadAdapter:
             daemon=True,
         ).start()
         _LOGGER.info(
-            "Gamepad connected name=%s path=%s layout=%s",
+            "Gamepad connected name=%s path=%s layout=%s exclusive=%s",
             device.name,
             path,
             "nintendo" if nintendo else "xbox",
+            exclusive,
         )
 
     def _close_device(self, path: Path) -> None:
@@ -181,11 +202,31 @@ class EvdevGamepadAdapter:
             managed = self._devices.pop(path, None)
         if managed is not None:
             managed.stop.set()
+            self._apply_grab(managed, False)
             try:
                 managed.device.close()
             except OSError:
                 pass
             _LOGGER.info("Gamepad disconnected path=%s", path)
+
+    @staticmethod
+    def _apply_grab(managed: _GamepadDevice, exclusive: bool) -> None:
+        """Grab or ungrab one device; ignore devices that reject the ioctl."""
+        if exclusive == managed.grabbed:
+            return
+        try:
+            if exclusive:
+                managed.device.grab()
+            else:
+                managed.device.ungrab()
+            managed.grabbed = exclusive
+        except (OSError, AttributeError, IOError) as error:
+            _LOGGER.warning(
+                "Unable to %s gamepad path=%s error=%s",
+                "grab" if exclusive else "ungrab",
+                managed.path,
+                error,
+            )
 
     def _read_device(self, managed: _GamepadDevice) -> None:
         """Read and normalize events from one controller."""

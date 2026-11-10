@@ -101,13 +101,17 @@ class _QtSessionObserver:
         self,
         window: "LauncherWindow",
         on_session_end: Callable[[], None] | None = None,
+        on_session_start: Callable[[ApplicationDefinition], None] | None = None,
     ) -> None:
         """Create an observer for one launcher window."""
         self._window = window
         self._on_session_end = on_session_end
+        self._on_session_start = on_session_start
 
     def started(self, application: ApplicationDefinition, profile: ApplicationProfile | None) -> None:
         """Forward a successful process start to the window."""
+        if self._on_session_start is not None:
+            self._on_session_start(application)
         self._window.notify_session_started(application, profile)
 
     def visible(self, application: ApplicationDefinition) -> None:
@@ -584,7 +588,18 @@ def main(arguments: Sequence[str] | None = None) -> int:
         clear_session_overlay()
         cursor_visibility.show_cursor()
 
-    session_observer: SessionObserver = _QtSessionObserver(window, hide_session_overlay)
+    def begin_application_session(application: ApplicationDefinition) -> None:
+        """Take exclusive pad ownership when PiDeck will synthesize keys for the app."""
+        gamepad_adapter.set_exclusive(should_forward_gamepad(application))
+
+    def end_application_session() -> None:
+        """Release exclusive pad ownership and dismiss any leftover overlay."""
+        gamepad_adapter.set_exclusive(False)
+        hide_session_overlay()
+
+    session_observer: SessionObserver = _QtSessionObserver(
+        window, end_application_session, begin_application_session,
+    )
     visibility_detector = X11WindowVisibilityDetector()
     session_service = ApplicationSessionService(
         dependencies.process_supervisor,

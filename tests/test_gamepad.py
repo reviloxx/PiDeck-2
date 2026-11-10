@@ -80,16 +80,20 @@ def test_gamepad_detection_accepts_integer_capability_codes() -> None:
 
 
 def test_opening_gamepad_does_not_take_exclusive_control() -> None:
-    """PiDeck reads controller events without preventing launched apps from reading them."""
+    """By default PiDeck shares the pad so native-gamepad apps can still read it."""
     class FakeDevice:
         name = "Generic USB Controller"
 
         def __init__(self) -> None:
             self.grab_calls = 0
+            self.ungrab_calls = 0
             self.closed = False
 
         def grab(self) -> None:
             self.grab_calls += 1
+
+        def ungrab(self) -> None:
+            self.ungrab_calls += 1
 
         def read_loop(self) -> list[object]:
             return []
@@ -107,6 +111,48 @@ def test_opening_gamepad_does_not_take_exclusive_control() -> None:
     assert device.grab_calls == 0
 
 
+def test_exclusive_mode_grabs_and_releases_open_pads() -> None:
+    """YouTube/Kodi sessions grab the pad so injected keys are not doubled natively."""
+    import threading
+
+    release = threading.Event()
+
+    class FakeDevice:
+        name = "Nintendo Switch Pro Controller"
+
+        def __init__(self) -> None:
+            self.grab_calls = 0
+            self.ungrab_calls = 0
+
+        def grab(self) -> None:
+            self.grab_calls += 1
+
+        def ungrab(self) -> None:
+            self.ungrab_calls += 1
+
+        def read_loop(self):  # type: ignore[no-untyped-def]
+            release.wait(1)
+            return
+            yield  # pragma: no cover
+
+        def close(self) -> None:
+            release.set()
+
+    device = FakeDevice()
+    adapter = EvdevGamepadAdapter()
+    evdev = SimpleNamespace(InputDevice=lambda path: device)
+    adapter._open_device(evdev, Path("/dev/input/event0"))
+    assert device.grab_calls == 0
+
+    adapter.set_exclusive(True)
+    assert device.grab_calls == 1
+    adapter.set_exclusive(True)
+    assert device.grab_calls == 1
+    adapter.set_exclusive(False)
+    assert device.ungrab_calls == 1
+    adapter.close()
+
+
 def test_opening_nintendo_gamepad_stores_nintendo_layout() -> None:
     """Detected Nintendo controllers keep the face-label layout for mapping."""
     import threading
@@ -115,6 +161,12 @@ def test_opening_nintendo_gamepad_stores_nintendo_layout() -> None:
 
     class FakeDevice:
         name = "Nintendo Switch Pro Controller"
+
+        def grab(self) -> None:
+            return None
+
+        def ungrab(self) -> None:
+            return None
 
         def read_loop(self):  # type: ignore[no-untyped-def]
             release.wait(1)
