@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.79
+
+- Fixed: Turning the TV on after PiDeck has already booted no longer leaves a
+  black screen on NVIDIA/AVR setups. PiDeck re-applies the saved HDMI mode when
+  the TV wakes (CEC) or an output becomes active again.
+
 ## v0.5.78
 
 - Fixed: Paired controllers can reconnect when turned on (adapter page scan /
