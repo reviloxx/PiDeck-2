@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.78
+
+- Fixed: Paired controllers can reconnect when turned on (adapter page scan /
+  Connectable stays enabled so the pad can page in).
+- Fixed: Gamepad icon clears within a few seconds after the controller goes
+  silent, instead of waiting on a long BlueZ Connected linger.
+
 ## v0.5.77
 
 - Fixed: Switch Pro reconnect no longer wedges BlueZ in InProgress when the

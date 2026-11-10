@@ -11,6 +11,9 @@ DEVICE = "/org/bluez/hci0/dev_98_B6_E9_B2_4F_2C"
 _DEVICE = "org.bluez.Device1"
 
 
+_ADAPTER = "org.bluez.Adapter1"
+
+
 class FakeReconnectBluez(BluezGateway):
     """Deterministic BlueZ replies for reconnect candidate and Connect tests."""
 
@@ -18,6 +21,8 @@ class FakeReconnectBluez(BluezGateway):
         super().__init__("/org/pideck/agent/test")
         self.calls: list[tuple[str, str, str]] = []
         self.powered = True
+        self.connectable = False
+        self.fast_connectable = False
         self.devices: dict[str, dict[str, object]] = {
             DEVICE: {
                 "Alias": "Pro Controller",
@@ -40,10 +45,23 @@ class FakeReconnectBluez(BluezGateway):
             )
             return [f"<node>{names}</node>"]
         if method == "Get":
-            if path.endswith("/hci0") and arguments[1] == "Powered":
-                return [QDBusVariant(self.powered)]
+            if path.endswith("/hci0"):
+                name = arguments[1]
+                if name == "Powered":
+                    return [QDBusVariant(self.powered)]
+                if name == "Connectable":
+                    return [QDBusVariant(self.connectable)]
+                if name == "FastConnectable":
+                    return [QDBusVariant(self.fast_connectable)]
             values = self.devices[path]
             return [QDBusVariant(values[arguments[1]])]
+        if method == "Set" and arguments[0] == _ADAPTER:
+            if arguments[1] == "Connectable":
+                self.connectable = bool(arguments[2].variant())
+                return []
+            if arguments[1] == "FastConnectable":
+                self.fast_connectable = bool(arguments[2].variant())
+                return []
         if method == "Set" and arguments[0] == _DEVICE and arguments[1] == "Trusted":
             self.devices[path]["Trusted"] = True
             return []
@@ -171,3 +189,28 @@ def test_reconnect_does_not_retry_within_cooldown_after_timeout() -> None:
     service.tick()
     assert gateway.connect_calls == 2
     assert gateway.devices[DEVICE]["Connected"] is True
+
+
+def test_reconnect_enables_page_scan_before_connect() -> None:
+    """Paired pads can only page in when the adapter is Connectable."""
+    gateway = FakeReconnectBluez()
+    assert gateway.connectable is False
+    service = BluetoothReconnectService(gateway)
+    service.tick()
+    assert gateway.connectable is True
+    assert gateway.fast_connectable is True
+    assert gateway.connect_calls == 1
+
+
+def test_reconnect_retries_soon_after_host_is_down() -> None:
+    """Finished failures must not use the long in-flight Connect cooldown."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("Host is down")
+    service = BluetoothReconnectService(
+        gateway, pending_seconds=45.0, failed_cooldown_seconds=0.0, connect_timeout_ms=10000,
+    )
+    service.tick()
+    assert gateway.connect_calls == 1
+    gateway.fail_connect = None
+    service.tick()
+    assert gateway.connect_calls == 2

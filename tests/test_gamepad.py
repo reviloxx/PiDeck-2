@@ -405,3 +405,66 @@ def test_reader_stop_suppresses_reopen_until_bluez_drops(tmp_path: Path) -> None
     )
     assert adapter.connected_gamepad_count() == 1
     adapter.close()
+
+
+def test_silent_bluetooth_gamepad_closes_before_bluez_drops(tmp_path: Path) -> None:
+    """HID silence clears the icon even while BlueZ Connected lingers."""
+    import threading
+    import time
+
+    from pideck.infrastructure import input_gamepad as gamepad_mod
+
+    path = Path("/dev/input/pideck-silent-pad")
+    lost: list[str] = []
+    hold = threading.Event()
+
+    class FakeDevice:
+        name = "Pro Controller"
+        info = SimpleNamespace(bustype=5)
+        uniq = "98:B6:E9:B2:4F:2C"
+
+        def capabilities(self) -> dict[int, list[int]]:
+            return {1: [304, 305], 3: [16, 17]}
+
+        def grab(self) -> None:
+            return None
+
+        def ungrab(self) -> None:
+            return None
+
+        def read_loop(self):  # type: ignore[no-untyped-def]
+            hold.wait(5)
+            return
+            yield  # pragma: no cover
+
+        def close(self) -> None:
+            hold.set()
+
+    adapter = EvdevGamepadAdapter(
+        discovery_interval=0,
+        device_lost=lost.append,
+        sysfs_input_root=tmp_path,
+    )
+    adapter._bluetooth_connected_addresses = (  # type: ignore[method-assign]
+        lambda: frozenset({"98:B6:E9:B2:4F:2C"})
+    )
+    evdev = SimpleNamespace(InputDevice=lambda _path: FakeDevice())
+    adapter._open_device(evdev, path)
+    assert adapter.connected_gamepad_count() == 1
+    with adapter._lock:
+        managed = adapter._devices[path]
+        managed.last_event_at = time.monotonic() - (gamepad_mod._BLUETOOTH_SILENCE_SECONDS + 0.1)
+
+    scans = 0
+
+    def list_devices() -> list[str]:
+        nonlocal scans
+        scans += 1
+        if scans >= 2:
+            adapter._stop.set()
+        return [str(path)]
+
+    adapter._discover_loop(SimpleNamespace(list_devices=list_devices, InputDevice=lambda _p: FakeDevice()))
+    assert adapter.connected_gamepad_count() == 0
+    assert lost == ["98:B6:E9:B2:4F:2C"]
+    adapter.close()

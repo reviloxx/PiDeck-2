@@ -1,6 +1,7 @@
 """BlueZ adapter and device operations over the system D-Bus."""
 
 from enum import Enum
+import logging
 import re
 from threading import Event
 import xml.etree.ElementTree as ET
@@ -10,6 +11,8 @@ from PySide6.QtDBus import QDBusConnection, QDBusObjectPath, QDBusVariant
 
 from pideck.application.ports.bluetooth import BluetoothDevice, BluetoothError, BluetoothState
 from pideck.infrastructure.bluetooth_dbus import call_dbus
+
+_LOGGER = logging.getLogger(__name__)
 
 
 _SERVICE = "org.bluez"
@@ -201,6 +204,30 @@ class BluezGateway:
                 continue
             paths.append(path)
         return tuple(paths)
+
+    def ensure_accepts_connections(self) -> None:
+        """Turn on page scan so paired controllers can reconnect inbound.
+
+        CSR USB adapters often leave ``Connectable`` false after boot. Without
+        page scan the pad cannot page in and only host-initiated Connect works,
+        which feels like luck when the pad wakes between attempts.
+        """
+        try:
+            adapter = self._adapter()
+        except BluetoothError as error:
+            _LOGGER.debug("Bluetooth page scan skipped: %s", error)
+            return
+        for name in ("Connectable", "FastConnectable"):
+            try:
+                current = self._property(adapter, _ADAPTER, name)
+            except BluetoothError:
+                continue
+            if current is True:
+                continue
+            try:
+                self._call(adapter, _PROPERTIES, "Set", _ADAPTER, name, QDBusVariant(True))
+            except BluetoothError as error:
+                _LOGGER.debug("Unable to set adapter %s: %s", name, error)
 
     def try_connect(self, path: str, *, timeout: int = 10000) -> ConnectAttempt:
         """Best-effort Connect for auto-reconnect.
