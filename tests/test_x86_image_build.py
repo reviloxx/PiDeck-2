@@ -301,6 +301,7 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "org.freedesktop.timedate1.set-timezone" in timezone
     assert 'Option "XkbLayout" "de"' in (tmp_path / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf").read_text()
     assert "UserspaceHID=true" in (tmp_path / "etc/bluetooth/input.conf").read_text()
+    assert "FastConnectable=true" in (tmp_path / "etc/bluetooth/main.conf").read_text()
     assert {"udisks2", "samba", "x11-xkb-utils", "intel-microcode"} <= packages
     assert (tmp_path / "etc/samba/smb.conf").read_text() == (x86_build.PI_FILES / "smb.conf").read_text()
     assert "Managed by PiDeck" in (tmp_path / "var/lib/pideck/samba/shares.conf").read_text()

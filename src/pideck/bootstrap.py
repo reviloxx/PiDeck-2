@@ -794,6 +794,24 @@ def main(arguments: Sequence[str] | None = None) -> int:
     connected_inputs_timer.timeout.connect(refresh_connected_inputs)
     connected_inputs_timer.start()
     refresh_connected_inputs()
+    bluetooth_reconnect_timer: QTimer | None = None
+    try:
+        from pideck.infrastructure.bluez import BluezGateway
+        from pideck.infrastructure.bluetooth_reconnect import BluetoothReconnectService
+
+        def bluetooth_pairing_active() -> bool:
+            return bluetooth_window is not None and bluetooth_window.isVisible()
+
+        bluetooth_reconnect = BluetoothReconnectService(
+            BluezGateway("/org/pideck/agent/reconnect"),
+            pairing_active=bluetooth_pairing_active,
+        )
+        bluetooth_reconnect_timer = QTimer(application)
+        bluetooth_reconnect_timer.setInterval(1500)
+        bluetooth_reconnect_timer.timeout.connect(bluetooth_reconnect.tick)
+        bluetooth_reconnect_timer.start()
+    except (ImportError, BluetoothError) as error:
+        dependencies.logger.warning("Bluetooth auto-reconnect unavailable: %s", error)
     if cec_adapter is not None:
         class CecBridge(QObject):
             """Reject CEC events queued before an application handoff."""
@@ -896,6 +914,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return
         services_closed = True
         hide_session_overlay()
+        if bluetooth_reconnect_timer is not None:
+            bluetooth_reconnect_timer.stop()
         session_service.close()
         update_service.close()
         gamepad_adapter.close()

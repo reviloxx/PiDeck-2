@@ -217,6 +217,7 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     )
     _install(PI_FILES / "00-pideck-keyboard.conf", root / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf")
     _install(PI_FILES / "bluetooth-input.conf", root / "etc/bluetooth/input.conf")
+    _install(PI_FILES / "bluetooth-main.conf", root / "etc/bluetooth/main.conf")
     cec_support = ROOT / "src/pideck/infrastructure/cec_support"
     _install(cec_support / "71-pideck-cec-attach.rules", root / "etc/udev/rules.d/71-pideck-cec-attach.rules")
     _install(cec_support / "pideck-cec-attach@.service", root / "etc/systemd/system/pideck-cec-attach@.service")

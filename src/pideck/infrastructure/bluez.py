@@ -20,6 +20,19 @@ _INTROSPECT = "org.freedesktop.DBus.Introspectable"
 _ADAPTER_NAME = re.compile(r"hci[0-9]+\Z")
 _DEVICE_NAME = re.compile(r"dev_(?:[0-9A-F]{2}_){5}[0-9A-F]{2}\Z")
 _DEVICE_PATH = re.compile(r"/org/bluez/hci[0-9]+/dev_(?:[0-9A-F]{2}_){5}[0-9A-F]{2}\Z")
+def is_reconnect_gamepad(alias: str, icon: str = "") -> bool:
+    """Return whether a BlueZ device should be auto-reconnected as a controller."""
+    if icon == "input-gaming":
+        return True
+    folded = (alias or "").casefold()
+    return (
+        "nintendo" in folded
+        or "joy-con" in folded
+        or "joycon" in folded
+        or folded.strip() == "pro controller"
+        or folded.startswith("pro controller ")
+        or any(word in folded for word in ("gamepad", "controller", "joystick"))
+    )
 
 
 class BluezGateway:
@@ -144,6 +157,50 @@ class BluezGateway:
         self._call(path, _PROPERTIES, "Set", _DEVICE, "Trusted", QDBusVariant(True))
         self._call(path, _DEVICE, "Connect", timeout=30000)
         return self.inspect()
+
+    def reconnect_candidates(self) -> tuple[str, ...]:
+        """Return trusted paired gamepads that are not currently Connected."""
+        adapter = self._adapter()
+        powered = self._property(adapter, _ADAPTER, "Powered")
+        if powered is not True:
+            return ()
+        paths: list[str] = []
+        for name in self._children(adapter):
+            if not _DEVICE_NAME.fullmatch(name):
+                continue
+            path = f"{adapter}/{name}"
+            alias = self._property(path, _DEVICE, "Alias")
+            paired = self._property(path, _DEVICE, "Paired")
+            trusted = self._property(path, _DEVICE, "Trusted")
+            connected = self._property(path, _DEVICE, "Connected")
+            if (
+                not isinstance(alias, str)
+                or paired is not True
+                or trusted is not True
+                or connected is not False
+            ):
+                continue
+            icon = ""
+            try:
+                raw_icon = self._property(path, _DEVICE, "Icon")
+            except BluetoothError:
+                raw_icon = ""
+            if isinstance(raw_icon, str):
+                icon = raw_icon
+            if not is_reconnect_gamepad(alias, icon):
+                continue
+            paths.append(path)
+        return tuple(paths)
+
+    def try_connect(self, path: str, *, timeout: int = 4000) -> bool:
+        """Best-effort Connect for auto-reconnect; False when the pad is still off."""
+        try:
+            path = self._device_path(path)
+            self._call(path, _PROPERTIES, "Set", _DEVICE, "Trusted", QDBusVariant(True))
+            self._call(path, _DEVICE, "Connect", timeout=timeout)
+        except BluetoothError:
+            return False
+        return True
 
     def cancel_pairing(self, path: str) -> None:
         """Ask BlueZ to cancel an active pairing operation."""
