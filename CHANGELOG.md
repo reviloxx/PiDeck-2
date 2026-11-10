@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.84
+
+- Fixed: Sharing several drives with the same volume label (for example
+  Volume1–Volume4) no longer fails with “Share name is already in use” after
+  remount. PiDeck frees and re-applies preferred Samba exports together, and
+  duplicate labels keep stable numbers by filesystem UUID.
+
 ## v0.5.83
 
 - Changed: Hold Guide/Home to open the session overlay; Start no longer opens

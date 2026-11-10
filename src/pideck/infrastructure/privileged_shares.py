@@ -60,6 +60,19 @@ def _media_user(path: Path) -> str:
     return "pideck"
 
 
+def _unique_share_name(name: str, taken: set[str]) -> str:
+    """Return ``name`` or ``name_2``… that is not in ``taken``."""
+    if name not in taken:
+        return name
+    for index in range(2, 1000):
+        suffix = f"_{index}"
+        base = name[: max(1, 64 - len(suffix))]
+        candidate = f"{base}{suffix}"
+        if _SHARE_NAME.fullmatch(candidate) is not None and candidate not in taken:
+            return candidate
+    raise ValueError("Share name is already in use")
+
+
 def render_shares_conf(shares: Mapping[str, Mapping[str, str]]) -> str:
     """Render Samba share stanzas for the managed drop-in file."""
     lines = [
@@ -111,14 +124,24 @@ class ShareOperations:
             raise ValueError("Invalid share name")
         target = _resolved_share_path(path)
         shares = self._load()
-        for other_uuid, entry in shares.items():
-            if other_uuid != cleaned_uuid and entry.get("name") == name:
-                raise ValueError("Share name is already in use")
-        shares[cleaned_uuid] = {"name": name, "path": str(target)}
+        taken = {
+            entry["name"]
+            for other_uuid, entry in shares.items()
+            if other_uuid != cleaned_uuid
+        }
+        existing = shares.get(cleaned_uuid)
+        if name not in taken:
+            final_name = name
+        elif existing is not None:
+            # Keep a stable export name when a sibling still owns the requested one.
+            final_name = existing["name"]
+        else:
+            final_name = _unique_share_name(name, taken)
+        shares[cleaned_uuid] = {"name": final_name, "path": str(target)}
         self._write(shares)
         self._reload()
-        _LOGGER.info("Enabled Samba share uuid=%s name=%s path=%s", cleaned_uuid, name, target)
-        return {"uuid": cleaned_uuid, "name": name, "path": str(target)}
+        _LOGGER.info("Enabled Samba share uuid=%s name=%s path=%s", cleaned_uuid, final_name, target)
+        return {"uuid": cleaned_uuid, "name": final_name, "path": str(target)}
 
     def disable(self, uuid: str) -> dict[str, object]:
         """Remove a share when present and reload Samba."""

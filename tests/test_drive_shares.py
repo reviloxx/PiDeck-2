@@ -154,16 +154,80 @@ def test_samba_share_gateway_remembers_and_restores(
     assert gateway.available()
     assert gateway.share(mounted) == "smb://pideck/MEDIA"
     assert preferences.load_shared() == frozenset({MEDIA_UUID})
-    assert ("share_enable", {
-        "uuid": MEDIA_UUID, "path": str(real.resolve()), "name": "MEDIA",
-    }) in [(action, fields) for action, fields in calls if action == "share_enable"]
+    share_calls = [(action, fields) for action, fields in calls if action in {"share_disable", "share_enable"}]
+    assert share_calls == [
+        ("share_disable", {"uuid": MEDIA_UUID}),
+        ("share_enable", {
+            "uuid": MEDIA_UUID, "path": str(real.resolve()), "name": "MEDIA",
+        }),
+    ]
     gateway.release(mounted)
     assert preferences.load_shared() == frozenset({MEDIA_UUID})
     gateway.unshare(mounted)
     assert preferences.load_shared() == frozenset()
     preferences.remember_shared(MEDIA_UUID)
+    calls.clear()
     gateway.restore_shared()
-    assert any(action == "share_enable" for action, _fields in calls[3:])
+    assert [("share_disable", {"uuid": MEDIA_UUID}), ("share_enable", {
+        "uuid": MEDIA_UUID, "path": str(real.resolve()), "name": "MEDIA",
+    })] == [(action, fields) for action, fields in calls if action in {"share_disable", "share_enable"}]
+
+
+def test_samba_share_gateway_republish_avoids_name_collisions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Disable every preferred UUID before re-enable when labels reshuffle."""
+    import pideck.infrastructure.samba_shares as samba_shares
+
+    first = "AAAA-1111"
+    second = "BBBB-2222"
+    media_root = tmp_path / "media"
+    real_a = media_root / "pideck" / "Volume"
+    real_b = media_root / "pideck" / "Volume1"
+    real_a.mkdir(parents=True)
+    real_b.mkdir(parents=True)
+    monkeypatch.setattr(samba_shares, "_DATA_MOUNT_ROOTS", (str(media_root) + "/",))
+    preferences = DrivePreferences(tmp_path / "drives.yaml")
+    preferences.remember_shared(first)
+    preferences.remember_shared(second)
+    # Stale mapping: second UUID still holds Volume1 while UI now gives it to first.
+    active: dict[str, str] = {first: "Volume2", second: "Volume1"}
+    calls: list[str] = []
+
+    def request(action: str, **fields: str) -> dict[str, object]:
+        calls.append(action)
+        if action == "capabilities":
+            return {"applications": 1, "shares": 1}
+        if action == "share_disable":
+            active.pop(fields["uuid"], None)
+            return {"uuid": fields["uuid"]}
+        if action == "share_enable":
+            if fields["name"] in active.values():
+                raise ImageUpdateError("Share name is already in use")
+            active[fields["uuid"]] = fields["name"]
+            return {"uuid": fields["uuid"], "name": fields["name"], "path": fields["path"]}
+        raise ImageUpdateError(action)
+
+    drives = (
+        _drive(
+            device="/dev/sdb1", uuid=first, label="Volume1", filesystem_label="Volume",
+            mountpoint=str(real_a),
+        ),
+        _drive(
+            device="/dev/sdc1", uuid=second, label="Volume2", filesystem_label="Volume",
+            mountpoint=str(real_b),
+        ),
+    )
+    gateway = SambaShareGateway(
+        preferences=preferences,
+        request=request,
+        list_drives=lambda: drives,
+        hostname=lambda: "pideck",
+    )
+    assert gateway.share(drives[0]) == "smb://pideck/Volume1"
+    assert active == {first: "Volume1", second: "Volume2"}
+    assert calls.count("share_disable") == 2
+    assert calls.count("share_enable") == 2
 
 
 def test_samba_share_gateway_unavailable_without_capability() -> None:
@@ -176,6 +240,40 @@ def test_samba_share_gateway_unavailable_without_capability() -> None:
     assert not gateway.available()
     with pytest.raises(ShareError, match="newer PiDeck image"):
         gateway.share(_drive())
+
+
+def test_share_operations_keeps_or_uniques_conflicting_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pideck.infrastructure.privileged_shares as privileged_shares
+
+    def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    media_root = tmp_path / "media"
+    first_real = media_root / "pideck" / "Volume"
+    second_real = media_root / "pideck" / "Volume1"
+    first_real.mkdir(parents=True)
+    second_real.mkdir(parents=True)
+    monkeypatch.setattr(privileged_shares, "_DATA_MOUNT_ROOTS", (str(media_root) + "/",))
+    shares = ShareOperations(root=tmp_path / "samba", runner=runner)
+    first = "AAAA-1111"
+    second = "BBBB-2222"
+    assert shares.enable(first, str(first_real), "Volume1")["name"] == "Volume1"
+    assert shares.enable(second, str(second_real), "Volume2")["name"] == "Volume2"
+    # Existing UUID keeps its name when the requested rename collides.
+    moved = media_root / "pideck" / "Volume-moved"
+    moved.mkdir()
+    assert shares.enable(first, str(moved), "Volume2") == {
+        "uuid": first, "name": "Volume1", "path": str(moved.resolve()),
+    }
+    # New UUID gets a unique suffix instead of failing.
+    third = "CCCC-3333"
+    third_real = media_root / "pideck" / "Volume2"
+    third_real.mkdir()
+    assert shares.enable(third, str(third_real), "Volume1") == {
+        "uuid": third, "name": "Volume1_2", "path": str(third_real.resolve()),
+    }
 
 
 def test_broker_enables_and_disables_shares(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

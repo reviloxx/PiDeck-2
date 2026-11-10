@@ -114,20 +114,33 @@ def _sanitize_label(label: str) -> str | None:
 
 
 def _with_numbered_labels(drives: tuple[Drive, ...]) -> tuple[Drive, ...]:
-    """Number UI labels when multiple drives share the same filesystem label."""
+    """Number UI labels when multiple drives share the same filesystem label.
+
+    Numbers are assigned by sorted filesystem UUID so the same disk set keeps
+    stable Volume1–N (and Samba) names across remount order changes.
+    """
     counts: dict[str, int] = {}
     for drive in drives:
         if drive.filesystem_label is not None:
             counts[drive.filesystem_label] = counts.get(drive.filesystem_label, 0) + 1
-    indexes: dict[str, int] = {}
+    numbers: dict[str, int] = {}
+    for label, count in counts.items():
+        if count < 2:
+            continue
+        group = [
+            drive for drive in drives
+            if drive.filesystem_label == label and drive.uuid is not None
+        ]
+        for index, drive in enumerate(sorted(group, key=lambda item: item.uuid or ""), start=1):
+            if drive.uuid is not None:
+                numbers[drive.uuid] = index
     numbered: list[Drive] = []
     for drive in drives:
         label = drive.filesystem_label
-        if label is None or counts[label] < 2:
+        if label is None or counts[label] < 2 or drive.uuid is None or drive.uuid not in numbers:
             numbered.append(drive)
             continue
-        indexes[label] = indexes.get(label, 0) + 1
-        numbered.append(replace(drive, label=f"{label}{indexes[label]}"))
+        numbered.append(replace(drive, label=f"{label}{numbers[drive.uuid]}"))
     return tuple(numbered)
 
 

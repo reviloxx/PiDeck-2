@@ -388,6 +388,47 @@ def test_duplicate_filesystem_labels_skip_by_label_symlink(tmp_path: Path) -> No
     assert not (media_root / "by-label" / "SHARE").exists()
 
 
+def test_duplicate_filesystem_labels_number_by_sorted_uuid(tmp_path: Path) -> None:
+    """VolumeN stays with the UUID across reversed lsblk order."""
+    media_root = tmp_path / "media" / "pideck"
+    low = "AAAA-1111"
+    high = "BBBB-2222"
+    forward = {
+        "blockdevices": [
+            {"name": "sdb", "path": "/dev/sdb", "type": "disk", "rm": True, "hotplug": True, "children": [
+                {"name": "sdb1", "path": "/dev/sdb1", "fstype": "ntfs", "type": "part",
+                 "mountpoints": ["/media/pideck/Volume"], "label": "Volume", "size": 1, "uuid": high},
+            ]},
+            {"name": "sdc", "path": "/dev/sdc", "type": "disk", "rm": True, "hotplug": True, "children": [
+                {"name": "sdc1", "path": "/dev/sdc1", "fstype": "ntfs", "type": "part",
+                 "mountpoints": ["/media/pideck/Volume1"], "label": "Volume", "size": 1, "uuid": low},
+            ]},
+        ],
+    }
+    reversed_order = {
+        "blockdevices": [
+            {"name": "sdc", "path": "/dev/sdc", "type": "disk", "rm": True, "hotplug": True, "children": [
+                {"name": "sdc1", "path": "/dev/sdc1", "fstype": "ntfs", "type": "part",
+                 "mountpoints": ["/media/pideck/Volume1"], "label": "Volume", "size": 1, "uuid": low},
+            ]},
+            {"name": "sdb", "path": "/dev/sdb", "type": "disk", "rm": True, "hotplug": True, "children": [
+                {"name": "sdb1", "path": "/dev/sdb1", "fstype": "ntfs", "type": "part",
+                 "mountpoints": ["/media/pideck/Volume"], "label": "Volume", "size": 1, "uuid": high},
+            ]},
+        ],
+    }
+    forward_labels = {
+        drive.uuid: drive.label
+        for drive in UDisksStorageGateway(Runner(forward), media_root=media_root).list_drives()
+    }
+    reversed_labels = {
+        drive.uuid: drive.label
+        for drive in UDisksStorageGateway(Runner(reversed_order), media_root=media_root).list_drives()
+    }
+    assert forward_labels == {low: "Volume1", high: "Volume2"}
+    assert reversed_labels == forward_labels
+
+
 def test_format_size_uses_decimal_units() -> None:
     assert format_size(512) == "512 B"
     assert format_size(32_000_000_000) == "32.0 GB"

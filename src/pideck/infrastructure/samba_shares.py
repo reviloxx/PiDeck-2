@@ -94,12 +94,12 @@ class SambaShareGateway:
 
     def share(self, drive: Drive) -> str:
         """Export a mounted drive and remember the preference."""
-        uuid, path, name = self._validated(drive)
+        uuid, _path, name = self._validated(drive)
+        self._remember(uuid)
         try:
-            self._request("share_enable", uuid=uuid, path=path, name=name)
+            self._republish_preferred()
         except ImageUpdateError as error:
             raise ShareError(str(error)) from error
-        self._remember(uuid)
         url = smb_url(name, self._hostname())
         _LOGGER.info("Shared drive uuid=%s url=%s", uuid, url)
         return url
@@ -134,17 +134,9 @@ class SambaShareGateway:
         if not preferred:
             return
         try:
-            drives = self._list_drives()
-        except Exception as error:
-            _LOGGER.warning("Unable to list drives for share restore: %s", error)
-            return
-        for drive in drives:
-            if drive.uuid not in preferred or not drive.mounted:
-                continue
-            try:
-                self.share(drive)
-            except ShareError as error:
-                _LOGGER.warning("Unable to restore share uuid=%s error=%s", drive.uuid, error)
+            self._republish_preferred()
+        except (ShareError, ImageUpdateError) as error:
+            _LOGGER.warning("Unable to restore shared drives: %s", error)
 
     def restore_shared_async(self) -> None:
         """Re-apply preferred shares off the UI thread after mounts restore."""
@@ -164,6 +156,35 @@ class SambaShareGateway:
         if not drive.mounted or not self.is_shared(drive.uuid):
             return None
         return self.share(drive)
+
+    def _republish_preferred(self) -> None:
+        """Disable preferred shares then re-enable mounted ones with current names.
+
+        Remount order can reshuffle Volume1–N labels while shares.json still holds
+        the previous mapping. Freeing every preferred UUID first avoids
+        ``Share name is already in use`` when re-applying the current set.
+        """
+        if self._preferences is None or self._list_drives is None:
+            raise ShareError("Drive share restore is not configured")
+        if not self.available():
+            raise ShareError("Network sharing requires a newer PiDeck image")
+        try:
+            preferred = self._preferences.load_shared()
+            drives = self._list_drives()
+        except Exception as error:
+            raise ShareError(str(error)) from error
+        for uuid in sorted(preferred):
+            try:
+                self._request("share_disable", uuid=uuid)
+            except ImageUpdateError as error:
+                _LOGGER.info("Share disable during republish uuid=%s error=%s", uuid, error)
+        mounted = [
+            drive for drive in drives
+            if drive.uuid in preferred and drive.mounted and drive.mountpoint is not None
+        ]
+        for drive in sorted(mounted, key=lambda item: item.uuid or ""):
+            uuid, path, name = self._validated(drive)
+            self._request("share_enable", uuid=uuid, path=path, name=name)
 
     def _validated(self, drive: Drive) -> tuple[str, str, str]:
         if not drive.mounted or drive.mountpoint is None:

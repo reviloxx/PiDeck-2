@@ -1,3 +1,3 @@
 """PiDeck application package."""
 
-__version__ = "0.5.83"
+__version__ = "0.5.84"
