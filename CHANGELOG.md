@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.89
+
+- Fixed: Drive mount and share settings stay owned by the appliance user after
+  save, so a root-owned ``drives.yaml`` can no longer block auto-mount or LAN
+  sharing.
+
 ## v0.5.88
 
 - Changed: Check for updates sits below the PiDeck version card again and is

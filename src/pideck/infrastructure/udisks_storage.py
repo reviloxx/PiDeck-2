@@ -253,6 +253,14 @@ class DrivePreferences:
                 file.flush()
                 os.fsync(file.fileno())
             os.replace(temporary, self.path)
+            os.chmod(self.path, 0o600)
+            # Match the config directory owner so a root-run write cannot lock
+            # the appliance user out of mount/share preferences.
+            try:
+                parent = self.path.parent.stat()
+                os.chown(self.path, parent.st_uid, parent.st_gid)
+            except OSError:
+                pass
         except (OSError, yaml.YAMLError) as error:
             raise StorageError(f"Unable to save drive settings: {error}") from error
         finally:

@@ -213,6 +213,35 @@ def test_drive_preferences_round_trip(tmp_path: Path) -> None:
         preferences.load()
 
 
+def test_drive_preferences_save_matches_config_dir_ownership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After save, drives.yaml is chmod 600 and chown'd to the config directory."""
+    preferences = DrivePreferences(tmp_path / "drives.yaml")
+    chowns: list[tuple[str | bytes | int, int, int]] = []
+    chmods: list[tuple[str | bytes | int, int]] = []
+    real_chown = os.chown
+    real_chmod = os.chmod
+
+    def track_chown(path: str | bytes | int, uid: int, gid: int, **kwargs: object) -> None:
+        chowns.append((path, uid, gid))
+        return real_chown(path, uid, gid, **kwargs)
+
+    def track_chmod(path: str | bytes | int, mode: int, **kwargs: object) -> None:
+        chmods.append((path, mode))
+        return real_chmod(path, mode, **kwargs)
+
+    monkeypatch.setattr(os, "chown", track_chown)
+    monkeypatch.setattr(os, "chmod", track_chmod)
+    preferences.save(frozenset({MEDIA_UUID}), frozenset())
+    parent = (tmp_path).stat()
+    assert any(mode == 0o600 and Path(str(path)) == preferences.path for path, mode in chmods)
+    assert any(
+        Path(str(path)) == preferences.path and uid == parent.st_uid and gid == parent.st_gid
+        for path, uid, gid in chowns
+    )
+
+
 def test_mount_and_unmount_update_remembered_uuids(tmp_path: Path) -> None:
     preferences = DrivePreferences(tmp_path / "drives.yaml")
     media_root = tmp_path / "media" / "pideck"
