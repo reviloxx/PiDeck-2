@@ -216,6 +216,7 @@ themes:
 home:
   visible_applications: []
   theme: aurora
+  background: glow
 input:
   enabled_sources:
   - cec

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <radialGradient id="well" cx="0.5" cy="0.42" r="0.55">
+      <stop offset="0%" stop-color="__SURFACE__" stop-opacity="0.85"/>
+      <stop offset="45%" stop-color="__SURFACE__" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="__BACKGROUND__" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="core" cx="0.5" cy="0.4" r="0.28">
+      <stop offset="0%" stop-color="__PRIMARY__" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="__PRIMARY__" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.85">
+      <stop offset="55%" stop-color="__BACKGROUND__" stop-opacity="0"/>
+      <stop offset="100%" stop-color="__BACKGROUND__" stop-opacity="0.72"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="__BACKGROUND__"/>
+  <rect width="1920" height="1080" fill="url(#well)"/>
+  <rect width="1920" height="1080" fill="url(#core)"/>
+  <circle cx="960" cy="430" r="220" fill="__RUNNING__" fill-opacity="0.06"/>
+  <rect width="1920" height="1080" fill="url(#vignette)"/>
+</svg>

@@ -72,8 +72,25 @@ def test_parser_builds_immutable_domain_models(tmp_path: Path) -> None:
 
     assert configuration.applications[0].profiles[0].environment["PIDECK_PROFILE"] == "guest"
     assert configuration.home.visible_applications == ("browser",)
+    assert configuration.home.background == "glow"
     with pytest.raises(TypeError):
         configuration.input.bindings["new"] = "value"
+
+
+def test_parser_defaults_missing_home_background() -> None:
+    """Older configs without home.background keep the Glow style."""
+    document = configuration_document()
+    assert "background" not in document["home"]
+    configuration = YamlConfigurationParser().parse(document)
+    assert configuration.home.background == "glow"
+
+
+def test_parser_rejects_unknown_home_background() -> None:
+    """Unknown background style ids fail validation."""
+    document = configuration_document()
+    document["home"]["background"] = "nebula"
+    with pytest.raises(ConfigurationValidationError, match="background"):
+        YamlConfigurationParser().parse(document)
 
 
 def test_parser_rejects_unknown_keys() -> None:

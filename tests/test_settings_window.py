@@ -647,10 +647,11 @@ def test_sidebar_navigation_hint_is_removed(application: QApplication) -> None:
 
 
 def test_settings_window_loads_current_values(application: QApplication) -> None:
-    """The dialog reflects the current theme, language, and applications."""
+    """The dialog reflects the current theme, background, language, and applications."""
     window = settings_window(application)
 
     assert window._theme_combo.currentData() == "default"
+    assert window._background_combo.currentData() == "glow"
     assert window._language_combo.currentData() == "en"
     assert [row.item.key for row in window._apps.rows()] == ["browser"]
     assert window._apps.row("browser").item.visible
@@ -685,8 +686,20 @@ def test_settings_window_emits_changes_immediately(application: QApplication) ->
 
     assert updates
     assert updates[-1].language == "de"
+    assert updates[-1].background == "glow"
     assert not hasattr(window, "_save_button")
     assert not hasattr(window, "_cancel_button")
+    window.close()
+
+
+def test_settings_window_emits_background_change(application: QApplication) -> None:
+    """Selecting a background style emits an immediate typed update."""
+    window = settings_window(application)
+    updates: list[SettingsUpdate] = []
+    window.settings_changed.connect(updates.append)
+    window._background_combo.setCurrentIndex(window._background_combo.findData("ribbons"))
+    assert updates[-1].background == "ribbons"
+    assert updates[-1].theme == "default"
     window.close()
 
 
@@ -700,6 +713,9 @@ def test_german_language_updates_settings_labels(application: QApplication) -> N
     assert window._nav_buttons[0].text() == "Darstellung"
     assert window._nav_buttons[1].text() == "Anwendungen"
     assert window._theme_labels[0].text() == "Design"
+    assert window._background_labels[0].text() == "Hintergrund"
+    assert window._background_combo.itemText(0) == "Glow"
+    assert window._background_combo.itemText(1) == "Horizont"
     assert window._language_labels[0].text() == "Sprache"
     window.close()
 
@@ -762,6 +778,7 @@ def test_settings_are_responsive_and_controls_reachable(
     window._select_page(0)
     for row, control in (
         (window._theme_row, window._theme_combo),
+        (window._background_row, window._background_combo),
         (window._language_row, window._language_combo),
     ):
         row.setFocus()
@@ -849,11 +866,15 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     QTest.keyClick(window._nav_buttons[0], Qt.Key.Key_Right)
     assert window._theme_row.hasFocus()
     QTest.keyClick(window._theme_row, Qt.Key.Key_Down)
+    assert window._background_row.hasFocus()
+    QTest.keyClick(window._background_row, Qt.Key.Key_Down)
     assert window._language_row.hasFocus()
     QTest.keyClick(window._language_row, Qt.Key.Key_Return)
     assert window._language_combo.view().isVisible()
     QTest.keyClick(window._language_combo.view(), Qt.Key.Key_Escape)
     QTest.keyClick(window._language_row, Qt.Key.Key_Up)
+    assert window._background_row.hasFocus()
+    QTest.keyClick(window._background_row, Qt.Key.Key_Up)
     assert window._theme_row.hasFocus()
     QTest.keyClick(window._theme_row, Qt.Key.Key_Left)
     assert window._nav_buttons[0].hasFocus()

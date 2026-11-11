@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from pideck.domain.backgrounds import DEFAULT_BACKGROUND
 from pideck.domain.configuration import (
     ApplicationDefinition,
     ApplicationProfile,
@@ -213,10 +214,17 @@ class YamlConfigurationParser:
     def _parse_home(self, raw_data: Any) -> HomeScreenConfiguration:
         """Parse home-screen settings."""
         data = _mapping(raw_data, "home")
-        _require_keys(data, {"visible_applications", "theme"}, "home")
+        _require_keys(
+            data,
+            {"visible_applications", "theme"},
+            "home",
+            optional={"background"},
+        )
+        background_value = data.get("background", DEFAULT_BACKGROUND)
         return HomeScreenConfiguration(
             visible_applications=tuple(_string_list(data["visible_applications"], "home.visible_applications")),
             theme=_string(data["theme"], "home.theme"),
+            background=_string(background_value, "home.background"),
         )
 
     def _parse_input(self, raw_data: Any) -> InputConfiguration:

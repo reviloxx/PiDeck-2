@@ -344,8 +344,11 @@ def build_launcher_window(
     from pideck.application.launcher import LauncherController
     from pideck.presentation.qt.launcher_window import LauncherWindow
 
+    from pideck.presentation.qt.theme import set_active_background
+
     controller = LauncherController(dependencies.configuration)
     theme = dependencies.theme_repository.get(dependencies.configuration.home.theme)
+    set_active_background(dependencies.configuration.home.background, asset_root)
     return LauncherWindow(
         controller,
         theme,
@@ -1023,10 +1026,17 @@ def main(arguments: Sequence[str] | None = None) -> int:
         except ConfigurationError as error:
             settings_window.show_error(str(error))
             return
+        from pideck.presentation.qt.theme import set_active_background
+
+        set_active_background(current_configuration.home.background, asset_root)
         window.apply_configuration(current_configuration, theme)
         settings_window.apply_theme_definition(theme)
         settings_window.apply_language(current_configuration.settings.language)
-        dependencies.logger.info("Settings changed theme=%s", current_configuration.home.theme)
+        dependencies.logger.info(
+            "Settings changed theme=%s background=%s",
+            current_configuration.home.theme,
+            current_configuration.home.background,
+        )
 
     class RemoteSupportBridge(QObject):
         """Marshal remote-support worker results onto the Qt event loop."""

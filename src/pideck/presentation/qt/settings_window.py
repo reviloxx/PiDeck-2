@@ -26,6 +26,7 @@ from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStat
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.installation import InstallProgress
 from pideck.application.updates import ApplicationUpdateService
+from pideck.domain.backgrounds import BACKGROUND_STYLE_IDS
 from pideck.domain.configuration import Configuration
 from pideck.domain.input_settings import CecSettings
 from pideck.domain.keyboard_layout import KeyboardLayout
@@ -179,8 +180,9 @@ class SettingsWindow(QDialog):
         self.setModal(True)
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self._build_ui()
-        apply_theme(self, theme)
+        apply_theme(self, theme, asset_root=asset_root)
         self._theme_combo.currentIndexChanged.connect(self._emit_current_settings)
+        self._background_combo.currentIndexChanged.connect(self._emit_current_settings)
         self._language_combo.currentIndexChanged.connect(self._handle_language_changed)
         self._select_page(0, focus_first=False)
         self.apply_language(self._language)
@@ -318,7 +320,7 @@ class SettingsWindow(QDialog):
         return layout
 
     def _build_appearance_page(self) -> QWidget:
-        """Create theme and language controls."""
+        """Create theme, background, and language controls."""
         self._appearance_scroll, page = self._scroll_page()
         layout = self._page_layout(page)
         theme_row, self._theme_combo = self._control_row(
@@ -336,6 +338,21 @@ class SettingsWindow(QDialog):
         current_index = self._theme_combo.findData(self._configuration.home.theme)
         if current_index >= 0:
             self._theme_combo.setCurrentIndex(current_index)
+        background_row, self._background_combo = self._control_row(
+            page,
+            "Background",
+            "Choose a wallpaper motif matched to the theme colors.",
+            SettingsComboBox(page),
+        )
+        self._background_combo.setObjectName("settings_control")
+        configure_combo_box(self._background_combo)
+        self._background_row = background_row
+        self._background_labels = background_row.findChildren(QLabel)
+        for style_id in BACKGROUND_STYLE_IDS:
+            self._background_combo.addItem(tr(self._language, f"background_{style_id}"), style_id)
+        background_index = self._background_combo.findData(self._configuration.home.background)
+        if background_index >= 0:
+            self._background_combo.setCurrentIndex(background_index)
         language_row, self._language_combo = self._control_row(
             page,
             "Language",
@@ -352,9 +369,10 @@ class SettingsWindow(QDialog):
         if language_index >= 0:
             self._language_combo.setCurrentIndex(language_index)
         layout.addWidget(theme_row)
+        layout.addWidget(background_row)
         layout.addWidget(language_row)
         layout.addStretch()
-        self._page_controls[0] = [theme_row, language_row]
+        self._page_controls[0] = [theme_row, background_row, language_row]
         return self._appearance_scroll
 
     def _build_applications_page(self) -> QWidget:
@@ -914,7 +932,7 @@ class SettingsWindow(QDialog):
 
     def _open_dropdown(self) -> QComboBox | None:
         """Return the currently open Appearance combo box, if any."""
-        combos = [self._theme_combo, self._language_combo]
+        combos = [self._theme_combo, self._background_combo, self._language_combo]
         if self._input_page is not None:
             combos.append(self._input_port)
             if self._keyboard_combo is not None:
@@ -928,6 +946,8 @@ class SettingsWindow(QDialog):
         """Adjust a row or open its selector with Enter/Space."""
         if row is self._theme_row:
             self._theme_combo.showPopup()
+        elif row is self._background_row:
+            self._background_combo.showPopup()
         elif row is self._language_row:
             self._language_combo.showPopup()
         elif self._input_page is not None and row in self._input_rows.values():
@@ -1047,6 +1067,7 @@ class SettingsWindow(QDialog):
         self._sidebar_subtitle.setText(tr(self._language, "launcher_settings"))
         setting_rows = (
             (self._theme_labels, "theme", "theme_hint"),
+            (self._background_labels, "background", "background_hint"),
             (self._language_labels, "language", "language_hint"),
         )
         for labels, title_key, hint_key in setting_rows:
@@ -1054,6 +1075,11 @@ class SettingsWindow(QDialog):
             labels[1].setText(tr(self._language, hint_key))
         self._select_page(self._current_page, focus_first=False)
         self._apps.set_language(self._language)
+        with QSignalBlocker(self._background_combo):
+            for index, style_id in enumerate(BACKGROUND_STYLE_IDS):
+                self._background_combo.setItemText(
+                    index, tr(self._language, f"background_{style_id}"),
+                )
         self._language_combo.setItemText(0, tr(self._language, "english"))
         self._language_combo.setItemText(1, tr(self._language, "german"))
         if self._pideck_row is not None:
@@ -1324,6 +1350,7 @@ class SettingsWindow(QDialog):
             theme=self._theme_combo.currentData(),
             visible_applications=selected_applications,
             language=self._language,
+            background=self._background_combo.currentData(),
         )
 
     def select_applications_page(self) -> None:
@@ -1359,7 +1386,7 @@ class SettingsWindow(QDialog):
     def apply_theme_definition(self, theme: ThemeDefinition) -> None:
         """Apply a persisted theme change while the settings view remains open."""
         self._theme = theme
-        apply_theme(self, theme)
+        apply_theme(self, theme, asset_root=self._asset_root)
 
     def show_fullscreen(self) -> None:
         """Open the settings surface fullscreen and focus its category rail."""

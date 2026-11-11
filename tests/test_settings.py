@@ -19,6 +19,7 @@ def test_settings_service_applies_and_persists_updates(tmp_path: Path) -> None:
     update = SettingsUpdate(
         theme="default",
         visible_applications=("browser",),
+        background="horizon",
     )
 
     updated = service.save(repository, configuration, update)
@@ -27,6 +28,7 @@ def test_settings_service_applies_and_persists_updates(tmp_path: Path) -> None:
     assert updated.settings.language == "en"
     assert updated.settings.update_check_interval_hours == 12
     assert updated.home.visible_applications == ("browser",)
+    assert updated.home.background == "horizon"
     assert restored == updated
 
 
@@ -44,3 +46,19 @@ def test_settings_service_rejects_unknown_application() -> None:
         assert "unknown applications" in str(error)
     else:
         raise AssertionError("Unknown application should be rejected")
+
+
+def test_settings_service_rejects_unknown_background() -> None:
+    """Settings cannot persist a background style absent from the catalog."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    service = SettingsService()
+
+    try:
+        service.apply(
+            configuration,
+            SettingsUpdate("default", ("browser",), background="nebula"),
+        )
+    except ConfigurationValidationError as error:
+        assert "unknown background" in str(error)
+    else:
+        raise AssertionError("Unknown background should be rejected")

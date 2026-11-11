@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="__BACKGROUND__"/>
+      <stop offset="55%" stop-color="__BACKGROUND__"/>
+      <stop offset="72%" stop-color="__SURFACE__" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="__BACKGROUND__"/>
+    </linearGradient>
+    <linearGradient id="band" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="__PRIMARY__" stop-opacity="0"/>
+      <stop offset="35%" stop-color="__PRIMARY__" stop-opacity="0.22"/>
+      <stop offset="55%" stop-color="__RUNNING__" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="__FOCUS__" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.72" cy="0.62" r="0.35">
+      <stop offset="0%" stop-color="__PRIMARY__" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="__PRIMARY__" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <rect width="1920" height="1080" fill="url(#sun)"/>
+  <rect y="640" width="1920" height="90" fill="url(#band)"/>
+  <rect y="720" width="1920" height="360" fill="__SURFACE__" fill-opacity="0.35"/>
+</svg>

@@ -93,6 +93,7 @@ def test_sample_configuration_loads_all_shipped_themes() -> None:
     dependencies = build_dependencies(Path("config/pideck.yaml"), log_level="WARNING")
     expected = ("aurora", "default", "ember", "nordic", "daylight")
     assert dependencies.configuration.home.theme == "aurora"
+    assert dependencies.configuration.home.background == "glow"
     assert tuple(theme.identifier for theme in dependencies.configuration.themes) == expected
     for identifier in expected:
         theme = dependencies.theme_repository.get(identifier)

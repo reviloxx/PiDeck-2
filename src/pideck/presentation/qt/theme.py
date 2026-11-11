@@ -1,14 +1,34 @@
 """Qt styling derived from immutable PiDeck theme tokens."""
 
+from pathlib import Path
+
 from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPaintEvent, QPainter, QPalette, QPolygon
 from PySide6.QtWidgets import QComboBox, QGraphicsDropShadowEffect, QStyledItemDelegate, QWidget
 
+from pideck.domain.backgrounds import DEFAULT_BACKGROUND
 from pideck.domain.theme import ThemeDefinition
 
+from .backgrounds import normalize_background, render_background_pixmap
 from .spinner import BusySpinner
 from .toggle_switch import ToggleSwitch
 from .wallpaper import WallpaperDialog, WallpaperWidget
+
+_active_background = DEFAULT_BACKGROUND
+_active_asset_root: Path | None = None
+
+
+def set_active_background(background: str, asset_root: Path | None = None) -> None:
+    """Remember the selected background style for subsequent theme applications."""
+    global _active_background, _active_asset_root
+    _active_background = normalize_background(background)
+    if asset_root is not None:
+        _active_asset_root = asset_root
+
+
+def active_background() -> str:
+    """Return the background style currently applied by the presentation."""
+    return _active_background
 
 
 class SettingsComboBox(QComboBox):
@@ -40,7 +60,13 @@ def theme_font(theme: ThemeDefinition, pixel_size: int) -> QFont:
     return font
 
 
-def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
+def apply_theme(
+    widget: QWidget,
+    theme: ThemeDefinition,
+    *,
+    background: str | None = None,
+    asset_root: Path | None = None,
+) -> None:
     """Apply a theme palette, font, and widget stylesheet.
 
     Only ``:focus`` is styled, never ``:hover``: the pointer moves focus
@@ -59,10 +85,24 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
     palette.setColor(QPalette.ColorRole.Highlight, QColor(colors["primary"]))
     widget.setPalette(palette)
     widget.setFont(theme_font(theme, theme.fonts.body_size))
-    for background in widget.findChildren(WallpaperWidget):
-        background.set_wallpaper(theme.wallpaper, colors["background"])
-    if isinstance(widget, WallpaperDialog):
-        widget.set_wallpaper(theme.wallpaper, colors["background"])
+    style_id = normalize_background(background if background is not None else _active_background)
+    root = asset_root if asset_root is not None else _active_asset_root
+    wallpaper = render_background_pixmap(style_id, colors, root)
+    if wallpaper.isNull():
+        wallpaper_path = theme.wallpaper
+        wallpaper_pixmap = None
+    else:
+        wallpaper_path = None
+        wallpaper_pixmap = wallpaper
+    wallpaper_targets: list[WallpaperWidget | WallpaperDialog] = list(
+        widget.findChildren(WallpaperWidget)
+    )
+    if isinstance(widget, (WallpaperWidget, WallpaperDialog)):
+        wallpaper_targets.append(widget)
+    for wallpaper_widget in wallpaper_targets:
+        wallpaper_widget.set_wallpaper(
+            wallpaper_path, colors["background"], pixmap=wallpaper_pixmap,
+        )
     switch_off = _blend(colors["surface"], colors["text"], 0.22)
     for switch in widget.findChildren(ToggleSwitch):
         switch.set_colors(colors["primary"], switch_off, colors["text"], colors["text"])

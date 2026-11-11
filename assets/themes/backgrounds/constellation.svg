@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <radialGradient id="haze" cx="0.5" cy="0.35" r="0.65">
+      <stop offset="0%" stop-color="__SURFACE__" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="__SURFACE__" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="__BACKGROUND__"/>
+  <rect width="1920" height="1080" fill="url(#haze)"/>
+  <g fill="none" stroke="__PRIMARY__" stroke-opacity="0.14" stroke-width="1.5">
+    <path d="M320,260 L540,180 L760,300 L980,220"/>
+    <path d="M760,300 L820,520 L1040,460"/>
+    <path d="M1180,200 L1380,320 L1560,240 L1720,380"/>
+    <path d="M1380,320 L1460,560 L1680,640"/>
+    <path d="M280,720 L460,640 L640,780 L860,700"/>
+    <path d="M1040,460 L1180,620 L1400,700"/>
+  </g>
+  <g fill="__PRIMARY__">
+    <circle cx="320" cy="260" r="4" fill-opacity="0.55"/>
+    <circle cx="540" cy="180" r="5" fill-opacity="0.7"/>
+    <circle cx="760" cy="300" r="4.5" fill-opacity="0.6"/>
+    <circle cx="980" cy="220" r="3.5" fill-opacity="0.45"/>
+    <circle cx="820" cy="520" r="4" fill-opacity="0.5"/>
+    <circle cx="1040" cy="460" r="5" fill-opacity="0.65"/>
+  </g>
+  <g fill="__RUNNING__">
+    <circle cx="1180" cy="200" r="4" fill-opacity="0.5"/>
+    <circle cx="1380" cy="320" r="5.5" fill-opacity="0.7"/>
+    <circle cx="1560" cy="240" r="3.5" fill-opacity="0.45"/>
+    <circle cx="1720" cy="380" r="4" fill-opacity="0.55"/>
+    <circle cx="1460" cy="560" r="4" fill-opacity="0.5"/>
+    <circle cx="1680" cy="640" r="3" fill-opacity="0.4"/>
+  </g>
+  <g fill="__FOCUS__">
+    <circle cx="280" cy="720" r="3.5" fill-opacity="0.45"/>
+    <circle cx="460" cy="640" r="4.5" fill-opacity="0.6"/>
+    <circle cx="640" cy="780" r="3" fill-opacity="0.4"/>
+    <circle cx="860" cy="700" r="4" fill-opacity="0.5"/>
+    <circle cx="1180" cy="620" r="4" fill-opacity="0.55"/>
+    <circle cx="1400" cy="700" r="5" fill-opacity="0.65"/>
+  </g>
+  <g fill="__PRIMARY__" fill-opacity="0.25">
+    <circle cx="200" cy="420" r="2"/>
+    <circle cx="900" cy="140" r="2"/>
+    <circle cx="1500" cy="820" r="2"/>
+    <circle cx="1100" cy="900" r="2"/>
+    <circle cx="400" cy="960" r="2"/>
+    <circle cx="1800" cy="160" r="2"/>
+  </g>
+</svg>

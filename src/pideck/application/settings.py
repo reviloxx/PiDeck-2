@@ -3,6 +3,7 @@
 from dataclasses import dataclass, replace
 
 from pideck.application.ports.configuration import ConfigurationRepository
+from pideck.domain.backgrounds import BACKGROUND_STYLE_ID_SET, DEFAULT_BACKGROUND
 from pideck.domain.configuration import Configuration
 from pideck.domain.errors import ConfigurationValidationError
 
@@ -14,6 +15,7 @@ class SettingsUpdate:
     theme: str
     visible_applications: tuple[str, ...]
     language: str = "en"
+    background: str = DEFAULT_BACKGROUND
 
     def __post_init__(self) -> None:
         """Normalize the selected application identifiers."""
@@ -37,12 +39,19 @@ class SettingsService:
         theme_ids = {theme.identifier for theme in configuration.themes}
         if update.theme not in theme_ids:
             raise ConfigurationValidationError(f"Settings reference unknown theme: {update.theme!r}")
+        if not update.background.strip():
+            raise ConfigurationValidationError("Settings background must not be empty")
+        if update.background not in BACKGROUND_STYLE_ID_SET:
+            raise ConfigurationValidationError(
+                f"Settings reference unknown background: {update.background!r}"
+            )
         return replace(
             configuration,
             home=replace(
                 configuration.home,
                 visible_applications=update.visible_applications,
                 theme=update.theme,
+                background=update.background,
             ),
             settings=replace(
                 configuration.settings,

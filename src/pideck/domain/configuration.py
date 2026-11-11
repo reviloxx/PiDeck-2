@@ -6,6 +6,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
+from .backgrounds import BACKGROUND_STYLE_ID_SET, DEFAULT_BACKGROUND
 from .errors import ConfigurationValidationError
 from .theme import ThemeDefinition
 
@@ -90,7 +91,7 @@ class ApplicationDefinition:
 
 @dataclass(frozen=True, slots=True)
 class HomeScreenConfiguration:
-    """Define home-screen tile order and the selected theme.
+    """Define home-screen tile order, theme, and background style.
 
     An empty ``visible_applications`` list means every configured application is
     shown, using the ``applications`` order.
@@ -98,11 +99,18 @@ class HomeScreenConfiguration:
 
     visible_applications: tuple[str, ...]
     theme: str
+    background: str = DEFAULT_BACKGROUND
 
     def __post_init__(self) -> None:
         """Validate home-screen references."""
         if not self.theme.strip():
             raise ConfigurationValidationError("Home-screen theme must not be empty")
+        if not self.background.strip():
+            raise ConfigurationValidationError("Home-screen background must not be empty")
+        if self.background not in BACKGROUND_STYLE_ID_SET:
+            raise ConfigurationValidationError(
+                f"Home-screen background does not exist: {self.background!r}"
+            )
         object.__setattr__(self, "visible_applications", tuple(self.visible_applications))
 
 

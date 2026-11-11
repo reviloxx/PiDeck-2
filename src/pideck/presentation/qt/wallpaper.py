@@ -27,9 +27,17 @@ class _Wallpaper:
         self._background = QColor()
         self._wallpaper = QPixmap()
 
-    def set(self, path: Path | None, background: str) -> None:
-        """Load a wallpaper and its fallback color."""
+    def set(
+        self,
+        path: Path | None,
+        background: str,
+        pixmap: QPixmap | None = None,
+    ) -> None:
+        """Load a wallpaper path or pixmap and its fallback color."""
         self._background = QColor(background)
+        if pixmap is not None and not pixmap.isNull():
+            self._wallpaper = pixmap
+            return
         self._wallpaper = QPixmap(str(path)) if path is not None else QPixmap()
         if path is not None and self._wallpaper.isNull():
             _LOGGER.warning("Unable to load wallpaper: %s", path)
@@ -68,9 +76,14 @@ class WallpaperWidget(QWidget):
         super().__init__(parent)
         self._background_image = _Wallpaper()
 
-    def set_wallpaper(self, path: Path | None, background: str) -> None:
+    def set_wallpaper(
+        self,
+        path: Path | None,
+        background: str,
+        pixmap: QPixmap | None = None,
+    ) -> None:
         """Set a wallpaper and fallback color without changing child widgets."""
-        self._background_image.set(path, background)
+        self._background_image.set(path, background, pixmap=pixmap)
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -89,9 +102,14 @@ class WallpaperDialog(QDialog):
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
 
-    def set_wallpaper(self, path: Path | None, background: str) -> None:
+    def set_wallpaper(
+        self,
+        path: Path | None,
+        background: str,
+        pixmap: QPixmap | None = None,
+    ) -> None:
         """Store the theme fallback color used when a screen grab is unusable."""
-        self._background_image.set(path, background)
+        self._background_image.set(path, background, pixmap=pixmap)
         self.update()
 
     def _prepare_blurred_backdrop(self) -> None:

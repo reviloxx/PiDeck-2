@@ -333,15 +333,25 @@ def test_network_window_uses_wallpaper_behind_the_panel(
     application: QApplication, tmp_path: Path,
 ) -> None:
     """Network settings retain the same themed wallpaper as other system windows."""
+    from pideck.presentation.qt.theme import set_active_background
+
     image = QImage(100, 50, QImage.Format.Format_RGB32)
     image.fill(QColor("#ab4512"))
     wallpaper = tmp_path / "wallpaper.png"
     assert image.save(str(wallpaper))
+    # Point the active asset root at an empty tree so apply_theme falls back to
+    # the theme wallpaper path instead of a generated style template.
+    set_active_background("glow", tmp_path)
     parent = QWidget()
     window = NetworkWindow(FakeNetwork(), replace(DEFAULT_THEME, wallpaper=wallpaper), "en", parent)
     window.resize(1280, 720)
     window.show()
     _wait(application, lambda: window.networks.count() == 1)
+    # Offscreen grabs are unusable, so the dialog paints a scrimmed solid fill.
+    # Clear that to assert the theme wallpaper path was still applied as fallback.
+    from PySide6.QtGui import QPixmap
+
+    window._blurred_backdrop = QPixmap()
     rendered = window.grab().toImage()
     assert rendered.pixelColor(0, 0) == QColor("#ab4512")
     window.close()

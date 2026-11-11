@@ -223,7 +223,7 @@ class LauncherWindow(QMainWindow):
         self._grid_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._root_layout.addWidget(self._grid_container, stretch=1)
         self._build_footer()
-        apply_theme(self, theme)
+        apply_theme(self, theme, asset_root=asset_root)
         self._rebuild_tiles()
 
     def show_launcher(self) -> None:
@@ -530,7 +530,7 @@ class LauncherWindow(QMainWindow):
         self._shutdown_button.setIcon(icon_for_path(theme.icons.get("power")))
         self._connected_inputs.set_theme(theme)
         self._apply_footer_icon_size()
-        apply_theme(self, theme)
+        apply_theme(self, theme, asset_root=self._asset_root)
         self._rebuild_tiles()
 
     def notify_session_started(
