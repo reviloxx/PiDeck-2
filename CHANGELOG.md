@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.87
+
+- Changed: Network settings show a status card with icon, connection state,
+  and IP; clearer Ethernet icon.
+- Fixed: Selecting About only highlights the left menu until you move Right;
+  checking for updates no longer also highlights Appearance.
+
 ## v0.5.86
 
 - Changed: Network settings lead with Ethernet / Wi-Fi icons and a short link

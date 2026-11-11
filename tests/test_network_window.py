@@ -76,6 +76,8 @@ def test_wireless_setup_controller_key_entry(application: QApplication) -> None:
     assert window.networks.isVisible()
     assert window.networks.count() == 1
     assert window.link_summary.title.text() == tr("en", "network_disconnected")
+    assert window.link_summary.status.text() == tr("en", "network_disconnected")
+    assert not window.link_summary.detail.isVisible()
     assert not window.status.isVisible()
     window.networks.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
@@ -222,7 +224,9 @@ def test_ethernet_hides_wifi_list_and_shows_summary(application: QApplication) -
     window.show()
     _wait_for_networks(application, window)
     assert window.link_summary.title.text() == tr("en", "network_ethernet_label")
-    assert window.link_summary.subtitle.text() == "192.168.1.20"
+    assert window.link_summary.status.text() == tr("en", "system_info_link_connected")
+    assert window.link_summary.detail.text() == "192.168.1.20"
+    assert window.link_summary.detail.isVisible()
     assert not window.networks.isVisible()
     assert window.networks.count() == 0
     assert not window.status.isVisible()
@@ -243,6 +247,8 @@ def test_wifi_connected_marks_summary_and_row(application: QApplication) -> None
     window.show()
     _wait_for_networks(application, window)
     assert window.link_summary.title.text() == "Living room"
+    assert window.link_summary.status.text() == tr("en", "system_info_link_connected")
+    assert not window.link_summary.detail.isVisible()
     assert window.networks.isVisible()
     assert window.networks.count() == 1
     row = window.networks.itemWidget(window.networks.item(0))

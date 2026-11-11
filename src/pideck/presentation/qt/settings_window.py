@@ -292,7 +292,7 @@ class SettingsWindow(QDialog):
         button.setProperty("active", False)
         button.setProperty("nav_index", index)
         button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        button.clicked.connect(lambda: self._select_page(index))
+        button.clicked.connect(lambda checked=False, page=index: self._focus_nav(page))
         button.installEventFilter(self)
         self._nav_buttons.append(button)
         layout.addWidget(button)
@@ -756,13 +756,15 @@ class SettingsWindow(QDialog):
         self._nav_buttons[index].setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _focus_first_page_control(self) -> None:
-        """Focus the first usable control on the selected page."""
+        """Focus the first usable control on the selected page, or the active nav."""
         controls = [
             control for control in self._page_controls.get(self._current_page, [])
             if control.isEnabled() and not control.isHidden()
         ]
         if controls:
             controls[0].setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        self._focus_selected_nav()
 
     def _focus_pideck_page_control(self) -> None:
         """Focus the first visible About button or release notes after a status change."""
@@ -774,6 +776,8 @@ class SettingsWindow(QDialog):
         ]
         if controls:
             controls[0].setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        self._focus_selected_nav()
 
     def _focus_selected_nav(self) -> None:
         """Return focus to the active category button."""

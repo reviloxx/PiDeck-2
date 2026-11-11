@@ -546,11 +546,47 @@ def test_pideck_manual_check_navigation_and_language(application: QApplication) 
     assert not button.isEnabled()
     assert button.isHidden()
     assert not row.hasFocus()
+    assert window._nav_buttons[2].hasFocus()
+    assert not window._nav_buttons[0].hasFocus()
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.0.0"))
     window._focus_first_page_control()
     assert button.hasFocus()
     window.handle_input(InputEvent(InputAction.UP, "gamepad"))
     assert button.hasFocus()
+    window.close()
+
+
+def test_about_nav_highlight_stays_on_rail_until_right(application: QApplication) -> None:
+    """About selection highlights only the rail; Check waits for Right; hide returns to About."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(
+        configuration, DEFAULT_THEME, Path.cwd(),
+        pideck_update_info=PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.0.0"),
+    )
+    window.show()
+    application.processEvents()
+    about = window._pideck_page
+    assert about is not None
+    window._focus_nav(about)
+    application.processEvents()
+    assert window._nav_buttons[about].hasFocus()
+    assert window._nav_buttons[about].property("active") is True
+    assert not window._pideck_check_button.hasFocus()
+    window._nav_buttons[about].click()
+    application.processEvents()
+    assert window._nav_buttons[about].hasFocus()
+    assert not window._pideck_check_button.hasFocus()
+    QTest.keyClick(window._nav_buttons[about], Qt.Key.Key_Right)
+    application.processEvents()
+    assert window._pideck_check_button.hasFocus()
+    assert window._nav_buttons[about].property("active") is True
+    assert not window._nav_buttons[0].hasFocus()
+    window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.CHECKING, "1.0.0"))
+    application.processEvents()
+    assert window._nav_buttons[about].hasFocus()
+    assert window._nav_buttons[about].property("active") is True
+    assert window._nav_buttons[0].property("active") is False
+    assert not window._nav_buttons[0].hasFocus()
     window.close()
 
 

@@ -201,9 +201,10 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             text-align: left;
         }
         QPushButton#settings_nav[active="true"] {
-            background-color: %(content_surface)s;
+            background-color: transparent;
             border-color: transparent;
             color: %(text)s;
+            font-weight: 700;
         }
         QPushButton#settings_nav:focus {
             background-color: %(active_surface)s;
@@ -408,6 +409,23 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
         QTextBrowser#release_notes:focus {
             border: 2px solid %(focus)s;
             padding: 11px;
+        }
+        QFrame#network_status_card {
+            background-color: %(surface)s;
+            border: 1px solid %(border)s;
+            border-radius: 10px;
+            min-height: 100px;
+        }
+        QLabel#network_card_title {
+            color: %(text)s;
+            font-size: %(settings_body_size)spx;
+            font-weight: 700;
+        }
+        QLabel#network_card_status, QLabel#network_card_detail {
+            color: %(muted_text)s;
+        }
+        QLabel#network_card_icon {
+            background: transparent;
         }
         QFrame#update_row {
             background-color: %(surface)s;

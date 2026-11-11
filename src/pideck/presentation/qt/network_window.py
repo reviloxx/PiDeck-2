@@ -7,7 +7,7 @@ import logging
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
 )
 
@@ -25,7 +25,7 @@ from .wallpaper import WallpaperDialog
 
 
 _LOGGER = logging.getLogger(__name__)
-_SUMMARY_ICON_SIZE = 48
+_SUMMARY_ICON_SIZE = 64
 _ROW_MARK_SIZE = 22
 
 
@@ -38,31 +38,35 @@ def _signal_bars(percent: int) -> str:
     return "▂▁▁"
 
 
-class NetworkLinkSummary(QWidget):
-    """Non-focusable visual summary of the active link (Ethernet or Wi-Fi)."""
+class NetworkLinkSummary(QFrame):
+    """Non-focusable status card for the active link (Ethernet or Wi-Fi)."""
 
     def __init__(self, theme: ThemeDefinition, language: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._theme = theme
         self._language = language
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setObjectName("network_link_summary")
+        self.setObjectName("network_status_card")
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 8, 4, 8)
-        layout.setSpacing(16)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(20)
         self.icon = QLabel(self)
-        self.icon.setObjectName("network_link_icon")
+        self.icon.setObjectName("network_card_icon")
         self.icon.setFixedSize(_SUMMARY_ICON_SIZE, _SUMMARY_ICON_SIZE)
-        layout.addWidget(self.icon)
+        self.icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.icon, alignment=Qt.AlignmentFlag.AlignVCenter)
         text = QVBoxLayout()
         text.setContentsMargins(0, 0, 0, 0)
-        text.setSpacing(2)
+        text.setSpacing(4)
         self.title = QLabel(self)
-        self.title.setObjectName("settings_heading")
+        self.title.setObjectName("network_card_title")
         text.addWidget(self.title)
-        self.subtitle = QLabel(self)
-        self.subtitle.setObjectName("settings_label")
-        text.addWidget(self.subtitle)
+        self.status = QLabel(self)
+        self.status.setObjectName("network_card_status")
+        text.addWidget(self.status)
+        self.detail = QLabel(self)
+        self.detail.setObjectName("network_card_detail")
+        text.addWidget(self.detail)
         layout.addLayout(text, stretch=1)
 
     def update_link(
@@ -71,23 +75,28 @@ class NetworkLinkSummary(QWidget):
         networks: tuple[WirelessNetwork, ...],
         connected: bool,
     ) -> None:
-        """Refresh icon, title, and optional IP subtitle from the latest link state."""
+        """Refresh icon, title, status, and optional IP detail from the latest link state."""
         if wired is not None:
             icon_key = "network_ethernet"
             self.title.setText(tr(self._language, "network_ethernet_label"))
-            self.subtitle.setText(wired.address or "")
-            self.subtitle.setVisible(bool(wired.address))
+            self.status.setText(tr(self._language, "system_info_link_connected"))
+            address = wired.address or ""
+            self.detail.setText(address)
+            self.detail.setVisible(bool(address))
         else:
             icon_key = "network_wifi"
             active = next((network for network in networks if network.connected), None)
             if active is not None:
                 self.title.setText(active.ssid)
+                self.status.setText(tr(self._language, "system_info_link_connected"))
             elif connected:
                 self.title.setText(tr(self._language, "wifi_connected"))
+                self.status.setText(tr(self._language, "system_info_link_connected"))
             else:
                 self.title.setText(tr(self._language, "network_disconnected"))
-            self.subtitle.clear()
-            self.subtitle.hide()
+                self.status.setText(tr(self._language, "network_disconnected"))
+            self.detail.clear()
+            self.detail.hide()
         self.icon.setPixmap(
             icon_for_path(self._theme.icons.get(icon_key)).pixmap(
                 _SUMMARY_ICON_SIZE, _SUMMARY_ICON_SIZE,
@@ -107,8 +116,8 @@ class WifiNetworkRow(QWidget):
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(12)
         if network.requires_key:
             lock = QLabel("🔒", self)
             lock.setObjectName("settings_label")
