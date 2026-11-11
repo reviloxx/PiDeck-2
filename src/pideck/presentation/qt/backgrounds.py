@@ -1,15 +1,19 @@
-"""Render theme-colored background styles from shared SVG templates."""
+"""Render theme-colored background styles from shared SVG templates.
+
+Uses the Qt SVG image plugin (``QPixmap`` / ``QImageReader``) rather than
+``PySide6.QtSvg``, which Debian's appliance packages do not ship.
+"""
 
 from __future__ import annotations
 
 import logging
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 from typing import Mapping
 
-from PySide6.QtCore import QByteArray, QRectF, Qt
-from PySide6.QtGui import QImage, QPainter, QPixmap
-from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QPixmap
 
 from pideck.domain.backgrounds import BACKGROUND_STYLE_ID_SET, DEFAULT_BACKGROUND
 
@@ -78,7 +82,7 @@ def _cached_render(style: str, color_items: tuple[tuple[str, str], ...], asset_r
 
 
 def _render(style: str, colors: Mapping[str, str], asset_root: Path | None) -> QPixmap:
-    """Load, tint, and rasterize one background template."""
+    """Load, tint, and rasterize one background template via the SVG image plugin."""
     path = background_template_path(style, asset_root)
     if path is None:
         _LOGGER.warning("Missing background template for style=%s", style)
@@ -98,13 +102,25 @@ def _render(style: str, colors: Mapping[str, str], asset_root: Path | None) -> Q
     svg_text = template
     for placeholder, value in replacements.items():
         svg_text = svg_text.replace(placeholder, value)
-    renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))
-    if not renderer.isValid():
-        _LOGGER.warning("Invalid background SVG for style=%s path=%s", style, path)
-        return QPixmap()
-    image = QImage(_WALLPAPER_WIDTH, _WALLPAPER_HEIGHT, QImage.Format.Format_ARGB32_Premultiplied)
-    image.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(image)
-    renderer.render(painter, QRectF(0, 0, _WALLPAPER_WIDTH, _WALLPAPER_HEIGHT))
-    painter.end()
-    return QPixmap.fromImage(image)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix="pideck-bg-", suffix=".svg", delete=False,
+        ) as handle:
+            handle.write(svg_text.encode("utf-8"))
+            temporary = Path(handle.name)
+        pixmap = QPixmap(str(temporary))
+        if pixmap.isNull():
+            _LOGGER.warning("Unable to rasterize background SVG for style=%s", style)
+            return QPixmap()
+        target = QSize(_WALLPAPER_WIDTH, _WALLPAPER_HEIGHT)
+        if pixmap.size() != target:
+            pixmap = pixmap.scaled(
+                target,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        return pixmap
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
