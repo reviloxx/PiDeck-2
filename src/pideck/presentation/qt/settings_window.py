@@ -395,6 +395,11 @@ class SettingsWindow(QDialog):
         self._pideck_check_button = self._pideck_row.check_button
         self._pideck_check_button.installEventFilter(self)
         self._pideck_check_button.clicked.connect(self._request_pideck_check)
+        check_row = QHBoxLayout()
+        check_row.setContentsMargins(0, 4, 0, 0)
+        check_row.addWidget(self._pideck_check_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        check_row.addStretch(1)
+        layout.addLayout(check_row)
         self._pideck_action_button = self._pideck_row.action
         self._pideck_action_button.installEventFilter(self)
         self._release_notes_title = QLabel(page)

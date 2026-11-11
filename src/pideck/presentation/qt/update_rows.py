@@ -208,14 +208,12 @@ class PiDeckUpdateRow(UpdateRow):
         self.action.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.action.setAutoDefault(False)
         self.action.setDefault(False)
-        # Check replaces the idle "Up to date" hint in the status column.
+        # Check sits below the version card (added by the About page layout).
         self.check_button = QPushButton(tr(self._language, "check_for_updates"), self)
         self.check_button.setObjectName("update_action")
         self.check_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.check_button.setAutoDefault(False)
         self.check_button.setDefault(False)
-        status_index = self._layout.indexOf(self.status_label)
-        self._layout.insertWidget(status_index + 1, self.check_button)
         self.set_pideck_info(info)
 
     def set_image_build_date(self, build_date: str | None) -> None:
