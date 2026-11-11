@@ -3,8 +3,8 @@
 from pathlib import Path
 from typing import TypeVar
 
-from PySide6.QtCore import QEvent, QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QHideEvent, QKeyEvent, QMouseEvent, QResizeEvent
+from PySide6.QtCore import QEvent, QSignalBlocker, Qt, QTimer, Signal
+from PySide6.QtGui import QFocusEvent, QHideEvent, QKeyEvent, QMouseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QBoxLayout,
     QComboBox,
@@ -34,7 +34,7 @@ from pideck.domain.theme import ThemeDefinition
 from .fullscreen import cancel_fullscreen_reassert, present_fullscreen
 from .theme import SettingsComboBox, apply_theme, configure_combo_box
 from .wallpaper import WallpaperWidget
-from .localization import format_timestamp, tr
+from .localization import tr
 from .applications_page import ApplicationsPage
 from .release_notes_view import ReleaseNotesView
 from .update_rows import PasswordPrompt, PiDeckUpdateRow, UpdateRow
@@ -172,6 +172,7 @@ class SettingsWindow(QDialog):
         self._nav_buttons: list[QPushButton] = []
         self._page_controls: dict[int, list[QWidget]] = {}
         self._appearance_row_layouts: list[QBoxLayout] = []
+        self._prior_focus: QWidget | None = None
         self._current_page = 0
         self.setWindowTitle(tr(self._language, "settings"))
         self.setObjectName("settings_window")
@@ -389,15 +390,13 @@ class SettingsWindow(QDialog):
         layout = self._page_layout(page)
         self._pideck_row = PiDeckUpdateRow(self._pideck_info, page)
         self._pideck_row.activation_requested.connect(self._activate_pideck_update)
+        self._pideck_row.set_image_build_date(self._build_date)
         layout.addWidget(self._pideck_row)
         self._pideck_check_button = self._pideck_row.check_button
         self._pideck_check_button.installEventFilter(self)
         self._pideck_check_button.clicked.connect(self._request_pideck_check)
         self._pideck_action_button = self._pideck_row.action
         self._pideck_action_button.installEventFilter(self)
-        self._build_date_label = QLabel(page)
-        self._build_date_label.setObjectName("settings_hint")
-        layout.addWidget(self._build_date_label)
         self._release_notes_title = QLabel(page)
         self._release_notes_title.setObjectName("settings_label")
         layout.addWidget(self._release_notes_title)
@@ -1050,14 +1049,10 @@ class SettingsWindow(QDialog):
         self._language_combo.setItemText(1, tr(self._language, "german"))
         if self._pideck_row is not None:
             self._pideck_row.set_language(self._language)
+            self._pideck_row.set_image_build_date(self._build_date)
             self._pideck_check_button.setText(tr(self._language, "check_for_updates"))
             if self._pideck_info is not None:
                 self._show_release_notes(self._pideck_info)
-            self._build_date_label.setText(tr(
-                self._language, "build_date",
-                date=format_timestamp(self._language, self._build_date) if self._build_date
-                else tr(self._language, "unknown"),
-            ))
 
     def set_pideck_update_info(self, info: PiDeckUpdateInfo) -> None:
         """Display the latest application-independent PiDeck update state."""
@@ -1153,6 +1148,32 @@ class SettingsWindow(QDialog):
         if current not in rows:
             return
         index = rows.index(current)
+        if (
+            self._current_page == self._pideck_page
+            and current in (self._pideck_check_button, self._pideck_action_button)
+        ):
+            check_usable = (
+                self._pideck_check_button.isEnabled() and not self._pideck_check_button.isHidden()
+            )
+            action_usable = (
+                self._pideck_action_button.isEnabled() and not self._pideck_action_button.isHidden()
+            )
+            if key == Qt.Key.Key_Right and current is self._pideck_check_button and action_usable:
+                self._pideck_action_button.setFocus(Qt.FocusReason.OtherFocusReason)
+                return
+            if key == Qt.Key.Key_Left and current is self._pideck_action_button and check_usable:
+                self._pideck_check_button.setFocus(Qt.FocusReason.OtherFocusReason)
+                return
+            if key == Qt.Key.Key_Left and current is self._pideck_check_button:
+                self._focus_selected_nav()
+                return
+            if key == Qt.Key.Key_Down:
+                notes = self._release_notes
+                if notes.isEnabled() and not notes.isHidden() and notes in rows:
+                    notes.setFocus(Qt.FocusReason.OtherFocusReason)
+                return
+            if key == Qt.Key.Key_Up:
+                return
         if key == Qt.Key.Key_Up:
             if index > 0:
                 rows[index - 1].setFocus(Qt.FocusReason.OtherFocusReason)
@@ -1163,6 +1184,32 @@ class SettingsWindow(QDialog):
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         """Implement deterministic D-pad navigation across the settings surface."""
+        if event.type() == QEvent.Type.FocusOut and isinstance(watched, QWidget):
+            self._prior_focus = watched
+        if event.type() == QEvent.Type.FocusIn and watched in self._nav_buttons:
+            focus_event = event
+            index = self._nav_buttons.index(watched)
+            prior = self._prior_focus
+            intentional = isinstance(focus_event, QFocusEvent) and (
+                focus_event.reason() is Qt.FocusReason.MouseFocusReason
+                or focus_event.reason() is Qt.FocusReason.ShortcutFocusReason
+                or (
+                    focus_event.reason() in (
+                        Qt.FocusReason.TabFocusReason,
+                        Qt.FocusReason.BacktabFocusReason,
+                    )
+                    and prior in self._nav_buttons
+                )
+            )
+            if intentional:
+                self._select_page(index, focus_first=False)
+            elif (
+                index != self._current_page
+                and self._pideck_page is not None
+                and self._current_page == self._pideck_page
+            ):
+                # Qt reuses TabFocusReason when an About button is hidden; stay on About.
+                QTimer.singleShot(0, self._focus_first_page_control)
         if (
             event.type() == QEvent.Type.FocusIn
             and self._system_page is not None
@@ -1205,7 +1252,7 @@ class SettingsWindow(QDialog):
         if self._pideck_page is not None and watched in (
             self._pideck_check_button, self._pideck_action_button,
         ):
-            if key in (Qt.Key.Key_Left, Qt.Key.Key_Up, Qt.Key.Key_Down):
+            if key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
                 self._handle_update_navigation(key)
                 return True
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

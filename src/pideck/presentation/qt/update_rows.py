@@ -19,7 +19,7 @@ from pideck.application.pideck_updates import PiDeckUpdateInfo, PiDeckUpdateStat
 from pideck.application.ports.updates import UpdateInfo, UpdateStatus
 from pideck.domain.theme import ThemeDefinition
 
-from .localization import tr
+from .localization import format_timestamp, tr
 from .spinner import BusySpinner
 from .theme import apply_theme
 from .wallpaper import WallpaperDialog
@@ -76,6 +76,8 @@ class UpdateRow(QFrame):
         self.action = QPushButton("", self)
         self.action.setObjectName("update_action")
         self.action.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.action.setAutoDefault(False)
+        self.action.setDefault(False)
         self.action.clicked.connect(self.activation_requested)
         # Fixed stretch ratios keep the name, version and status columns aligned across rows.
         layout.setSpacing(16)
@@ -199,18 +201,38 @@ class PiDeckUpdateRow(UpdateRow):
     def __init__(self, info: PiDeckUpdateInfo, parent: QWidget) -> None:
         """Create a dedicated row for PiDeck's installed release."""
         self._pideck_info = info
+        self._image_build_date: str | None = None
         super().__init__("", "PiDeck", parent)
         # About has a single row: focus only the buttons, never the container.
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.action.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.build_label.hide()
+        self.action.setAutoDefault(False)
+        self.action.setDefault(False)
         # Check replaces the idle "Up to date" hint in the status column.
         self.check_button = QPushButton(tr(self._language, "check_for_updates"), self)
         self.check_button.setObjectName("update_action")
         self.check_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.check_button.setAutoDefault(False)
+        self.check_button.setDefault(False)
         status_index = self._layout.indexOf(self.status_label)
         self._layout.insertWidget(status_index + 1, self.check_button)
         self.set_pideck_info(info)
+
+    def set_image_build_date(self, build_date: str | None) -> None:
+        """Show the appliance image build time beside the installed version."""
+        self._image_build_date = build_date
+        self._apply_image_build_date()
+
+    def _apply_image_build_date(self) -> None:
+        if self._image_build_date:
+            self.build_label.setText(tr(
+                self._language, "build_date",
+                date=format_timestamp(self._language, self._image_build_date),
+            ))
+            self.build_label.show()
+        else:
+            self.build_label.clear()
+            self.build_label.hide()
 
     def set_pideck_info(self, info: PiDeckUpdateInfo) -> None:
         """Display release status and retain failure details for the user."""
@@ -246,6 +268,7 @@ class PiDeckUpdateRow(UpdateRow):
         )
         self.check_button.setVisible(checkable)
         self.check_button.setText(tr(self._language, "check_for_updates"))
+        self._apply_image_build_date()
 
     def set_language(self, language: str) -> None:
         """Re-render PiDeck update state when the language changes."""

@@ -279,7 +279,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "choose_profile": "Choose profile",
         "profile_label": "Application profile:",
         "network": "Network",
-        "network_description": "View the LAN connection or set up Wi-Fi when no cable is connected.",
+        "network_description": "Ethernet and Wi-Fi",
         "wifi_description": (
             "Ethernet is preferred when a cable is connected. Otherwise select a Wi-Fi network. "
             "Network keys are separate from system passwords."
@@ -290,6 +290,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "wifi_select": "Select a network to connect.",
         "wifi_empty": "No visible Wi-Fi networks found. Check the adapter and try again.",
         "wifi_connected": "Connected via Wi-Fi",
+        "network_ethernet_label": "Ethernet",
         "network_wired_connected": "Connected via Ethernet ({device})",
         "network_wired_status": "Connected via Ethernet ({device}) at {address}",
         "network_wifi_blocked_by_lan": "Wi-Fi setup is unavailable while Ethernet is connected.",
@@ -575,7 +576,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "choose_profile": "Profil auswählen",
         "profile_label": "Anwendungsprofil:",
         "network": "Netzwerk",
-        "network_description": "LAN-Verbindung anzeigen oder WLAN einrichten, wenn kein Kabel verbunden ist.",
+        "network_description": "Ethernet und WLAN",
         "wifi_description": (
             "Ethernet hat Vorrang, wenn ein Kabel verbunden ist. Sonst ein WLAN auswählen. "
             "Netzwerkschlüssel sind keine Systempasswörter."
@@ -586,6 +587,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "wifi_select": "Zum Verbinden ein Netzwerk auswählen.",
         "wifi_empty": "Keine sichtbaren WLANs gefunden. Adapter prüfen und erneut suchen.",
         "wifi_connected": "Per WLAN verbunden",
+        "network_ethernet_label": "Ethernet",
         "network_wired_connected": "Per Ethernet verbunden ({device})",
         "network_wired_status": "Per Ethernet verbunden ({device}) unter {address}",
         "network_wifi_blocked_by_lan": "WLAN-Einrichtung ist bei verbundenem Ethernet nicht verfügbar.",

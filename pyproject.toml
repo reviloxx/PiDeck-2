@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pideck"
-version = "0.5.85"
+version = "0.5.86"
 description = "A TV-first application launcher for Raspberry Pi"
 readme = "README.md"
 requires-python = ">=3.12"

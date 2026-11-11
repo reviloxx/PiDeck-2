@@ -564,9 +564,12 @@ def test_versions_and_build_date_are_visible(application: QApplication) -> None:
     )
     window.show()
     window._select_page(2)
-    assert "January 2026" in window._build_date_label.text()
-    assert "T10:00" not in window._build_date_label.text()
+    assert window._pideck_row is not None
+    assert "January 2026" in window._pideck_row.build_label.text()
+    assert "T10:00" not in window._pideck_row.build_label.text()
+    assert not window._pideck_row.build_label.isHidden()
     assert "1.2.3" in window._pideck_row.version_label.text()
+    assert not hasattr(window, "_build_date_label")
     row = window._apps._rows["browser"]
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UP_TO_DATE, "2.3"))
     assert "2.3" in row.version_label.text()
@@ -1060,8 +1063,11 @@ def test_about_page_shows_scrollable_release_notes(application: QApplication) ->
     text = notes.toPlainText()
     assert text.index("PiDeck 1.2.0") < text.index("PiDeck 1.1.0") and "Bold" in text and "**" not in text
     assert window._pideck_check_button.hasFocus()
-    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert not window._pideck_check_button.isDefault()
+    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
     assert window._pideck_action_button.hasFocus()
+    window.handle_input(InputEvent(InputAction.LEFT, "gamepad"))
+    assert window._pideck_check_button.hasFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert notes.hasFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
@@ -1069,8 +1075,22 @@ def test_about_page_shows_scrollable_release_notes(application: QApplication) ->
     notes.verticalScrollBar().setValue(0)
     window.handle_input(InputEvent(InputAction.UP, "gamepad"))
     assert window._pideck_action_button.hasFocus()
+    window.handle_input(InputEvent(InputAction.LEFT, "gamepad"))
+    assert window._pideck_check_button.hasFocus()
+    window.handle_input(InputEvent(InputAction.LEFT, "gamepad"))
+    about_nav = window._nav_buttons[window._pideck_page]
+    assert about_nav.hasFocus()
+    assert about_nav.property("active") is True
+    assert sum(1 for button in window._nav_buttons if button.property("active")) == 1
+    window._focus_nav(0)
+    application.processEvents()
+    assert window._nav_buttons[0].hasFocus()
+    assert window._nav_buttons[0].property("active") is True
+    assert about_nav.property("active") is False
     window.apply_language("de")
     assert window._release_notes_title.text() == "Neu in PiDeck 1.2.0"
+    window._select_page(window._pideck_page)
+    application.processEvents()
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.2.0"))
     assert notes.isHidden() and window._release_notes_title.isHidden()
     assert window._pideck_row is not None

@@ -200,8 +200,12 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             padding: 8px 16px;
             text-align: left;
         }
-        QPushButton#settings_nav:focus,
         QPushButton#settings_nav[active="true"] {
+            background-color: %(content_surface)s;
+            border-color: transparent;
+            color: %(text)s;
+        }
+        QPushButton#settings_nav:focus {
             background-color: %(active_surface)s;
             border-color: %(focus)s;
             color: %(text)s;
@@ -439,6 +443,7 @@ def apply_theme(widget: QWidget, theme: ThemeDefinition) -> None:
             min-width: 92px;
             padding: 1px;
         }
+        QPushButton#update_action:focus,
         QFrame#update_row:focus QPushButton#update_action {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;

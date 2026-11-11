@@ -4,6 +4,15 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.86
+
+- Changed: Network settings lead with Ethernet / Wi-Fi icons and a short link
+  summary; the Wi-Fi list appears only when no cable is connected.
+- Fixed: Mount and share errors stay in the drive options dialog instead of
+  the list behind it.
+- Fixed: About remote navigation no longer jumps away when Check hides, and
+  the image build date sits beside the version.
+
 ## v0.5.85
 
 - Fixed: About focuses only the Check / Update buttons, not the whole row, so

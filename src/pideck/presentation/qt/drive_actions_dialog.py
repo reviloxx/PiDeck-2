@@ -10,7 +10,7 @@ from pideck.application.ports.storage import Drive
 from pideck.domain.theme import ThemeDefinition
 
 from .localization import tr
-from .system_panel import create_system_panel
+from .system_panel import create_system_panel, set_status
 from .theme import apply_theme
 from .wallpaper import WallpaperDialog
 
@@ -75,6 +75,11 @@ class DriveActionsDialog(WallpaperDialog):
         self.share_url_label.setWordWrap(True)
         self.share_url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.share_url_label)
+        self.status = QLabel(self)
+        self.status.setObjectName("system_status")
+        self.status.setWordWrap(True)
+        self.status.hide()
+        layout.addWidget(self.status)
         self._buttons_layout = QVBoxLayout()
         self._buttons_layout.setSpacing(10)
         layout.addLayout(self._buttons_layout)
@@ -96,6 +101,7 @@ class DriveActionsDialog(WallpaperDialog):
         share_url: str | None = None,
     ) -> None:
         """Refresh the drive identity and mount/share detail lines."""
+        self.clear_status()
         self.setWindowTitle(drive.label)
         self.title.setText(drive.label)
         self.summary.setText(f"{format_size(drive.size)} · {drive.filesystem}")
@@ -142,6 +148,14 @@ class DriveActionsDialog(WallpaperDialog):
         """Disable action buttons while a mount/share worker runs; keep Back usable."""
         for button in self.buttons:
             button.setEnabled(not busy)
+
+    def set_error(self, message: str) -> None:
+        """Show a mount or share failure on this dialog."""
+        set_status(self.status, message, error=True)
+
+    def clear_status(self) -> None:
+        """Hide the dialog status line."""
+        set_status(self.status, "")
 
     def actions(self) -> tuple[str, ...]:
         """Return the offered action values in display order."""

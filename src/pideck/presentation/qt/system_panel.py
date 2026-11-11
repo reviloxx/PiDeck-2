@@ -50,6 +50,7 @@ def build_system_window(parent: QWidget, title: str, description: str) -> System
     description_label = QLabel(description, parent)
     description_label.setObjectName("settings_description")
     description_label.setWordWrap(True)
+    description_label.setVisible(bool(description))
     layout.addWidget(description_label)
     status = QLabel("", parent)
     status.setObjectName("system_status")

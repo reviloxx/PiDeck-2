@@ -697,9 +697,10 @@ def test_drives_window_reports_errors_and_old_images(application: QApplication) 
     assert window.dialog is not None
     dialog = window.dialog
     dialog.choose(DriveAction.MOUNT)
-    _wait(application, lambda: window.drives.isEnabled() and "Not authorized" in window.status.text())
+    _wait(application, lambda: window.drives.isEnabled() and "Not authorized" in dialog.status.text())
     assert window.dialog is dialog and dialog.isVisible()
-    assert window.status.property("error") is True
+    assert dialog.status.property("error") is True
+    assert "Not authorized" not in window.status.text()
     window.close()
     old = DrivesWindow(Storage(available=False), DEFAULT_THEME, "en", parent)
     old.show()

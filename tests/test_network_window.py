@@ -8,12 +8,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QWidget
 
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.application.ports.network import NetworkError, WiredLink, WirelessNetwork
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
+from pideck.presentation.qt.localization import tr
 from pideck.presentation.qt.network_window import NetworkWindow, WirelessKeyDialog
 from pideck.presentation.qt.settings_window import SettingsWindow
 from tests.test_configuration import configuration_document
@@ -28,13 +29,22 @@ def application() -> QApplication:
 class FakeNetwork:
     """Simulate a single secured network without accessing host networking."""
 
-    def __init__(self, *, wired: WiredLink | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        wired: WiredLink | None = None,
+        network: WirelessNetwork | None = None,
+        connected: bool | None = None,
+    ) -> None:
         self.calls: list[tuple[WirelessNetwork, str | None]] = []
-        self.network = WirelessNetwork("Living room", "wlan0", "WPA2", 75)
+        self.network = network or WirelessNetwork("Living room", "wlan0", "WPA2", 75)
         self._wired = wired
+        self._connected = connected
 
     def connected(self) -> bool:
-        return self._wired is not None
+        if self._connected is not None:
+            return self._connected
+        return self._wired is not None or self.network.connected
 
     def wired_link(self) -> WiredLink | None:
         return self._wired
@@ -46,6 +56,15 @@ class FakeNetwork:
         self.calls.append((network, key))
 
 
+def _wait_for_networks(application: QApplication, window: NetworkWindow) -> None:
+    for _ in range(100):
+        application.processEvents()
+        if window.networks.count() or not window.networks.isVisible():
+            if window.link_summary.title.text():
+                break
+        QTest.qWait(5)
+
+
 def test_wireless_setup_controller_key_entry(application: QApplication) -> None:
     """Navigate the on-screen keyboard and submit a masked secret."""
     gateway = FakeNetwork()
@@ -53,13 +72,11 @@ def test_wireless_setup_controller_key_entry(application: QApplication) -> None:
     parent.show()
     window = NetworkWindow(gateway, DEFAULT_THEME, "en", parent)
     window.show()
-    for _ in range(100):
-        application.processEvents()
-        if window.networks.count():
-            break
-        QTest.qWait(5)
+    _wait_for_networks(application, window)
+    assert window.networks.isVisible()
     assert window.networks.count() == 1
-    assert "Disconnected" in window.connection_status.text()
+    assert window.link_summary.title.text() == tr("en", "network_disconnected")
+    assert not window.status.isVisible()
     window.networks.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     application.processEvents()
@@ -94,11 +111,7 @@ def test_wireless_key_entry_can_be_cancelled(application: QApplication) -> None:
     parent.show()
     window = NetworkWindow(gateway, DEFAULT_THEME, "en", parent)
     window.show()
-    for _ in range(100):
-        application.processEvents()
-        if window.networks.count():
-            break
-        QTest.qWait(5)
+    _wait_for_networks(application, window)
     window.networks.setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     application.processEvents()
@@ -147,6 +160,7 @@ def test_wireless_scan_failure_is_visible(application: QApplication) -> None:
             break
         QTest.qWait(5)
     assert "Adapter unavailable" in window.status.text()
+    assert window.status.isVisible()
     assert window.rescan.isEnabled()
     window.close()
     parent.close()
@@ -199,27 +213,44 @@ class EmptyNetwork(FakeNetwork):
         return ()
 
 
-def test_ethernet_blocks_wifi_connect(application: QApplication) -> None:
-    """LAN status is shown and Wi-Fi connect is refused while Ethernet is up."""
+def test_ethernet_hides_wifi_list_and_shows_summary(application: QApplication) -> None:
+    """Ethernet summary shows the link; Wi-Fi list stays hidden and connect is skipped."""
     gateway = FakeNetwork(wired=WiredLink("enp3s0", "Wired connection 1", "192.168.1.20"))
     parent = QWidget()
     parent.show()
     window = NetworkWindow(gateway, DEFAULT_THEME, "en", parent)
     window.show()
-    for _ in range(100):
-        application.processEvents()
-        if window.networks.count():
-            break
-        QTest.qWait(5)
-    assert "Ethernet" in window.connection_status.text()
-    assert "192.168.1.20" in window.connection_status.text()
-    assert "unavailable while Ethernet" in window.status.text()
-    assert not window.networks.isEnabled()
-    window.networks.setEnabled(True)
-    window.networks.setCurrentRow(0)
-    window._activate(window.networks.currentItem())
+    _wait_for_networks(application, window)
+    assert window.link_summary.title.text() == tr("en", "network_ethernet_label")
+    assert window.link_summary.subtitle.text() == "192.168.1.20"
+    assert not window.networks.isVisible()
+    assert window.networks.count() == 0
+    assert not window.status.isVisible()
     assert gateway.calls == []
-    assert "unavailable while Ethernet" in window.status.text()
+    window.close()
+    parent.close()
+
+
+def test_wifi_connected_marks_summary_and_row(application: QApplication) -> None:
+    """Connected AP updates the summary title and marks the list row without status prose."""
+    gateway = FakeNetwork(
+        network=WirelessNetwork("Living room", "wlan0", "WPA2", 80, connected=True),
+        connected=True,
+    )
+    parent = QWidget()
+    parent.show()
+    window = NetworkWindow(gateway, DEFAULT_THEME, "en", parent)
+    window.show()
+    _wait_for_networks(application, window)
+    assert window.link_summary.title.text() == "Living room"
+    assert window.networks.isVisible()
+    assert window.networks.count() == 1
+    row = window.networks.itemWidget(window.networks.item(0))
+    assert row is not None
+    labels = [child.text() for child in row.findChildren(QLabel)]
+    assert "Living room" in labels
+    assert "✓" in labels
+    assert not window.status.isVisible()
     window.close()
     parent.close()
 

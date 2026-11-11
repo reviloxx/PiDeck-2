@@ -359,9 +359,13 @@ class DrivesWindow(WallpaperDialog):
             drives, message = (), (tr(self._language, "drives_error", message=tr(self._language, "drives_unavailable")), True)
         self._show_drives(drives)
         self._update_controls()
-        if message is not None and message[1]:
-            set_status(self.status, message[0], error=True)
         self._refresh_dialog()
+        if message is not None and message[1]:
+            if self.dialog is not None:
+                self.dialog.set_error(message[0])
+                set_status(self.status, "")
+            else:
+                set_status(self.status, message[0], error=True)
         if self.dialog is None:
             if self.drives.count():
                 self.drives.setFocus(Qt.FocusReason.OtherFocusReason)

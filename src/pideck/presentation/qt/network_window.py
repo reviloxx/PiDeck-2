@@ -20,11 +20,111 @@ from .backspace_back import BACKSPACE_EDITS_TEXT
 from .localization import tr
 from .on_screen_keyboard import ON_SCREEN_COLUMNS, key_label, on_screen_characters, shifted
 from .system_panel import add_action_button, build_system_window, set_status
-from .theme import apply_theme
+from .theme import apply_theme, icon_for_path
 from .wallpaper import WallpaperDialog
 
 
 _LOGGER = logging.getLogger(__name__)
+_SUMMARY_ICON_SIZE = 48
+_ROW_MARK_SIZE = 22
+
+
+def _signal_bars(percent: int) -> str:
+    """Return a compact 1–3 bar indicator for Wi-Fi signal strength."""
+    if percent >= 66:
+        return "▂▄█"
+    if percent >= 33:
+        return "▂▄▁"
+    return "▂▁▁"
+
+
+class NetworkLinkSummary(QWidget):
+    """Non-focusable visual summary of the active link (Ethernet or Wi-Fi)."""
+
+    def __init__(self, theme: ThemeDefinition, language: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._theme = theme
+        self._language = language
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setObjectName("network_link_summary")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 8, 4, 8)
+        layout.setSpacing(16)
+        self.icon = QLabel(self)
+        self.icon.setObjectName("network_link_icon")
+        self.icon.setFixedSize(_SUMMARY_ICON_SIZE, _SUMMARY_ICON_SIZE)
+        layout.addWidget(self.icon)
+        text = QVBoxLayout()
+        text.setContentsMargins(0, 0, 0, 0)
+        text.setSpacing(2)
+        self.title = QLabel(self)
+        self.title.setObjectName("settings_heading")
+        text.addWidget(self.title)
+        self.subtitle = QLabel(self)
+        self.subtitle.setObjectName("settings_label")
+        text.addWidget(self.subtitle)
+        layout.addLayout(text, stretch=1)
+
+    def update_link(
+        self,
+        wired: WiredLink | None,
+        networks: tuple[WirelessNetwork, ...],
+        connected: bool,
+    ) -> None:
+        """Refresh icon, title, and optional IP subtitle from the latest link state."""
+        if wired is not None:
+            icon_key = "network_ethernet"
+            self.title.setText(tr(self._language, "network_ethernet_label"))
+            self.subtitle.setText(wired.address or "")
+            self.subtitle.setVisible(bool(wired.address))
+        else:
+            icon_key = "network_wifi"
+            active = next((network for network in networks if network.connected), None)
+            if active is not None:
+                self.title.setText(active.ssid)
+            elif connected:
+                self.title.setText(tr(self._language, "wifi_connected"))
+            else:
+                self.title.setText(tr(self._language, "network_disconnected"))
+            self.subtitle.clear()
+            self.subtitle.hide()
+        self.icon.setPixmap(
+            icon_for_path(self._theme.icons.get(icon_key)).pixmap(
+                _SUMMARY_ICON_SIZE, _SUMMARY_ICON_SIZE,
+            )
+        )
+
+
+class WifiNetworkRow(QWidget):
+    """Compact access-point row: SSID, optional lock, signal bars, connected mark."""
+
+    def __init__(
+        self,
+        network: WirelessNetwork,
+        language: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(10)
+        if network.requires_key:
+            lock = QLabel("🔒", self)
+            lock.setObjectName("settings_label")
+            lock.setFixedWidth(_ROW_MARK_SIZE)
+            layout.addWidget(lock)
+        self.label = QLabel(network.ssid, self)
+        self.label.setObjectName("settings_body")
+        layout.addWidget(self.label, stretch=1)
+        bars = QLabel(_signal_bars(network.signal), self)
+        bars.setObjectName("settings_label")
+        layout.addWidget(bars)
+        if network.connected:
+            mark = QLabel("✓", self)
+            mark.setObjectName("settings_label")
+            mark.setFixedWidth(_ROW_MARK_SIZE)
+            layout.addWidget(mark)
 
 
 class WirelessKeyDialog(QDialog):
@@ -155,14 +255,11 @@ class NetworkWindow(WallpaperDialog):
         self._key_dialog: WirelessKeyDialog | None = None
         self.setWindowTitle(tr(language, "network"))
         self.setModal(True)
-        frame = build_system_window(self, tr(language, "network"), tr(language, "wifi_description"))
+        frame = build_system_window(self, tr(language, "network"), "")
         self.status = frame.status
         layout = frame.content
-        self.connection_status = QLabel(
-            tr(language, "network_connection_status", status=tr(language, "checking")), self,
-        )
-        self.connection_status.setObjectName("settings_label")
-        layout.addWidget(self.connection_status)
+        self.link_summary = NetworkLinkSummary(theme, language, self)
+        layout.addWidget(self.link_summary)
         self.networks = QListWidget(self)
         self.networks.setObjectName("settings_applications")
         self.networks.itemActivated.connect(self._activate)
@@ -197,18 +294,6 @@ class NetworkWindow(WallpaperDialog):
 
         self._submit("scan", inspect)
 
-    def _status_text(self, wired: WiredLink | None, connected: bool) -> str:
-        if wired is not None:
-            if wired.address:
-                return tr(
-                    self._language, "network_wired_status",
-                    device=wired.device, address=wired.address,
-                )
-            return tr(self._language, "network_wired_connected", device=wired.device)
-        if connected:
-            return tr(self._language, "wifi_connected")
-        return tr(self._language, "network_disconnected")
-
     def _finish_operation(self, operation: str, future: Future) -> None:
         if self._closed:
             return
@@ -218,54 +303,37 @@ class NetworkWindow(WallpaperDialog):
         except NetworkError as error:
             self.networks.setEnabled(True)
             set_status(self.status, tr(self._language, "wifi_error", message=str(error)), error=True)
-            if operation == "scan":
-                self.connection_status.setText(tr(
-                    self._language, "network_connection_status",
-                    status=tr(self._language, "unknown"),
-                ))
             self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         except Exception as error:
             _LOGGER.error("Unexpected network operation failure: %s", type(error).__name__)
             self.networks.setEnabled(True)
             set_status(self.status, tr(self._language, "wifi_error", message=tr(self._language, "wifi_unavailable")), error=True)
-            if operation == "scan":
-                self.connection_status.setText(tr(
-                    self._language, "network_connection_status",
-                    status=tr(self._language, "unknown"),
-                ))
             self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         if operation == "connect":
-            self.networks.setEnabled(True)
-            set_status(self.status, tr(self._language, "wifi_connected"))
-            self.connection_status.setText(tr(
-                self._language, "network_connection_status",
-                status=tr(self._language, "wifi_connected"),
-            ))
+            set_status(self.status, "")
             self.scan()
             return
         wired, connected, networks = result
         self._wired = wired
-        wifi_allowed = wired is None
-        self.networks.setEnabled(wifi_allowed)
-        self.connection_status.setText(tr(
-            self._language, "network_connection_status",
-            status=self._status_text(wired, connected),
-        ))
+        self.link_summary.update_link(wired, networks, connected)
+        set_status(self.status, "")
         self.networks.clear()
-        for network in networks:
-            text = f"{network.ssid}  ({network.signal}%)"
-            if network.connected:
-                text += f" - {tr(self._language, 'wifi_connected')}"
-            item = QListWidgetItem(text, self.networks)
-            item.setData(Qt.ItemDataRole.UserRole, network)
-        if not wifi_allowed:
-            set_status(self.status, tr(self._language, "network_wifi_blocked_by_lan"))
+        if wired is not None:
+            self.networks.hide()
+            self.networks.setEnabled(False)
             self.networks.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
             return
-        set_status(self.status, tr(self._language, "wifi_select" if networks else "wifi_empty"))
+        self.networks.show()
+        self.networks.setEnabled(True)
+        for network in networks:
+            item = QListWidgetItem(self.networks)
+            item.setData(Qt.ItemDataRole.UserRole, network)
+            row = WifiNetworkRow(network, self._language, parent=self.networks)
+            item.setSizeHint(row.sizeHint())
+            self.networks.setItemWidget(item, row)
         self.networks.setFocusPolicy(Qt.FocusPolicy.StrongFocus if networks else Qt.FocusPolicy.NoFocus)
         if networks:
             self.networks.setCurrentRow(0)
@@ -275,7 +343,6 @@ class NetworkWindow(WallpaperDialog):
 
     def _activate(self, item: QListWidgetItem) -> None:
         if self._wired is not None:
-            set_status(self.status, tr(self._language, "network_wifi_blocked_by_lan"), error=True)
             return
         network = item.data(Qt.ItemDataRole.UserRole)
         if not isinstance(network, WirelessNetwork):
@@ -341,7 +408,12 @@ class NetworkWindow(WallpaperDialog):
                 self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
                 return True
         if watched in (self.rescan, self.back):
-            if key == Qt.Key.Key_Up and self.networks.count() and self.networks.isEnabled():
+            if (
+                key == Qt.Key.Key_Up
+                and self.networks.isVisible()
+                and self.networks.count()
+                and self.networks.isEnabled()
+            ):
                 self.networks.setFocus(Qt.FocusReason.OtherFocusReason)
                 return True
             if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
