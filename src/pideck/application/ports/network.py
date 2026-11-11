@@ -28,6 +28,15 @@ class WirelessNetwork:
         return "WPA" in upper and "802.1X" not in upper
 
 
+@dataclass(frozen=True, slots=True)
+class WiredLink:
+    """Represent an active Ethernet connection managed by NetworkManager."""
+
+    device: str
+    connection: str
+    address: str | None = None
+
+
 class NetworkError(Exception):
     """Report a network operation that could not be completed."""
 
@@ -37,6 +46,10 @@ class NetworkGateway(Protocol):
 
     def connected(self) -> bool:
         """Return whether NetworkManager has an active network connection."""
+        ...
+
+    def wired_link(self) -> WiredLink | None:
+        """Return the first connected Ethernet device, if any."""
         ...
 
     def scan(self) -> tuple[WirelessNetwork, ...]:

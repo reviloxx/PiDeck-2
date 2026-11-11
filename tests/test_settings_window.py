@@ -438,7 +438,10 @@ def test_pideck_activation_is_guarded(
     window._select_page(2)
     application.processEvents()
     assert window._pideck_row is not None
-    QTest.keyClick(window._pideck_row, Qt.Key.Key_Return)
+    action = window._pideck_action_button
+    action.setFocus()
+    application.processEvents()
+    QTest.keyClick(action, Qt.Key.Key_Return)
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     expected = 2 if status in (PiDeckUpdateStatus.AVAILABLE, PiDeckUpdateStatus.FAILED) else 0
     assert len(requests) == expected
@@ -463,10 +466,13 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     window._select_page(2)
     row = window._pideck_row
     assert row is not None
-    assert row.hasFocus()
+    assert window._pideck_check_button.hasFocus()
+    assert not row.hasFocus()
     assert "1.0.0" in row.version_label.text()
     assert "1.1.0" in row.status_label.text()
-    QTest.keyClick(row, Qt.Key.Key_Return)
+    action = window._pideck_action_button
+    action.setFocus()
+    QTest.keyClick(action, Qt.Key.Key_Return)
     assert requests == [True]
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.PREPARING, "1.0.0", "1.1.0"))
     assert not row.action.isVisible()
@@ -475,8 +481,11 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     assert "neu starten" in row.status_label.text()
     assert row.action.isVisible()
     assert row.action.text() == "Neu starten"
-    QTest.keyClick(row, Qt.Key.Key_Down)
-    assert row.hasFocus()
+    action.setFocus()
+    application.processEvents()
+    assert action.hasFocus()
+    QTest.keyClick(action, Qt.Key.Key_Down)
+    assert action.hasFocus()
     window._select_page(1)
     assert window._apps._rows["browser"].hasFocus()
     window.close()
@@ -524,26 +533,24 @@ def test_pideck_manual_check_navigation_and_language(application: QApplication) 
     assert button.text() == "Check for updates"
     assert row.status_label.isHidden()
     assert "Up to date" not in row.status_label.text()
-    QTest.keyClick(row, Qt.Key.Key_Down)
     assert button.hasFocus()
+    assert not row.hasFocus()
     QTest.keyClick(button, Qt.Key.Key_Return)
     QTest.keyClick(button, Qt.Key.Key_Space)
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     QTest.mouseClick(button, Qt.MouseButton.LeftButton)
     assert len(checks) == 4
     window.apply_language("de")
-    assert button.text() == "Nach Aktualisierungen suchen"
+    assert button.text() == "Updates prüfen"
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.CHECKING, "1.0.0"))
     assert not button.isEnabled()
     assert button.isHidden()
-    assert row.hasFocus()
-    QTest.keyClick(row, Qt.Key.Key_Down)
-    assert row.hasFocus()
+    assert not row.hasFocus()
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.0.0"))
-    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    window._focus_first_page_control()
     assert button.hasFocus()
     window.handle_input(InputEvent(InputAction.UP, "gamepad"))
-    assert row.hasFocus()
+    assert button.hasFocus()
     window.close()
 
 
@@ -1052,23 +1059,23 @@ def test_about_page_shows_scrollable_release_notes(application: QApplication) ->
     assert notes.isVisible() and window._release_notes_title.text() == "What's new in PiDeck 1.2.0"
     text = notes.toPlainText()
     assert text.index("PiDeck 1.2.0") < text.index("PiDeck 1.1.0") and "Bold" in text and "**" not in text
-    window._pideck_row.setFocus()
-    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert window._pideck_check_button.hasFocus()
+    window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
+    assert window._pideck_action_button.hasFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert notes.hasFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert notes.hasFocus() and notes.verticalScrollBar().value() > 0
     notes.verticalScrollBar().setValue(0)
     window.handle_input(InputEvent(InputAction.UP, "gamepad"))
-    assert window._pideck_check_button.hasFocus()
+    assert window._pideck_action_button.hasFocus()
     window.apply_language("de")
     assert window._release_notes_title.text() == "Neu in PiDeck 1.2.0"
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.2.0"))
     assert notes.isHidden() and window._release_notes_title.isHidden()
     assert window._pideck_row is not None
     assert window._pideck_row.status_label.isHidden()
-    window._pideck_row.setFocus()
+    assert window._pideck_check_button.hasFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert window._pideck_check_button.hasFocus()
     window.close()

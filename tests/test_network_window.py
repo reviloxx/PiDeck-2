@@ -11,7 +11,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 from pideck.application.ports.input import InputAction, InputEvent
-from pideck.application.ports.network import NetworkError, WirelessNetwork
+from pideck.application.ports.network import NetworkError, WiredLink, WirelessNetwork
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.presentation.qt.network_window import NetworkWindow, WirelessKeyDialog
@@ -28,12 +28,16 @@ def application() -> QApplication:
 class FakeNetwork:
     """Simulate a single secured network without accessing host networking."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, wired: WiredLink | None = None) -> None:
         self.calls: list[tuple[WirelessNetwork, str | None]] = []
         self.network = WirelessNetwork("Living room", "wlan0", "WPA2", 75)
+        self._wired = wired
 
     def connected(self) -> bool:
-        return False
+        return self._wired is not None
+
+    def wired_link(self) -> WiredLink | None:
+        return self._wired
 
     def scan(self) -> tuple[WirelessNetwork, ...]:
         return (self.network,)
@@ -193,6 +197,31 @@ class EmptyNetwork(FakeNetwork):
 
     def scan(self) -> tuple[WirelessNetwork, ...]:
         return ()
+
+
+def test_ethernet_blocks_wifi_connect(application: QApplication) -> None:
+    """LAN status is shown and Wi-Fi connect is refused while Ethernet is up."""
+    gateway = FakeNetwork(wired=WiredLink("enp3s0", "Wired connection 1", "192.168.1.20"))
+    parent = QWidget()
+    parent.show()
+    window = NetworkWindow(gateway, DEFAULT_THEME, "en", parent)
+    window.show()
+    for _ in range(100):
+        application.processEvents()
+        if window.networks.count():
+            break
+        QTest.qWait(5)
+    assert "Ethernet" in window.connection_status.text()
+    assert "192.168.1.20" in window.connection_status.text()
+    assert "unavailable while Ethernet" in window.status.text()
+    assert not window.networks.isEnabled()
+    window.networks.setEnabled(True)
+    window.networks.setCurrentRow(0)
+    window._activate(window.networks.currentItem())
+    assert gateway.calls == []
+    assert "unavailable while Ethernet" in window.status.text()
+    window.close()
+    parent.close()
 
 
 def test_empty_network_list_never_takes_invisible_focus(application: QApplication) -> None:

@@ -200,6 +200,9 @@ class PiDeckUpdateRow(UpdateRow):
         """Create a dedicated row for PiDeck's installed release."""
         self._pideck_info = info
         super().__init__("", "PiDeck", parent)
+        # About has a single row: focus only the buttons, never the container.
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.action.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.build_label.hide()
         # Check replaces the idle "Up to date" hint in the status column.
         self.check_button = QPushButton(tr(self._language, "check_for_updates"), self)

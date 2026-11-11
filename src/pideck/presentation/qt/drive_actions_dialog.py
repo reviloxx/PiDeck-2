@@ -138,6 +138,11 @@ class DriveActionsDialog(WallpaperDialog):
                 target = button
         (target or (self.buttons[0] if self.buttons else self.back)).setFocus(Qt.FocusReason.OtherFocusReason)
 
+    def set_busy(self, busy: bool) -> None:
+        """Disable action buttons while a mount/share worker runs; keep Back usable."""
+        for button in self.buttons:
+            button.setEnabled(not busy)
+
     def actions(self) -> tuple[str, ...]:
         """Return the offered action values in display order."""
         return tuple(str(button.property("action")) for button in self.buttons)
@@ -201,4 +206,3 @@ class DriveActionsDialog(WallpaperDialog):
 
     def _choose(self, action: DriveAction) -> None:
         self.action_chosen.emit(action.value)
-        self.accept()

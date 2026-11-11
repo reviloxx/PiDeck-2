@@ -8,6 +8,33 @@ from pideck.application.ports.network import NetworkError, WirelessNetwork
 from pideck.infrastructure.network_manager import NetworkManagerGateway
 
 
+def test_wired_link_reads_ethernet_and_ipv4(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Report the first connected Ethernet device and its IPv4 address."""
+    gateway = NetworkManagerGateway()
+
+    def run(arguments: list[str], *, secret: str | None = None, timeout: int = 20) -> str:
+        if "show" in arguments:
+            return "IP4.ADDRESS[1]:192.168.1.20/24\n"
+        return "enp3s0:ethernet:connected:Wired connection 1\nwlan0:wifi:disconnected:\n"
+
+    monkeypatch.setattr(gateway, "_run", run)
+    link = gateway.wired_link()
+    assert link is not None
+    assert link.device == "enp3s0"
+    assert link.connection == "Wired connection 1"
+    assert link.address == "192.168.1.20"
+
+
+def test_wired_link_absent_without_ethernet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Wi-Fi-only hosts do not expose a wired link."""
+    gateway = NetworkManagerGateway()
+    monkeypatch.setattr(
+        gateway, "_run",
+        lambda arguments, *, secret=None, timeout=20: "wlan0:wifi:connected:Home\n",
+    )
+    assert gateway.wired_link() is None
+
+
 @pytest.mark.parametrize(("exit_code", "connected"), [(0, True), (1, False)])
 def test_waits_for_connection_in_progress(
     monkeypatch: pytest.MonkeyPatch, exit_code: int, connected: bool,

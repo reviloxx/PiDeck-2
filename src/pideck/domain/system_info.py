@@ -75,6 +75,15 @@ class NetworkAddress:
 
 
 @dataclass(frozen=True, slots=True)
+class NetworkLink:
+    """Describe one NetworkManager ethernet or Wi-Fi device that is connected."""
+
+    device: str
+    kind: str
+    connection: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SystemInfo:
     """Aggregate all facts shown on the System information page."""
 
@@ -89,3 +98,4 @@ class SystemInfo:
     video_decoding: tuple[VideoDecodeInfo, ...] = ()
     audio_cards: tuple[AudioCardInfo, ...] = ()
     addresses: tuple[NetworkAddress, ...] = ()
+    links: tuple[NetworkLink, ...] = ()

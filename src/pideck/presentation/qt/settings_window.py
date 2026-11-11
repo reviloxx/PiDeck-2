@@ -388,13 +388,13 @@ class SettingsWindow(QDialog):
         self._pideck_scroll, page = self._scroll_page()
         layout = self._page_layout(page)
         self._pideck_row = PiDeckUpdateRow(self._pideck_info, page)
-        self._pideck_row.installEventFilter(self)
         self._pideck_row.activation_requested.connect(self._activate_pideck_update)
-        self._pideck_row.navigation_requested.connect(self._handle_update_navigation)
         layout.addWidget(self._pideck_row)
         self._pideck_check_button = self._pideck_row.check_button
         self._pideck_check_button.installEventFilter(self)
         self._pideck_check_button.clicked.connect(self._request_pideck_check)
+        self._pideck_action_button = self._pideck_row.action
+        self._pideck_action_button.installEventFilter(self)
         self._build_date_label = QLabel(page)
         self._build_date_label.setObjectName("settings_hint")
         layout.addWidget(self._build_date_label)
@@ -407,7 +407,7 @@ class SettingsWindow(QDialog):
         layout.addWidget(self._release_notes, stretch=1)
         layout.addStretch()
         self._page_controls[self._pideck_page] = [
-            self._pideck_row, self._pideck_check_button, self._release_notes,
+            self._pideck_check_button, self._pideck_action_button, self._release_notes,
         ]
         self._set_pideck_check_enabled(self._pideck_info)
         self._show_release_notes(self._pideck_info)
@@ -758,7 +758,21 @@ class SettingsWindow(QDialog):
 
     def _focus_first_page_control(self) -> None:
         """Focus the first usable control on the selected page."""
-        controls = self._page_controls.get(self._current_page, [])
+        controls = [
+            control for control in self._page_controls.get(self._current_page, [])
+            if control.isEnabled() and not control.isHidden()
+        ]
+        if controls:
+            controls[0].setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _focus_pideck_page_control(self) -> None:
+        """Focus the first visible About button or release notes after a status change."""
+        if self._pideck_page is None:
+            return
+        controls = [
+            control for control in self._page_controls.get(self._pideck_page, [])
+            if control.isEnabled() and not control.isHidden()
+        ]
         if controls:
             controls[0].setFocus(Qt.FocusReason.OtherFocusReason)
 
@@ -875,7 +889,7 @@ class SettingsWindow(QDialog):
                 self.reject()
             elif current in self._page_controls.get(0, []):
                 self._handle_row_activation(current)
-            elif current is self._pideck_row and self._pideck_row is not None:
+            elif self._pideck_page is not None and current is self._pideck_action_button:
                 self._activate_pideck_update()
             elif self._pideck_page is not None and current is self._pideck_check_button:
                 self._request_pideck_check()
@@ -1050,19 +1064,25 @@ class SettingsWindow(QDialog):
         self._pideck_info = info
         if self._pideck_row is not None:
             check_had_focus = self._pideck_check_button.hasFocus()
+            action_had_focus = self._pideck_action_button.hasFocus()
             self._pideck_row.set_pideck_info(info)
             self._set_pideck_check_enabled(info)
             if check_had_focus and (
                 self._pideck_check_button.isHidden()
                 or not self._pideck_check_button.isEnabled()
             ):
-                self._pideck_row.setFocus(Qt.FocusReason.OtherFocusReason)
+                self._focus_pideck_page_control()
+            elif action_had_focus and (
+                self._pideck_action_button.isHidden()
+                or not self._pideck_action_button.isEnabled()
+            ):
+                self._focus_pideck_page_control()
             self._show_release_notes(info)
 
     def _show_release_notes(self, info: PiDeckUpdateInfo) -> None:
         """Show what's new in the available PiDeck release, if notes were published."""
-        if self._release_notes.hasFocus() and not info.release_notes and self._pideck_row is not None:
-            self._pideck_row.setFocus(Qt.FocusReason.OtherFocusReason)
+        if self._release_notes.hasFocus() and not info.release_notes:
+            self._focus_pideck_page_control()
         self._release_notes.set_notes(info.release_notes)
         self._release_notes_title.setVisible(bool(info.release_notes))
         self._release_notes_title.setText(tr(
@@ -1076,9 +1096,10 @@ class SettingsWindow(QDialog):
             PiDeckUpdateStatus.AVAILABLE,
             PiDeckUpdateStatus.FAILED,
         )
-        if not enabled and self._pideck_check_button.hasFocus() and self._pideck_row is not None:
-            self._pideck_row.setFocus(Qt.FocusReason.OtherFocusReason)
+        check_had_focus = self._pideck_check_button.hasFocus()
         self._pideck_check_button.setEnabled(enabled)
+        if not enabled and check_had_focus:
+            self._focus_pideck_page_control()
 
     def _request_pideck_check(self) -> None:
         """Request a fresh release check without starting an update."""
@@ -1181,12 +1202,17 @@ class SettingsWindow(QDialog):
         if key == Qt.Key.Key_Escape:
             self.reject()
             return True
-        if self._pideck_page is not None and watched is self._pideck_check_button:
+        if self._pideck_page is not None and watched in (
+            self._pideck_check_button, self._pideck_action_button,
+        ):
             if key in (Qt.Key.Key_Left, Qt.Key.Key_Up, Qt.Key.Key_Down):
                 self._handle_update_navigation(key)
                 return True
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self._request_pideck_check()
+                if watched is self._pideck_check_button:
+                    self._request_pideck_check()
+                else:
+                    self._activate_pideck_update()
                 return True
         if watched in self._nav_buttons:
             nav_index = self._nav_buttons.index(watched)

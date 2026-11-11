@@ -4,16 +4,19 @@ import json
 import os
 from pathlib import Path
 
-from pideck.domain.system_info import AudioCardInfo, GpuInfo, MemoryInfo, NetworkAddress
+from pideck.domain.system_info import (
+    AudioCardInfo, CpuInfo, GpuInfo, MemoryInfo, NetworkAddress, NetworkLink, SystemInfo,
+)
 from pideck.infrastructure.system_info import LinuxSystemInfoGateway
 from pideck.infrastructure.system_info.commands import run_command
 from pideck.infrastructure.system_info.gpu import parse_lspci_name, read_gpus
-from pideck.infrastructure.system_info.network import parse_ip_addresses
+from pideck.infrastructure.system_info.network import parse_ip_addresses, parse_network_links
 from pideck.infrastructure.system_info.procfs import (
     parse_asound_cards, parse_cpuinfo, parse_meminfo, parse_os_release, parse_uptime, read_audio_cards,
 )
 from pideck.infrastructure.system_info.sensors import read_cpu_temperature
 from pideck.infrastructure.system_info.video_decode import codec_family, parse_vainfo, parse_vdpauinfo
+from pideck.presentation.qt.system_info_format import system_info_sections
 
 CPUINFO = "".join(
     f"processor\t: {thread}\nmodel name\t: Intel(R) Core(TM) i3-6100T CPU @ 3.20GHz\n"
@@ -197,6 +200,31 @@ def test_ip_addresses_skip_loopback_and_link_local() -> None:
     assert parse_ip_addresses("not json") == ()
 
 
+def test_network_links_include_connected_ethernet_and_wifi() -> None:
+    """Only connected data devices become System information link rows."""
+    text = (
+        "enp3s0:ethernet:connected:Wired connection 1\n"
+        "wlan0:wifi:disconnected:\n"
+        "lo:loopback:unmanaged:\n"
+    )
+    assert parse_network_links(text) == (
+        NetworkLink("enp3s0", "ethernet", "Wired connection 1"),
+    )
+    assert parse_network_links("bad") == ()
+
+
+def test_system_info_shows_ethernet_without_addresses() -> None:
+    """A cable without a published address is still shown as connected."""
+    info = SystemInfo(
+        "0.3.13", None, None, None, CpuInfo(None, None, None, None), None, None,
+        links=(NetworkLink("enp3s0", "ethernet", "Wired connection 1"),),
+    )
+    network = dict(dict(system_info_sections(info, "en"))["Network"])
+    assert network == {"Ethernet (enp3s0)": "Wired connection 1"}
+    offline = SystemInfo("0.3.13", None, None, None, CpuInfo(None, None, None, None), None, None)
+    assert dict(dict(system_info_sections(offline, "en"))["Network"]) == {"Not connected": ""}
+
+
 def test_missing_diagnostic_tool_returns_none() -> None:
     """A tool that is not installed is not an error."""
     assert run_command(["pideck-definitely-missing-tool"]) is None
@@ -213,5 +241,5 @@ def test_gateway_degrades_gracefully_on_an_empty_host(tmp_path: Path) -> None:
     assert info.cpu.model is None and info.cpu.threads == os.cpu_count()
     assert info.memory is None and info.disk is None and info.uptime_seconds is None
     assert info.operating_system is None
-    assert info.gpus == () and info.audio_cards == () and info.addresses == ()
+    assert info.gpus == () and info.audio_cards == () and info.addresses == () and info.links == ()
     assert [decoder.available for decoder in info.video_decoding] == [False, False]

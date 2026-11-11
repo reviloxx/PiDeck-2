@@ -437,19 +437,27 @@ class DrivesWindow(WallpaperDialog):
             dialog.reject()
             return
         shared = self._shares.is_shared(drive.uuid)
+        # Keep showing actions for the current state while a worker runs; disable via set_busy.
         actions = available_actions(
             drive,
-            busy=self._busy,
+            busy=False,
             share_available=self._shares.available(),
             shared=shared,
         )
         if not actions:
             dialog.reject()
             return
+        focus: DriveAction | None = None
+        focused = dialog.focusWidget()
+        if isinstance(focused, QPushButton):
+            value = focused.property("action")
+            if value in {action.value for action in DriveAction}:
+                focus = DriveAction(str(value))
         share_name = self._shares.share_name(drive) if shared else None
         share_url = smb_url(share_name) if share_name else None
         dialog.set_details(drive, shared=shared, share_name=share_name, share_url=share_url)
-        dialog.set_actions(actions)
+        dialog.set_actions(actions, focus=focus)
+        dialog.set_busy(self._busy)
 
     def handle_input(self, event: InputEvent) -> None:
         """Forward normalized controller input to the focused control or menu."""

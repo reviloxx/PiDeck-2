@@ -4,6 +4,16 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.85
+
+- Fixed: About focuses only the Check / Update buttons, not the whole row, so
+  remote and controller selection works reliably; German check label shortened.
+- Fixed: Drive options stay open after mount, unmount, or share and refresh
+  the current state instead of closing.
+- Added: Network settings and System information show Ethernet when a cable is
+  connected; Wi-Fi setup is unavailable while Ethernet is up so the box does
+  not dual-home.
+
 ## v0.5.84
 
 - Fixed: Sharing several drives with the same volume label (for example

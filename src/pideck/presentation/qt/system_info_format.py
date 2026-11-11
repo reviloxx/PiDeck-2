@@ -106,7 +106,21 @@ def _audio(info: SystemInfo, language: str, missing: str) -> Section:
 
 def _network(info: SystemInfo, language: str) -> Section:
     rows = tuple((address.interface, address.address) for address in info.addresses)
-    return tr(language, "system_info_network"), rows or ((tr(language, "system_info_no_addresses"), ""),)
+    if rows:
+        return tr(language, "system_info_network"), rows
+    link_rows: list[Row] = []
+    for link in info.links:
+        if link.kind == "ethernet":
+            label = tr(language, "system_info_ethernet", device=link.device)
+        elif link.kind == "wifi":
+            label = tr(language, "system_info_wifi", device=link.device)
+        else:
+            label = link.device
+        detail = link.connection or tr(language, "system_info_link_connected")
+        link_rows.append((label, detail))
+    if link_rows:
+        return tr(language, "system_info_network"), tuple(link_rows)
+    return tr(language, "system_info_network"), ((tr(language, "system_info_no_addresses"), ""),)
 
 
 def system_info_sections(info: SystemInfo, language: str) -> tuple[Section, ...]:

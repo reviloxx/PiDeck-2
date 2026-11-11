@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from pideck.application.ports.input import InputAction, InputEvent
-from pideck.application.ports.network import NetworkError, NetworkGateway, WirelessNetwork
+from pideck.application.ports.network import NetworkError, NetworkGateway, WiredLink, WirelessNetwork
 from pideck.domain.keyboard_layout import DEFAULT_KEYBOARD_LAYOUT, KeyboardLayout
 from pideck.domain.theme import ThemeDefinition
 
@@ -151,6 +151,7 @@ class NetworkWindow(WallpaperDialog):
         self._language = language
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pideck-network")
         self._closed = False
+        self._wired: WiredLink | None = None
         self._key_dialog: WirelessKeyDialog | None = None
         self.setWindowTitle(tr(language, "network"))
         self.setModal(True)
@@ -190,20 +191,32 @@ class NetworkWindow(WallpaperDialog):
         future.add_done_callback(finish)
 
     def scan(self) -> None:
-        """Refresh access points asynchronously."""
-        def inspect() -> tuple[bool, tuple[WirelessNetwork, ...]]:
-            return self._gateway.connected(), self._gateway.scan()
+        """Refresh wired status and access points asynchronously."""
+        def inspect() -> tuple[WiredLink | None, bool, tuple[WirelessNetwork, ...]]:
+            return self._gateway.wired_link(), self._gateway.connected(), self._gateway.scan()
 
         self._submit("scan", inspect)
+
+    def _status_text(self, wired: WiredLink | None, connected: bool) -> str:
+        if wired is not None:
+            if wired.address:
+                return tr(
+                    self._language, "network_wired_status",
+                    device=wired.device, address=wired.address,
+                )
+            return tr(self._language, "network_wired_connected", device=wired.device)
+        if connected:
+            return tr(self._language, "wifi_connected")
+        return tr(self._language, "network_disconnected")
 
     def _finish_operation(self, operation: str, future: Future) -> None:
         if self._closed:
             return
-        self.networks.setEnabled(True)
         self.rescan.setEnabled(True)
         try:
             result = future.result()
         except NetworkError as error:
+            self.networks.setEnabled(True)
             set_status(self.status, tr(self._language, "wifi_error", message=str(error)), error=True)
             if operation == "scan":
                 self.connection_status.setText(tr(
@@ -214,6 +227,7 @@ class NetworkWindow(WallpaperDialog):
             return
         except Exception as error:
             _LOGGER.error("Unexpected network operation failure: %s", type(error).__name__)
+            self.networks.setEnabled(True)
             set_status(self.status, tr(self._language, "wifi_error", message=tr(self._language, "wifi_unavailable")), error=True)
             if operation == "scan":
                 self.connection_status.setText(tr(
@@ -223,16 +237,21 @@ class NetworkWindow(WallpaperDialog):
             self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         if operation == "connect":
+            self.networks.setEnabled(True)
             set_status(self.status, tr(self._language, "wifi_connected"))
             self.connection_status.setText(tr(
                 self._language, "network_connection_status",
                 status=tr(self._language, "wifi_connected"),
             ))
+            self.scan()
             return
-        connected, networks = result
+        wired, connected, networks = result
+        self._wired = wired
+        wifi_allowed = wired is None
+        self.networks.setEnabled(wifi_allowed)
         self.connection_status.setText(tr(
             self._language, "network_connection_status",
-            status=tr(self._language, "wifi_connected" if connected else "network_disconnected"),
+            status=self._status_text(wired, connected),
         ))
         self.networks.clear()
         for network in networks:
@@ -241,6 +260,11 @@ class NetworkWindow(WallpaperDialog):
                 text += f" - {tr(self._language, 'wifi_connected')}"
             item = QListWidgetItem(text, self.networks)
             item.setData(Qt.ItemDataRole.UserRole, network)
+        if not wifi_allowed:
+            set_status(self.status, tr(self._language, "network_wifi_blocked_by_lan"))
+            self.networks.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
         set_status(self.status, tr(self._language, "wifi_select" if networks else "wifi_empty"))
         self.networks.setFocusPolicy(Qt.FocusPolicy.StrongFocus if networks else Qt.FocusPolicy.NoFocus)
         if networks:
@@ -250,6 +274,9 @@ class NetworkWindow(WallpaperDialog):
             self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _activate(self, item: QListWidgetItem) -> None:
+        if self._wired is not None:
+            set_status(self.status, tr(self._language, "network_wifi_blocked_by_lan"), error=True)
+            return
         network = item.data(Qt.ItemDataRole.UserRole)
         if not isinstance(network, WirelessNetwork):
             set_status(self.status, tr(self._language, "wifi_unavailable"), error=True)
@@ -314,7 +341,7 @@ class NetworkWindow(WallpaperDialog):
                 self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
                 return True
         if watched in (self.rescan, self.back):
-            if key == Qt.Key.Key_Up and self.networks.count():
+            if key == Qt.Key.Key_Up and self.networks.count() and self.networks.isEnabled():
                 self.networks.setFocus(Qt.FocusReason.OtherFocusReason)
                 return True
             if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):

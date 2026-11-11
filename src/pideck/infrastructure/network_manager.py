@@ -4,29 +4,13 @@ import os
 import string
 import subprocess
 
-from pideck.application.ports.network import NetworkError, WirelessNetwork
-
-
-def _fields(line: str) -> list[str]:
-    """Decode nmcli's backslash-escaped, colon-separated output."""
-    fields: list[str] = []
-    current: list[str] = []
-    escaped = False
-    for character in line:
-        if escaped:
-            current.append(character)
-            escaped = False
-        elif character == "\\":
-            escaped = True
-        elif character == ":":
-            fields.append("".join(current))
-            current.clear()
-        else:
-            current.append(character)
-    if escaped:
-        raise NetworkError("NetworkManager returned invalid escaped output")
-    fields.append("".join(current))
-    return fields
+from pideck.application.ports.network import NetworkError, WiredLink, WirelessNetwork
+from pideck.infrastructure.nmcli_devices import (
+    connected_data_devices,
+    decode_nmcli_fields,
+    parse_device_list,
+    parse_ipv4_address,
+)
 
 
 class NetworkManagerGateway:
@@ -74,6 +58,32 @@ class NetworkManagerGateway:
             return result.returncode == 0
         return state.startswith("connected")
 
+    def wired_link(self) -> WiredLink | None:
+        """Return the first Ethernet device NetworkManager reports as connected."""
+        try:
+            output = self._run([
+                "--terse", "--escape", "yes", "--fields", "DEVICE,TYPE,STATE,CONNECTION", "device",
+            ])
+            devices = parse_device_list(output)
+        except ValueError as error:
+            raise NetworkError("NetworkManager returned invalid device data") from error
+        ethernet = next(
+            (
+                device for device in connected_data_devices(devices)
+                if device.type == "ethernet"
+            ),
+            None,
+        )
+        if ethernet is None:
+            return None
+        address: str | None = None
+        try:
+            show = self._run(["--terse", "--fields", "IP4.ADDRESS", "device", "show", ethernet.device])
+            address = parse_ipv4_address(show)
+        except NetworkError:
+            address = None
+        return WiredLink(ethernet.device, ethernet.connection or ethernet.device, address)
+
     def scan(self) -> tuple[WirelessNetwork, ...]:
         """Return named access points, retaining the strongest duplicate."""
         output = self._run([
@@ -84,7 +94,10 @@ class NetworkManagerGateway:
         for line in output.splitlines():
             if not line.strip():
                 continue
-            fields = _fields(line)
+            try:
+                fields = decode_nmcli_fields(line)
+            except ValueError as error:
+                raise NetworkError("NetworkManager returned invalid escaped output") from error
             if len(fields) != 5:
                 raise NetworkError("NetworkManager returned invalid access point data")
             ssid, device, security, signal, in_use = fields

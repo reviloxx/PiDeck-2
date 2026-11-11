@@ -10,7 +10,7 @@ from pideck.domain.system_info import CpuInfo, DiskInfo, SystemInfo
 
 from .commands import CommandRunner, run_command
 from .gpu import read_gpus
-from .network import read_addresses
+from .network import read_addresses, read_links
 from .procfs import (
     parse_cpuinfo, parse_meminfo, parse_os_release, parse_uptime, read_audio_cards, read_text,
 )
@@ -55,6 +55,7 @@ class LinuxSystemInfoGateway:
             video_decoding=read_video_decoding(self._run),
             audio_cards=read_audio_cards(self._proc, self._sysfs),
             addresses=read_addresses(self._run),
+            links=read_links(self._run),
         )
 
     def _disk(self) -> DiskInfo | None:
