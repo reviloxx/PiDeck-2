@@ -98,7 +98,7 @@ Stabilization
 
 - fix known bugs from real-world use on the Raspberry Pi 5
 - verify the full boot flow on all targets
-  (Pi 5 / Pi OS Lite, x86 / Debian minimal, VirtualBox)
+  (Pi 5 / Pi OS Lite, x86 / Debian minimal)
 - robust handling of application crashes, hangs and unexpected exits
 - reliable launcher maximize/minimize and global hotkey in every
   supported application

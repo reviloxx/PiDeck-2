@@ -73,8 +73,7 @@ def test_bundle_is_reproducible_and_contains_only_application_files(tmp_path: Pa
     with tarfile.open(bundle) as archive:
         names = archive.getnames()
         assert "python/pideck/bootstrap.py" in names
-        assert "python/pideck/infrastructure/cec_support/71-pideck-cec-attach.rules" in names
-        assert "python/pideck/infrastructure/cec_support/pideck-cec-attach@.service" in names
+        assert not any("cec_support" in name for name in names)
         picom = "python/pideck/infrastructure/session/picom.conf"
         nvidia = "python/pideck/infrastructure/session/picom-nvidia.conf"
         vm = "python/pideck/infrastructure/session/picom-vm.conf"

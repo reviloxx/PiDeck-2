@@ -15,7 +15,6 @@ The Linux desktop must never be visible during normal operation.
 |---|---|---|---|
 | Primary | Raspberry Pi 5 | Raspberry Pi OS Lite 64-bit | Raspberry Pi image |
 | Secondary | x86 (64-bit) hardware | Debian minimal | x86 image (optimized for Intel and NVIDIA hardware) |
-| Development | VirtualBox VM | Debian minimal | VirtualBox image |
 
 Notes:
 
@@ -23,10 +22,11 @@ Notes:
   PiDeck brings its own display stack (e.g. a minimal Wayland compositor
   or X server, started automatically).
 - Platform differences (hardware video decoding, CEC adapter, GPU drivers)
-  are isolated in a platform abstraction layer.
-- The VirtualBox target must be fully usable for UI and logic development.
-  Features without VM support (HDMI-CEC, hardware decoding) are mockable
-  or simulated.
+  live in the image builders; the application core stays capability-based
+  (arch catalog installs, runtime GPU/CEC probes).
+- UI and logic development use the host desktop launcher plus tests.
+  Appliance validation uses real hardware. The same x86 image may be
+  smoke-booted in a VM optionally; there is no separate VirtualBox image.
 
 ---
 
@@ -37,8 +37,8 @@ application updates.
 
 ### Platform images
 
-- There are three independent images, one per target platform
-  (Raspberry Pi, x86, VirtualBox).
+- There are two independent images, one per target platform
+  (Raspberry Pi, x86).
 - Only platform-specific changes, such as hardware support or boot
   optimizations, require a new image version, and only for the affected
   platform.
@@ -150,7 +150,7 @@ Desired features:
 - optional power management
 
 Availability depends on the platform (Pi 5 has native CEC; x86 needs a
-USB-CEC adapter; VirtualBox has none).
+USB-CEC adapter). Features without hardware support degrade gracefully.
 
 ---
 

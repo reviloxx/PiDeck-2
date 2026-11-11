@@ -6,7 +6,7 @@ __pycache__/
 build/
 dist/
 *.log
-/image-output/x86/
-/image-output/x86.new/
-/image-output/VirtualBox/
-/image-output/Raspberry Pi/
+/image-output/
+/vm-test/
+*.qcow2
+*.vdi

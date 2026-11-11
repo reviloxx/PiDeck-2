@@ -32,10 +32,15 @@ install -m 644 files/smb.conf "${ROOTFS_DIR}/etc/samba/smb.conf"
 printf '%s\n' '# Managed by PiDeck. Do not edit; Settings > Drives rewrites this file.' \
     > "${ROOTFS_DIR}/var/lib/pideck/samba/shares.conf"
 install -m 644 files/00-pideck-keyboard.conf "${ROOTFS_DIR}/etc/X11/xorg.conf.d/00-pideck-keyboard.conf"
-install -m 644 files/project/src/pideck/infrastructure/cec_support/71-pideck-cec-attach.rules \
+install -m 644 files/71-pideck-cec-attach.rules \
     "${ROOTFS_DIR}/etc/udev/rules.d/71-pideck-cec-attach.rules"
-install -m 644 files/project/src/pideck/infrastructure/cec_support/pideck-cec-attach@.service \
+install -m 644 files/pideck-cec-attach@.service \
     "${ROOTFS_DIR}/etc/systemd/system/pideck-cec-attach@.service"
+install -d "${ROOTFS_DIR}/usr/share/pideck/cec_support"
+install -m 644 files/71-pideck-cec-attach.rules \
+    "${ROOTFS_DIR}/usr/share/pideck/cec_support/71-pideck-cec-attach.rules"
+install -m 644 files/pideck-cec-attach@.service \
+    "${ROOTFS_DIR}/usr/share/pideck/cec_support/pideck-cec-attach@.service"
 install -m 644 files/window-modes.yaml "${ROOTFS_DIR}/usr/share/pideck/config/window-modes.yaml"
 install -m 644 files/openbox/rc.xml "${ROOTFS_DIR}/usr/share/pideck/openbox/rc.xml"
 install -m 755 files/pideck-getty files/pideck-session files/pideck-xsession \

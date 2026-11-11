@@ -38,18 +38,16 @@ if command -v gsettings >/dev/null 2>&1; then
 fi
 
 # Composite fullscreen apps so the session overlay can blur what is on screen.
-# Prefer the updatable release profile for this GPU / VM; fall back for recovery.
+# Policy lives in select_picom_config(); fall back for recovery shells.
 if command -v picom >/dev/null 2>&1; then
-    SESSION_PICOM=/usr/lib/pideck/current/python/pideck/infrastructure/session
-    if [ -r /proc/driver/nvidia/version ] && [ -f "$SESSION_PICOM/picom-nvidia.conf" ]; then
-        PICOM_CONF="$SESSION_PICOM/picom-nvidia.conf"
-    elif command -v systemd-detect-virt >/dev/null 2>&1 \
-        && systemd-detect-virt >/dev/null 2>&1 \
-        && [ -f "$SESSION_PICOM/picom-vm.conf" ]; then
-        PICOM_CONF="$SESSION_PICOM/picom-vm.conf"
-    elif [ -f "$SESSION_PICOM/picom.conf" ]; then
-        PICOM_CONF="$SESSION_PICOM/picom.conf"
-    else
+    PICOM_CONF=""
+    if command -v python3 >/dev/null 2>&1; then
+        PICOM_CONF="$(
+            python3 -c 'from pideck.infrastructure.session.picom import select_picom_config; print(select_picom_config())' \
+                2>/dev/null || true
+        )"
+    fi
+    if [ -z "$PICOM_CONF" ] || [ ! -f "$PICOM_CONF" ]; then
         PICOM_CONF=/usr/lib/pideck/picom.conf
     fi
     picom --config "$PICOM_CONF" &

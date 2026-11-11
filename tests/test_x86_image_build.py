@@ -231,6 +231,15 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     config = YamlConfigurationParser().load(tmp_path / "usr/share/pideck/config/pideck.yaml")
     packages = set((x86_build.INPUTS / "packages.txt").read_text().split())
     assert [app.identifier for app in config.applications] == ["kodi", "youtube"]
+    youtube = next(app for app in config.applications if app.identifier == "youtube")
+    assert youtube.arguments == ("run", "com.ktechpit.red", "--tv")
+    catalog = load_catalog(ROOT / "assets/catalog/applications.yaml")
+    youtube_catalog = next(item for item in catalog if item.identifier == "youtube")
+    assert "--env=LIBVA_DRIVER_NAME=nvidia" in youtube_catalog.definition_for("amd64").arguments
+    chrome = next(item for item in catalog if item.identifier == "chrome")
+    assert "VaapiOnNvidiaGPUs" in "\x00".join(chrome.definition_for("amd64").arguments)
+    assert (x86_build.INPUTS / "pideck-video-profile.sh").is_file()
+    assert (x86_build.INPUTS / "chromium-pideck").is_file()
     assert {"kodi", "flatpak"} <= packages
     assert config.settings.language == "de"
     assert {
@@ -238,8 +247,15 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
         "cec-utils", "inputattach",
     } <= packages
     assert "alsa-utils" not in packages
-    assert (tmp_path / "etc/udev/rules.d/71-pideck-cec-attach.rules").is_file()
-    assert (tmp_path / "etc/systemd/system/pideck-cec-attach@.service").is_file()
+    assert (tmp_path / "etc/udev/rules.d/71-pideck-cec-attach.rules").read_text() == (
+        x86_build.PI_FILES / "71-pideck-cec-attach.rules"
+    ).read_text()
+    assert (tmp_path / "etc/systemd/system/pideck-cec-attach@.service").read_text() == (
+        x86_build.PI_FILES / "pideck-cec-attach@.service"
+    ).read_text()
+    assert (tmp_path / "usr/share/pideck/cec_support/71-pideck-cec-attach.rules").is_file()
+    assert not (ROOT / "src/pideck/infrastructure/cec_support").exists()
+    assert not (tmp_path / "usr/lib/pideck/python/pideck/infrastructure/cec_support").exists()
     assert "cec" in config.input.enabled_sources
     assert (tmp_path / "etc/udev/rules.d/70-pideck-cec.rules").read_text() == (
         x86_build.PI_FILES / "70-pideck-cec.rules"
@@ -266,8 +282,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
         x86_build.ROOT / "src/pideck/infrastructure/session/picom-vm.conf"
     ).read_text()
     xsession = (tmp_path / "usr/lib/pideck/pideck-xsession").read_text()
-    assert "picom-nvidia.conf" in xsession
-    assert "picom-vm.conf" in xsession
+    assert "select_picom_config" in xsession
+    assert "picom-nvidia.conf" not in xsession
+    assert "/usr/lib/pideck/picom.conf" in xsession
     assert "openbox-rc.xml" in xsession
     assert 'name="Frame"' not in (tmp_path / "usr/share/pideck/openbox/rc.xml").read_text()
     from image.update_bundle import project_version

@@ -3,8 +3,9 @@
 PiDeck has an experimental private-use x86-64 image builder in
 [`image/x86`](../image/x86). It uses Debian 13's minimal root filesystem,
 an X11/Openbox session and explicit packages installed without recommended
-packages. A development build has booted in QEMU and nested VirtualBox using
-BIOS and UEFI; **physical hardware remains unverified**. WPA2 connection and
+packages. Primary verification is on physical x86 hardware. A development
+build has also smoke-booted in QEMU and nested VirtualBox (BIOS and UEFI);
+those guests are optional and not a development target. WPA2 connection and
 reconnection have also been exercised with simulated Wi-Fi radios. Do not use
 it as your only system until the acceptance checks below pass. Debian packages and the
 Red (YouTube) Flatpak runtime change over time, so the builder does not claim
@@ -88,7 +89,7 @@ support once, then reboot:
 ```bash
 sudo apt-get update
 sudo apt-get install cec-utils inputattach
-CEC_SUPPORT=/usr/lib/pideck/current/python/pideck/infrastructure/cec_support
+CEC_SUPPORT=/usr/share/pideck/cec_support
 sudo install -m 644 "$CEC_SUPPORT/71-pideck-cec-attach.rules" /etc/udev/rules.d/
 sudo install -m 644 "$CEC_SUPPORT/pideck-cec-attach@.service" /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -96,9 +97,9 @@ sudo udevadm control --reload-rules
 sudo reboot
 ```
 
-Untagged images built before v0.3.10 cannot self-update; they need a new
-build or a separately installed application update before these files are
-available.
+Images that predate `/usr/share/pideck/cec_support` need a newer image flash;
+application updates no longer ship these udev/systemd units. Untagged images
+built before v0.3.10 cannot self-update either.
 `input.yaml` is initialized once with CEC enabled even if the old main YAML
 disabled it. Subsequent choices are preserved; use Settings → Input to disable
 CEC. Older releases do not read this file when rolling back. On reboot into an
@@ -264,33 +265,13 @@ setting to older images too, but mounting or sharing drives there reports
 that a newer image is required, because application updates do not install
 packages, polkit rules or Samba. Reflash to enable it.
 
-## VirtualBox
+## Optional VirtualBox smoke boot
 
-Verify the compressed image, then create a separate virtual disk:
-
-```bash
-cd image-output/x86
-sha256sum -c SHA256SUMS
-xz -dk pideck-x86_64.img.xz
-VBoxManage convertfromraw pideck-x86_64.img pideck-x86_64.vdi --format VDI
-```
-
-If the raw image from the build is already present, omit `xz -dk`. Attach the
-VDI to a new 64-bit Linux VM with a SATA controller, at least 4 GiB RAM,
-adequate video memory and a NAT or bridged network adapter. Test separately
-with VirtualBox EFI disabled and enabled. Do not attach the same raw image as
-a writable disk to two machines simultaneously. Configure the SATA controller
-with only as many ports as attached devices; unused virtual ports can
-significantly delay boot while the firmware and kernel probe them.
-For a faster VirtualBox BIOS boot, the firmware splash fades and delay can be
-reduced while the VM is powered off:
-
-```bash
-VBoxManage modifyvm PiDeck --firmware-logo-fade-in off \
-  --firmware-logo-fade-out off --firmware-logo-display-time 1
-```
-
-The shorter firmware display leaves less time to use its boot-selection menu.
+The same x86 image can be converted to a VDI
+(`VBoxManage convertfromraw … --format VDI`) for an occasional BIOS/UEFI smoke
+boot. That is not a development or acceptance target—prefer physical hardware
+and the host desktop launcher (see [AGENTS.md](../AGENTS.md)). Keep unused
+virtual SATA ports disabled; they slow firmware probe.
 
 The image boots its default GRUB entry without displaying a menu or waiting,
 including after an interrupted boot. Use external rescue media if recovery
@@ -318,11 +299,11 @@ unused ports in the system firmware when possible. Booting the image from an
 internal disk is faster than USB because the kernel does not wait for
 usb-storage to enumerate the root device.
 
-New builds use a PiDeck Plymouth splash while Linux starts. Firmware and
-VirtualBox screens before Linux starts are outside its control. Because GPU
-drivers load after the initramfs, the splash may appear before modeset is
-ready and can look incomplete until the driver finishes; when booting in BIOS
-mode it may not appear until later. Press Escape to switch to boot details,
+New builds use a PiDeck Plymouth splash while Linux starts. Firmware screens
+before Linux starts are outside its control. Because GPU drivers load after
+the initramfs, the splash may appear before modeset is ready and can look
+incomplete until the driver finishes; when booting in BIOS mode it may not
+appear until later. Press Escape to switch to boot details,
 and use the system journal when diagnosing failures; the splash does not
 remove journal entries. Graphics-driver availability may affect the splash on
 physical hardware. The splash uses the default theme's colors because it
@@ -445,8 +426,9 @@ configuration; printing is not included in this minimal image.
 Before relying on an image, record the build and compressed sizes, inspect the
 partition and package manifests, and test:
 
-- VirtualBox BIOS and UEFI first boot, subsequent boot, login, shutdown and
-  root expansion on a larger virtual disk.
+- Boot, display, audio, network and input checks on the target physical
+  hardware, including its specific firmware, login, shutdown and root
+  expansion on a larger disk.
 - Offline Wi-Fi prompt, skip, Settings entry, WPA connection and reconnect;
   Ethernet; keyboard, mouse and controller navigation.
 - Display mode confirmation, timeout rollback, and restoration after reboot;
@@ -456,8 +438,8 @@ partition and package manifests, and test:
 - Installing, launching and removing every catalog application from Settings,
   its external window, return to PiDeck, audio, video, updates, German user
   interface, and persistence across reboot and reinstallation.
-- The same boot, display, audio, network and input checks on the target
-  physical hardware, including its specific firmware.
+- Optionally, the same image smoke-booted in VirtualBox or QEMU (BIOS and
+  UEFI) for first boot and root expansion only—not a substitute for hardware.
 - Pulse-Eight detection and local-seat access; remote navigation and repeats
   in PiDeck and settings; Kodi remote operation; release/reacquisition on
   launch, failure, replacement and exit; unplug/reconnect and no unwanted

@@ -2,6 +2,19 @@
 
 PiDeck is a TV-first launcher for Raspberry Pi and x86-64 Linux appliances.
 Prefer evidence from a real device over stack another maximize OTA.
+Do not require VirtualBox for development or UI review.
+
+## UI/UX review (no VM)
+
+Use this ladder; do not boot VirtualBox for routine reviews:
+
+1. **Logic / regression** — `pytest` (offscreen Qt suite under `tests/`).
+2. **Visual / UX** — run the launcher on the host desktop (`PIDECK_IMAGE` unset):
+   `pideck --config config/pideck.yaml`, then capture PNGs with
+   [`scripts/ui-review-capture.sh`](scripts/ui-review-capture.sh) into
+   `/tmp/pideck-ui-review/` and inspect those images.
+3. **Appliance fidelity** — when Openbox, picom, maximize, Flatpak, or TV
+   geometry matter, use on-device SSH below (screenshot with `DISPLAY=:0`).
 
 ## On-device TV debug (SSH)
 

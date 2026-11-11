@@ -218,9 +218,12 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "00-pideck-keyboard.conf", root / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf")
     _install(PI_FILES / "bluetooth-input.conf", root / "etc/bluetooth/input.conf")
     _install(PI_FILES / "bluetooth-main.conf", root / "etc/bluetooth/main.conf")
-    cec_support = ROOT / "src/pideck/infrastructure/cec_support"
-    _install(cec_support / "71-pideck-cec-attach.rules", root / "etc/udev/rules.d/71-pideck-cec-attach.rules")
-    _install(cec_support / "pideck-cec-attach@.service", root / "etc/systemd/system/pideck-cec-attach@.service")
+    _install(PI_FILES / "71-pideck-cec-attach.rules", root / "etc/udev/rules.d/71-pideck-cec-attach.rules")
+    _install(PI_FILES / "pideck-cec-attach@.service", root / "etc/systemd/system/pideck-cec-attach@.service")
+    cec_share = root / "usr/share/pideck/cec_support"
+    cec_share.mkdir(parents=True, exist_ok=True)
+    _install(PI_FILES / "71-pideck-cec-attach.rules", cec_share / "71-pideck-cec-attach.rules")
+    _install(PI_FILES / "pideck-cec-attach@.service", cec_share / "pideck-cec-attach@.service")
     _install(INPUTS / "getty-override.conf", root / "etc/systemd/system/getty@tty1.service.d/pideck.conf")
     _install(INPUTS / "grub-pideck.cfg", root / "etc/default/grub.d/90-pideck.cfg")
     _install(INPUTS / "initramfs-pideck.conf", root / "etc/initramfs-tools/conf.d/pideck.conf")

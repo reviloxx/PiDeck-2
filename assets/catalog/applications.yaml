@@ -28,21 +28,24 @@ applications:
   - id: youtube
     name: YouTube
     executable: flatpak
-    # Best-effort NVIDIA VA-API for QtWebEngine; Red may still force software decode.
-    arguments: [
-      run,
-      --env=LIBVA_DRIVER_NAME=nvidia,
-      --env=NVD_BACKEND=direct,
-      "--env=QTWEBENGINE_CHROMIUM_FLAGS=--ignore-gpu-blocklist --enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
-      com.ktechpit.red,
-      --tv,
-    ]
+    arguments: [run, com.ktechpit.red, --tv]
     icon: ../assets/icons/youtube.svg
     preferred_input: cec
     cec: keyboard
     window: maximized
     install:
-      amd64: {method: flatpak, flatpak: com.ktechpit.red}
+      # Best-effort NVIDIA VA-API for QtWebEngine on x86; Red may still force software decode.
+      amd64:
+        method: flatpak
+        flatpak: com.ktechpit.red
+        arguments: [
+          run,
+          --env=LIBVA_DRIVER_NAME=nvidia,
+          --env=NVD_BACKEND=direct,
+          "--env=QTWEBENGINE_CHROMIUM_FLAGS=--ignore-gpu-blocklist --enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
+          com.ktechpit.red,
+          --tv,
+        ]
       arm64: {method: flatpak, flatpak: com.ktechpit.red}
   - id: steam-link
     name: Steam Link

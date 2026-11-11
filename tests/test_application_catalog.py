@@ -43,11 +43,20 @@ def test_catalog_is_launchable_in_tv_mode() -> None:
     assert app.identifier == "youtube"
     assert app.name == "YouTube"
     assert app.executable == "flatpak"
-    assert app.arguments[0] == "run"
-    assert "--env=LIBVA_DRIVER_NAME=nvidia" in app.arguments
-    assert any(arg.startswith("--env=QTWEBENGINE_CHROMIUM_FLAGS=") for arg in app.arguments)
-    assert app.arguments[-2:] == ("com.ktechpit.red", "--tv")
+    assert app.arguments == ("run", "com.ktechpit.red", "--tv")
     assert app.icon is not None and (ROOT / "config" / app.icon).is_file()
+
+
+def test_youtube_nvidia_vaapi_env_is_amd64_only() -> None:
+    """NVIDIA Flatpak env overrides live on install.amd64, not the shared base."""
+    catalog_entry = entry()
+    assert catalog_entry.application.arguments == ("run", "com.ktechpit.red", "--tv")
+    amd64 = catalog_entry.definition_for("amd64")
+    assert "--env=LIBVA_DRIVER_NAME=nvidia" in amd64.arguments
+    assert any(arg.startswith("--env=QTWEBENGINE_CHROMIUM_FLAGS=") for arg in amd64.arguments)
+    assert amd64.arguments[-2:] == ("com.ktechpit.red", "--tv")
+    arm64 = catalog_entry.definition_for("arm64")
+    assert arm64.arguments == ("run", "com.ktechpit.red", "--tv")
 
 
 def test_youtube_icon_renders_as_a_rounded_play_tile() -> None:

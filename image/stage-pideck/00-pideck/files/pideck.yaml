@@ -10,14 +10,9 @@ applications:
   - id: youtube
     name: YouTube
     executable: flatpak
-    arguments: [
-      run,
-      --env=LIBVA_DRIVER_NAME=nvidia,
-      --env=NVD_BACKEND=direct,
-      "--env=QTWEBENGINE_CHROMIUM_FLAGS=--ignore-gpu-blocklist --enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
-      com.ktechpit.red,
-      --tv,
-    ]
+    # Neutral seed for Pi and x86; amd64 appliance migrate picks up NVIDIA Flatpak
+    # env overrides from assets/catalog/applications.yaml install.amd64.
+    arguments: [run, com.ktechpit.red, --tv]
     profiles: []
     icon: ../assets/icons/youtube.svg
     preferred_input: cec

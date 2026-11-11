@@ -43,8 +43,13 @@ Disable removes the support keys and stops `ssh`.
    flatpak list
    wmctrl -m; wmctrl -d; wmctrl -lGpx
    ps aux | grep -E 'openbox|picom|pideck|brave|Xorg' | grep -v grep
+   # Optional UI screenshot for agent review (ImageMagick)
+   mkdir -p /tmp/pideck-ui-review
+   import -window root "/tmp/pideck-ui-review/tv-$(date +%Y%m%d-%H%M%S).png"
    # Zombies under bootstrap mean the WM died after release-config restart
    ```
+
+   Copy screenshots off the TV with `scp` when agents need visual evidence.
 
 5. Fix from that evidence only; ship an OTA when code must change. Blind
    maximize releases without SSH evidence have already failed on hardware.

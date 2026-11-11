@@ -135,14 +135,23 @@ def test_image_configuration_and_assets(tmp_path: Path) -> None:
     applications = {app.identifier: app for app in config.applications}
     assert list(applications) == ["kodi", "youtube"]
     youtube_args = applications["youtube"].arguments
-    assert youtube_args[0] == "run"
-    assert "--env=LIBVA_DRIVER_NAME=nvidia" in youtube_args
-    assert youtube_args[-2:] == ("com.ktechpit.red", "--tv")
+    assert youtube_args == ("run", "com.ktechpit.red", "--tv")
     assert not config.home.visible_applications or set(config.home.visible_applications) == set(applications)
     assert config.settings.language == "de"
     packages = (STAGE / "00-pideck" / "00-packages-nr").read_text().split()
     assert {"kodi", "flatpak"} <= set(packages)
     catalog = load_catalog(ROOT / "assets/catalog/applications.yaml")
+    youtube = next(item for item in catalog if item.identifier == "youtube")
+    assert youtube.application.arguments == ("run", "com.ktechpit.red", "--tv")
+    assert "--env=LIBVA_DRIVER_NAME=nvidia" not in youtube.definition_for("arm64").arguments
+    assert "--env=LIBVA_DRIVER_NAME=nvidia" in youtube.definition_for("amd64").arguments
+    assert not (ROOT / "src/pideck/infrastructure/cec_support").exists()
+    assert (FILES / "71-pideck-cec-attach.rules").is_file()
+    assert (FILES / "pideck-cec-attach@.service").is_file()
+    pi_files = {path.name for path in (STAGE / "00-pideck" / "files").iterdir()}
+    assert "pideck-video-profile.sh" not in pi_files
+    assert "chromium-pideck" not in pi_files
+    assert "nvidia-pideck.conf" not in pi_files
     optional = {
         package for entry in catalog if entry.identifier not in applications
         for package in entry.spec_for("arm64").packages
@@ -341,8 +350,16 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     assert (rootfs / "etc/udev/rules.d/70-pideck-cec.rules").read_text() == (
         FILES / "70-pideck-cec.rules"
     ).read_text()
-    assert (rootfs / "etc/udev/rules.d/71-pideck-cec-attach.rules").is_file()
-    assert (rootfs / "etc/systemd/system/pideck-cec-attach@.service").is_file()
+    assert (rootfs / "etc/udev/rules.d/71-pideck-cec-attach.rules").read_text() == (
+        FILES / "71-pideck-cec-attach.rules"
+    ).read_text()
+    assert (rootfs / "etc/systemd/system/pideck-cec-attach@.service").read_text() == (
+        FILES / "pideck-cec-attach@.service"
+    ).read_text()
+    assert (rootfs / "usr/share/pideck/cec_support/71-pideck-cec-attach.rules").is_file()
+    assert (rootfs / "usr/share/pideck/cec_support/pideck-cec-attach@.service").is_file()
+    assert not (ROOT / "src/pideck/infrastructure/cec_support").exists()
+    assert not (rootfs / "usr/lib/pideck/python/pideck/infrastructure/cec_support").exists()
     assert (rootfs / "usr/share/pideck/config/window-modes.yaml").read_text() == (
         FILES / "window-modes.yaml"
     ).read_text()
@@ -355,8 +372,9 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     assert "vsync = false" in picom
     assert "unredir-if-possible = false" in picom
     xsession = (rootfs / "usr/lib/pideck/pideck-xsession").read_text()
-    assert "picom-nvidia.conf" in xsession
-    assert "picom-vm.conf" in xsession
+    assert "select_picom_config" in xsession
+    assert "picom-nvidia.conf" not in xsession
+    assert "/usr/lib/pideck/picom.conf" in xsession
     assert "openbox-rc.xml" in xsession
     assert 'name="Frame"' not in (rootfs / "usr/share/pideck/openbox/rc.xml").read_text()
     assert (rootfs / "etc/systemd/system/getty@tty1.service.d/pideck.conf").is_file()

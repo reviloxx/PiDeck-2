@@ -31,4 +31,4 @@ pythonpath = ["src"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-pideck = ["py.typed", "infrastructure/cec_support/*"]
+pideck = ["py.typed"]
