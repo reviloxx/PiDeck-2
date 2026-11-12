@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.96
+
+- Changed: Home-screen **Turn off** / **Ausschalten** powers the system off again.
+  Suspend/hibernate was freezing the UI on the NVIDIA appliance without reliably
+  sleeping. Settings → Shutdown is unchanged.
+
 ## v0.5.95
 
 - Changed: Home-screen **Turn off** / **Ausschalten** suspends to RAM instead of

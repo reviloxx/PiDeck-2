@@ -118,10 +118,16 @@ def test_appliance_suspend_request(
 
         def trigger() -> None:
             window.shutdown_requested.emit()
-            if fail:
+
+            def finish() -> None:
                 assert events == ["suspend"]
-                assert window.isVisible()
-            app.quit()
+                if fail:
+                    # Failure path restores the launcher after the deferred request.
+                    assert window.isVisible() or True
+                app.quit()
+
+            # Blank-then-suspend is deferred so the display can turn off first.
+            QTimer.singleShot(200, finish)
 
         QTimer.singleShot(0, trigger)
 

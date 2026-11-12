@@ -981,10 +981,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
         application.quit()
 
     def handle_shutdown_request() -> None:
-        """Suspend or power off when configured, otherwise close the launcher."""
+        """Power off or suspend when configured, otherwise close the launcher."""
+        # Suspend/hibernate freeze userspace first; on this NVIDIA appliance that
+        # often hangs with a frozen HDMI frame and a dead NIC. Prefer power-off.
         try:
             if suspend_on_shutdown:
-                # Leave the session running so resume continues in PiDeck.
                 suspend(power)
             else:
                 shutdown(power, cleanup_session)
