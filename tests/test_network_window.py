@@ -15,7 +15,11 @@ from pideck.application.ports.network import NetworkError, WiredLink, WirelessNe
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.presentation.qt.localization import tr
-from pideck.presentation.qt.network_window import NetworkWindow, WirelessKeyDialog
+from pideck.presentation.qt.network_window import (
+    NetworkWindow,
+    WirelessKeyDialog,
+    format_link_speed,
+)
 from pideck.presentation.qt.settings_window import SettingsWindow
 from tests.test_configuration import configuration_document
 
@@ -216,21 +220,81 @@ class EmptyNetwork(FakeNetwork):
 
 
 def test_ethernet_hides_wifi_list_and_shows_summary(application: QApplication) -> None:
-    """Ethernet summary shows the link; Wi-Fi list stays hidden and connect is skipped."""
-    gateway = FakeNetwork(wired=WiredLink("enp3s0", "Wired connection 1", "192.168.1.20"))
+    """Ethernet summary shows the link speed; Wi-Fi list stays hidden and connect is skipped."""
+    gateway = FakeNetwork(
+        wired=WiredLink("enp3s0", "Wired connection 1", "192.168.1.20", speed_mbps=1000),
+    )
     parent = QWidget()
     parent.show()
     window = NetworkWindow(gateway, DEFAULT_THEME, "en", parent)
     window.show()
     _wait_for_networks(application, window)
     assert window.link_summary.title.text() == tr("en", "network_ethernet_label")
-    assert window.link_summary.status.text() == tr("en", "system_info_link_connected")
+    assert window.link_summary.status.text() == tr(
+        "en", "network_ethernet_connected_speed", speed=format_link_speed("en", 1000),
+    )
     assert window.link_summary.detail.text() == "192.168.1.20"
     assert window.link_summary.detail.isVisible()
     assert not window.networks.isVisible()
     assert window.networks.count() == 0
     assert not window.status.isVisible()
     assert gateway.calls == []
+    window.close()
+    parent.close()
+
+
+def test_ethernet_link_speed_updates_live_without_rescan(application: QApplication) -> None:
+    """Silent polling refreshes negotiated speed when the link changes."""
+    gateway = FakeNetwork(
+        wired=WiredLink("enp3s0", "Wired connection 1", "192.168.1.20", speed_mbps=100),
+    )
+    parent = QWidget()
+    parent.show()
+    window = NetworkWindow(gateway, DEFAULT_THEME, "en", parent)
+    window.show()
+    _wait_for_networks(application, window)
+    assert window.link_summary.status.text() == tr(
+        "en", "network_ethernet_connected_speed", speed=format_link_speed("en", 100),
+    )
+    gateway._wired = WiredLink("enp3s0", "Wired connection 1", "192.168.1.20", speed_mbps=1000)
+    window._poll_timer.stop()
+    window._poll_link()
+    for _ in range(100):
+        application.processEvents()
+        if window.link_summary.status.text() == tr(
+            "en", "network_ethernet_connected_speed", speed=format_link_speed("en", 1000),
+        ):
+            break
+        QTest.qWait(5)
+    assert window.link_summary.status.text() == tr(
+        "en", "network_ethernet_connected_speed", speed=format_link_speed("en", 1000),
+    )
+    window.close()
+    parent.close()
+
+
+def test_ethernet_unplug_restores_wifi_list(application: QApplication) -> None:
+    """Losing the wired link triggers a full scan so Wi-Fi setup returns."""
+    gateway = FakeNetwork(
+        wired=WiredLink("enp3s0", "Wired connection 1", "192.168.1.20", speed_mbps=1000),
+    )
+    parent = QWidget()
+    parent.show()
+    window = NetworkWindow(gateway, DEFAULT_THEME, "en", parent)
+    window.show()
+    _wait_for_networks(application, window)
+    assert not window.networks.isVisible()
+    gateway._wired = None
+    window._poll_timer.stop()
+    window._poll_link()
+    for _ in range(200):
+        application.processEvents()
+        if window.networks.isVisible() and window.networks.count() == 1:
+            break
+        QTest.qWait(5)
+    assert window.networks.isVisible()
+    assert window.networks.count() == 1
+    assert window.link_summary.title.text() == tr("en", "network_disconnected")
     window.close()
     parent.close()
 
@@ -259,6 +323,15 @@ def test_wifi_connected_marks_summary_and_row(application: QApplication) -> None
     assert not window.status.isVisible()
     window.close()
     parent.close()
+
+
+@pytest.mark.parametrize(
+    ("speed_mbps", "expected"),
+    [(1000, "1 Gb/s"), (100, "100 Mb/s"), (2500, "2500 Mb/s")],
+)
+def test_format_link_speed(speed_mbps: int, expected: str) -> None:
+    """Prefer whole-gigabit labels when the negotiated rate divides evenly."""
+    assert format_link_speed("en", speed_mbps) == expected
 
 
 def test_empty_network_list_never_takes_invisible_focus(application: QApplication) -> None:

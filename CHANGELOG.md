@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.92
+
+- Added: Network settings show the live Ethernet link speed (for example
+  ``1 Gb/s``) and update it when you unplug, replug, or the link rate changes.
+
 ## v0.5.91
 
 - Fixed: Launcher starts again after the Background styles update. Rendering no

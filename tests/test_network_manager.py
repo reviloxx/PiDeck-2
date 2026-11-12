@@ -1,16 +1,22 @@
 """Unit tests for the NetworkManager adapter and its secret handling."""
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from pideck.application.ports.network import NetworkError, WirelessNetwork
-from pideck.infrastructure.network_manager import NetworkManagerGateway
+from pideck.infrastructure.network_manager import NetworkManagerGateway, read_link_speed_mbps
 
 
-def test_wired_link_reads_ethernet_and_ipv4(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Report the first connected Ethernet device and its IPv4 address."""
-    gateway = NetworkManagerGateway()
+def test_wired_link_reads_ethernet_and_ipv4(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Report the first connected Ethernet device, IPv4 address, and link speed."""
+    speed_path = tmp_path / "enp3s0"
+    speed_path.mkdir()
+    (speed_path / "speed").write_text("1000\n", encoding="utf-8")
+    gateway = NetworkManagerGateway(sysfs_net=tmp_path)
 
     def run(arguments: list[str], *, secret: str | None = None, timeout: int = 20) -> str:
         if "show" in arguments:
@@ -23,6 +29,7 @@ def test_wired_link_reads_ethernet_and_ipv4(monkeypatch: pytest.MonkeyPatch) -> 
     assert link.device == "enp3s0"
     assert link.connection == "Wired connection 1"
     assert link.address == "192.168.1.20"
+    assert link.speed_mbps == 1000
 
 
 def test_wired_link_absent_without_ethernet(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,6 +40,20 @@ def test_wired_link_absent_without_ethernet(monkeypatch: pytest.MonkeyPatch) -> 
         lambda arguments, *, secret=None, timeout=20: "wlan0:wifi:connected:Home\n",
     )
     assert gateway.wired_link() is None
+
+
+@pytest.mark.parametrize("raw", ["-1\n", "0\n", "bad\n"])
+def test_read_link_speed_treats_invalid_sysfs_as_missing(tmp_path: Path, raw: str) -> None:
+    """Kernel down markers and unreadable speed files yield no speed."""
+    device = tmp_path / "enp3s0"
+    device.mkdir()
+    (device / "speed").write_text(raw, encoding="utf-8")
+    assert read_link_speed_mbps("enp3s0", sysfs_net=tmp_path) is None
+
+
+def test_read_link_speed_missing_device_is_none(tmp_path: Path) -> None:
+    """Absent sysfs nodes do not raise."""
+    assert read_link_speed_mbps("missing", sysfs_net=tmp_path) is None
 
 
 @pytest.mark.parametrize(("exit_code", "connected"), [(0, True), (1, False)])

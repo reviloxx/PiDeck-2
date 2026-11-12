@@ -4,7 +4,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from collections.abc import Callable
 import logging
 
-from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -27,6 +27,7 @@ from .wallpaper import WallpaperDialog
 _LOGGER = logging.getLogger(__name__)
 _SUMMARY_ICON_SIZE = 64
 _ROW_MARK_SIZE = 22
+_LINK_POLL_MS = 1000
 
 
 def _signal_bars(percent: int) -> str:
@@ -36,6 +37,13 @@ def _signal_bars(percent: int) -> str:
     if percent >= 33:
         return "▂▄▁"
     return "▂▁▁"
+
+
+def format_link_speed(language: str, speed_mbps: int) -> str:
+    """Format a negotiated Ethernet speed for the summary status line."""
+    if speed_mbps >= 1000 and speed_mbps % 1000 == 0:
+        return tr(language, "network_link_speed_gbps", speed=speed_mbps // 1000)
+    return tr(language, "network_link_speed_mbps", speed=speed_mbps)
 
 
 class NetworkLinkSummary(QFrame):
@@ -79,7 +87,13 @@ class NetworkLinkSummary(QFrame):
         if wired is not None:
             icon_key = "network_ethernet"
             self.title.setText(tr(self._language, "network_ethernet_label"))
-            self.status.setText(tr(self._language, "system_info_link_connected"))
+            if wired.speed_mbps is not None:
+                speed = format_link_speed(self._language, wired.speed_mbps)
+                self.status.setText(
+                    tr(self._language, "network_ethernet_connected_speed", speed=speed),
+                )
+            else:
+                self.status.setText(tr(self._language, "system_info_link_connected"))
             address = wired.address or ""
             self.detail.setText(address)
             self.detail.setVisible(bool(address))
@@ -260,8 +274,14 @@ class NetworkWindow(WallpaperDialog):
         self._language = language
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pideck-network")
         self._closed = False
+        self._busy = False
         self._wired: WiredLink | None = None
+        self._networks: tuple[WirelessNetwork, ...] = ()
+        self._connected = False
         self._key_dialog: WirelessKeyDialog | None = None
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(_LINK_POLL_MS)
+        self._poll_timer.timeout.connect(self._poll_link)
         self.setWindowTitle(tr(language, "network"))
         self.setModal(True)
         frame = build_system_window(self, tr(language, "network"), "")
@@ -289,7 +309,20 @@ class NetworkWindow(WallpaperDialog):
         set_status(self.status, tr(self._language, "wifi_working"))
         self.networks.setEnabled(False)
         self.rescan.setEnabled(False)
+        self._busy = True
         future = self._executor.submit(function, *arguments)
+        def finish(result: Future[object]) -> None:
+            if not self._closed:
+                self.operation_finished.emit(operation, result)
+
+        future.add_done_callback(finish)
+
+    def _submit_silent(self, operation: str, function: Callable[..., object], *arguments: object) -> None:
+        if self._closed or self._busy:
+            return
+        self._busy = True
+        future = self._executor.submit(function, *arguments)
+
         def finish(result: Future[object]) -> None:
             if not self._closed:
                 self.operation_finished.emit(operation, result)
@@ -303,8 +336,34 @@ class NetworkWindow(WallpaperDialog):
 
         self._submit("scan", inspect)
 
+    def _poll_link(self) -> None:
+        """Refresh Ethernet presence and link speed without a Wi-Fi rescan."""
+        def inspect() -> tuple[WiredLink | None, bool]:
+            return self._gateway.wired_link(), self._gateway.connected()
+
+        self._submit_silent("poll", inspect)
+
     def _finish_operation(self, operation: str, future: Future) -> None:
         if self._closed:
+            return
+        self._busy = False
+        if operation == "poll":
+            try:
+                wired, connected = future.result()
+            except Exception:
+                _LOGGER.debug("Silent network poll failed", exc_info=True)
+                return
+            previous = self._wired
+            if (previous is None) != (wired is None):
+                self.scan()
+                return
+            if wired is not None and wired != previous:
+                self._wired = wired
+                self._connected = connected
+                self.link_summary.update_link(wired, self._networks, connected)
+            elif wired is None and connected != self._connected:
+                self._connected = connected
+                self.link_summary.update_link(None, self._networks, connected)
             return
         self.rescan.setEnabled(True)
         try:
@@ -326,9 +385,13 @@ class NetworkWindow(WallpaperDialog):
             return
         wired, connected, networks = result
         self._wired = wired
+        self._connected = connected
+        self._networks = networks
         self.link_summary.update_link(wired, networks, connected)
         set_status(self.status, "")
         self.networks.clear()
+        if not self._poll_timer.isActive():
+            self._poll_timer.start()
         if wired is not None:
             self.networks.hide()
             self.networks.setEnabled(False)
@@ -436,4 +499,5 @@ class NetworkWindow(WallpaperDialog):
 
     def _finish(self, result: int) -> None:
         self._closed = True
+        self._poll_timer.stop()
         self._executor.shutdown(wait=False, cancel_futures=True)

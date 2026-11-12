@@ -35,6 +35,7 @@ class WiredLink:
     device: str
     connection: str
     address: str | None = None
+    speed_mbps: int | None = None
 
 
 class NetworkError(Exception):

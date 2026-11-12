@@ -3,6 +3,7 @@
 import os
 import string
 import subprocess
+from pathlib import Path
 
 from pideck.application.ports.network import NetworkError, WiredLink, WirelessNetwork
 from pideck.infrastructure.nmcli_devices import (
@@ -13,8 +14,20 @@ from pideck.infrastructure.nmcli_devices import (
 )
 
 
+def read_link_speed_mbps(device: str, *, sysfs_net: Path = Path("/sys/class/net")) -> int | None:
+    """Return negotiated link speed in Mb/s from sysfs, or None when unavailable."""
+    try:
+        value = int((sysfs_net / device / "speed").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 class NetworkManagerGateway:
     """Operate NetworkManager using noninteractive commands and private stdin."""
+
+    def __init__(self, *, sysfs_net: Path = Path("/sys/class/net")) -> None:
+        self._sysfs_net = sysfs_net
 
     def _run(
         self, arguments: list[str], *, secret: str | None = None, timeout: int = 20,
@@ -82,7 +95,12 @@ class NetworkManagerGateway:
             address = parse_ipv4_address(show)
         except NetworkError:
             address = None
-        return WiredLink(ethernet.device, ethernet.connection or ethernet.device, address)
+        return WiredLink(
+            ethernet.device,
+            ethernet.connection or ethernet.device,
+            address,
+            read_link_speed_mbps(ethernet.device, sysfs_net=self._sysfs_net),
+        )
 
     def scan(self) -> tuple[WirelessNetwork, ...]:
         """Return named access points, retaining the strongest duplicate."""
