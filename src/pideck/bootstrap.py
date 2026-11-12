@@ -11,7 +11,7 @@ import time
 from typing import TYPE_CHECKING, Callable, Sequence
 
 from pideck.application.dependencies import ApplicationDependencies
-from pideck.application.power import hibernate, shutdown
+from pideck.application.power import shutdown, suspend
 from pideck.application.session import (
     ApplicationSessionService,
     LaunchStatus,
@@ -370,9 +370,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
         help="Power off the host when the shutdown button is activated",
     )
     parser.add_argument(
+        "--suspend-on-shutdown",
+        action="store_true",
+        help="Suspend the host when the shutdown button is activated",
+    )
+    parser.add_argument(
         "--hibernate-on-shutdown",
         action="store_true",
-        help="Hibernate the host when the shutdown button is activated",
+        help="Deprecated alias for --suspend-on-shutdown",
     )
     parser.add_argument(
         "--validate-only",
@@ -449,12 +454,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
         status_changed=cec_status_bridge.status_received.emit,
         key_observed=cec_key_bridge.key_received.emit,
     )
+    suspend_on_shutdown = (
+        parsed_arguments.suspend_on_shutdown or parsed_arguments.hibernate_on_shutdown
+    )
     power = (
         SystemPower()
-        if parsed_arguments.power_off_on_shutdown or parsed_arguments.hibernate_on_shutdown
+        if parsed_arguments.power_off_on_shutdown or suspend_on_shutdown
         else None
     )
-    hibernate_on_shutdown = parsed_arguments.hibernate_on_shutdown
     settings_window: SettingsWindow | None = None
     catalog = dependencies.catalog
     catalog_error = dependencies.catalog_error
@@ -974,14 +981,15 @@ def main(arguments: Sequence[str] | None = None) -> int:
         application.quit()
 
     def handle_shutdown_request() -> None:
-        """Hibernate or power off when configured, otherwise close the launcher."""
+        """Suspend or power off when configured, otherwise close the launcher."""
         try:
-            if hibernate_on_shutdown:
-                hibernate(power, cleanup_session)
+            if suspend_on_shutdown:
+                # Leave the session running so resume continues in PiDeck.
+                suspend(power)
             else:
                 shutdown(power, cleanup_session)
         except PowerError as error:
-            action = "hibernate" if hibernate_on_shutdown else "power-off"
+            action = "suspend" if suspend_on_shutdown else "power-off"
             dependencies.logger.error("System %s failed: %s", action, error)
             window.show_power_error(str(error))
 

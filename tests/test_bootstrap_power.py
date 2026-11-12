@@ -74,21 +74,21 @@ def test_appliance_shutdown_request(
 
 
 @pytest.mark.parametrize("fail", [False, True])
-def test_appliance_hibernate_request(
+def test_appliance_suspend_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool
 ) -> None:
-    """A shutdown signal hibernates when configured; failures keep the launcher open."""
+    """A shutdown signal suspends when configured; failures keep the launcher open."""
     app = QApplication.instance() or QApplication([])
     events: list[str] = []
 
     class FakePower:
-        def hibernate(self) -> None:
-            events.append("hibernate")
+        def suspend(self) -> None:
+            events.append("suspend")
             if fail:
                 raise PowerError("denied")
 
         def power_off(self) -> None:
-            raise AssertionError("power_off must not run for hibernate-on-shutdown")
+            raise AssertionError("power_off must not run for suspend-on-shutdown")
 
     class FakeGamepad:
         def start(self, observer: object) -> None:
@@ -119,7 +119,7 @@ def test_appliance_hibernate_request(
         def trigger() -> None:
             window.shutdown_requested.emit()
             if fail:
-                assert events == ["hibernate"]
+                assert events == ["suspend"]
                 assert window.isVisible()
             app.quit()
 
@@ -128,9 +128,10 @@ def test_appliance_hibernate_request(
     monkeypatch.setattr(LauncherWindow, "show_launcher", show_and_trigger)
 
     assert bootstrap.main(
-        ["--config", str(tmp_path / "missing.yaml"), "--hibernate-on-shutdown"]
+        ["--config", str(tmp_path / "missing.yaml"), "--suspend-on-shutdown"]
     ) == 0
-    assert events == ["hibernate", "cleanup"]
+    # Suspend must not tear the session down; only the explicit quit above cleans up.
+    assert events == ["suspend", "cleanup"]
 
 
 @pytest.mark.parametrize("fail", [False, True])

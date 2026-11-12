@@ -286,8 +286,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "picom-nvidia.conf" not in xsession
     assert "/usr/lib/pideck/picom.conf" in xsession
     assert "openbox-rc.xml" in xsession
-    assert "--hibernate-on-shutdown" in xsession
+    assert "--suspend-on-shutdown" in xsession
     assert "--power-off-on-shutdown" not in xsession
+    assert "--hibernate-on-shutdown" not in xsession
     assert 'name="Frame"' not in (tmp_path / "usr/share/pideck/openbox/rc.xml").read_text()
     from image.update_bundle import project_version
 

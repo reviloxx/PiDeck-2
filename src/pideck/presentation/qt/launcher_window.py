@@ -556,7 +556,7 @@ class LauncherWindow(QMainWindow):
             return
         dialog = ConfirmationDialog(
             tr(self._language, "turn_off"),
-            tr(self._language, "hibernate_failed", message=message),
+            tr(self._language, "turn_off_failed", message=message),
             tr(self._language, "back"),
             tr(self._language, "back"),
             self._theme,

@@ -12,6 +12,10 @@ class SystemPower:
         """Request power-off and report rejected or unavailable requests."""
         self._request("poweroff", "power-off")
 
+    def suspend(self) -> None:
+        """Request suspend and report rejected or unavailable requests."""
+        self._request("suspend", "suspend")
+
     def hibernate(self) -> None:
         """Request hibernate and report rejected or unavailable requests."""
         self._request("hibernate", "hibernate")

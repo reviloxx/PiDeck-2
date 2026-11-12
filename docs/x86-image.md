@@ -317,10 +317,10 @@ separately applied system update or a newly built image.
 
 ### Hibernate / Turn off
 
-New x86 images pass `--hibernate-on-shutdown` from `pideck-xsession`, so the
-home-screen **Turn off** / **Ausschalten** button hibernates. Settings →
+New x86 images pass `--suspend-on-shutdown` from `pideck-xsession`, so the
+home-screen **Turn off** / **Ausschalten** button suspends to RAM. Settings →
 System → Shutdown remains a real power-off. Application OTA alone does not
-install swap, resume, polkit, or the xsession flag.
+install the xsession flag.
 
 To enable hibernate on an existing x86 appliance without reflashing, use
 [root SSH](remote-support.md#root-ssh-initramfs--systemd--image-files) and
@@ -334,18 +334,14 @@ install -m 644 image/x86/pideck-hibernate-swap.service \
 install -m 644 image/x86/52-pideck-login1.rules \
   /etc/polkit-1/rules.d/52-pideck-login1.rules
 systemctl enable --now pideck-hibernate-swap.service
-# Point the appliance session at hibernate (image file, not OTA current/):
-sed -i 's/--power-off-on-shutdown/--hibernate-on-shutdown/' \
+# Point the appliance session at suspend (image file, not OTA current/):
+sed -i 's/--power-off-on-shutdown/--suspend-on-shutdown/; s/--hibernate-on-shutdown/--suspend-on-shutdown/' \
   /usr/lib/pideck/pideck-xsession
-# Apply the app release (OTA or hot-install) *before* rebooting with the new
-# xsession flag, then reboot so GRUB picks up resume=.
+# Apply the app release (OTA or hot-install) before relying on the new flag.
 ```
 
-The flash target must have free space ≥ RAM plus about 256 MiB after root grow.
-If a boot hangs after enabling resume, interrupt firmware/boot, use recovery
-media, set `RESUME=none` in `/etc/initramfs-tools/conf.d/pideck-resume.conf`,
-run `update-initramfs -u`, and reboot (swapfile resume uses GRUB
-`resume=` / `resume_offset=` only).
+Swap/resume host pieces remain available for future hibernate work, but Turn off
+uses suspend because hibernate resume was unreliable on the NVIDIA appliance.
 
 The launcher wallpaper fills the window while preserving its aspect ratio;
 edges are cropped on screens with a different shape. The image's default
@@ -463,14 +459,14 @@ Before relying on an image, record the build and compressed sizes, inspect the
 partition and package manifests, and test:
 
 - Boot, display, audio, network and input checks on the target physical
-  hardware, including its specific firmware, login, Turn off (hibernate) and
+  hardware, including its specific firmware, login, Turn off (suspend) and
   root expansion on a larger disk.
 - Offline Wi-Fi prompt, skip, Settings entry, WPA connection and reconnect;
   Ethernet; keyboard, mouse and controller navigation.
 - Display mode confirmation, timeout rollback, and restoration after reboot;
   audio device selection, HDMI mode (surround PCM vs bitstream), and volume;
   Bluetooth discovery, pairing confirmation, connect/disconnect and cancellation;
-  restart and shutdown authorization; home-screen Turn off hibernates and
+  restart and shutdown authorization; home-screen Turn off suspends and
   resumes.
 - Installing, launching and removing every catalog application from Settings,
   its external window, return to PiDeck, audio, video, updates, German user

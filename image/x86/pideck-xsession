@@ -56,4 +56,4 @@ fi
 exec /usr/bin/python3 -m pideck.bootstrap \
     --config "$PIDECK_CONFIG" \
     --asset-root "$PIDECK_ASSET_ROOT" \
-    --hibernate-on-shutdown
+    --suspend-on-shutdown

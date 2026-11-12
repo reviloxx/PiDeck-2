@@ -1,4 +1,4 @@
-"""Coordinate appliance power-off, hibernate, and launcher cleanup."""
+"""Coordinate appliance power-off, sleep, and launcher cleanup."""
 
 from collections.abc import Callable
 from typing import Protocol
@@ -9,6 +9,10 @@ class PowerControl(Protocol):
 
     def power_off(self) -> None:
         """Request system power-off or raise an error if it fails."""
+        ...
+
+    def suspend(self) -> None:
+        """Request system suspend or raise an error if it fails."""
         ...
 
     def hibernate(self) -> None:
@@ -23,8 +27,13 @@ def shutdown(power: PowerControl | None, cleanup: Callable[[], None]) -> None:
     cleanup()
 
 
-def hibernate(power: PowerControl | None, cleanup: Callable[[], None]) -> None:
-    """Hibernate when configured, then clean up only after an accepted request."""
+def suspend(power: PowerControl | None) -> None:
+    """Suspend when configured; keep the session so resume can continue."""
+    if power is not None:
+        power.suspend()
+
+
+def hibernate(power: PowerControl | None) -> None:
+    """Hibernate when configured; keep the session so resume can continue."""
     if power is not None:
         power.hibernate()
-    cleanup()
