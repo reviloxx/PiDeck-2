@@ -197,17 +197,18 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "70-pideck-cec.rules", root / "etc/udev/rules.d/70-pideck-cec.rules")
     _install(PI_FILES / "window-modes.yaml", root / "usr/share/pideck/config/window-modes.yaml")
     _install(PI_FILES / "openbox/rc.xml", root / "usr/share/pideck/openbox/rc.xml")
-    for name in ("pideck-session", "pideck-xsession"):
-        _install(PI_FILES / name, lib / name, 0o755)
+    _install(PI_FILES / "pideck-session", lib / "pideck-session", 0o755)
+    _install(INPUTS / "pideck-xsession", lib / "pideck-xsession", 0o755)
     # VM-safe fallback for recovery shells and images without a current release tree.
     _install(ROOT / "src/pideck/infrastructure/session/picom-vm.conf", lib / "picom.conf")
-    for name in ("pideck-getty", "pideck-grow-root", "pideck-wait-drm"):
+    for name in ("pideck-getty", "pideck-grow-root", "pideck-hibernate-swap", "pideck-wait-drm"):
         _install(INPUTS / name, lib / name, 0o755)
     _install(PI_FILES / "pideck-profile.sh", root / "etc/profile.d/pideck.sh")
     _install(INPUTS / "pideck-network-profile.sh", root / "etc/profile.d/00-pideck-network.sh")
     _install(INPUTS / "49-pideck-network.rules", root / "etc/polkit-1/rules.d/49-pideck-network.rules")
     _install(PI_FILES / "50-pideck-udisks.rules", root / "etc/polkit-1/rules.d/50-pideck-udisks.rules")
     _install(PI_FILES / "51-pideck-timezone.rules", root / "etc/polkit-1/rules.d/51-pideck-timezone.rules")
+    _install(INPUTS / "52-pideck-login1.rules", root / "etc/polkit-1/rules.d/52-pideck-login1.rules")
     _install(PI_FILES / "smb.conf", root / "etc/samba/smb.conf")
     samba_shares = root / "var/lib/pideck/samba"
     samba_shares.mkdir(parents=True, exist_ok=True)
@@ -242,6 +243,10 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     for name in ("pideck-updater.service", "pideck-activate.service"):
         _install(PI_FILES / name, root / "etc/systemd/system" / name)
     _install(INPUTS / "pideck-grow-root.service", root / "etc/systemd/system/pideck-grow-root.service")
+    _install(
+        INPUTS / "pideck-hibernate-swap.service",
+        root / "etc/systemd/system/pideck-hibernate-swap.service",
+    )
     _install(INPUTS / "pideck-nvidia-load.service", root / "etc/systemd/system/pideck-nvidia-load.service")
     version = image_version(ROOT, tag)
     release = lib / "releases" / version
@@ -386,7 +391,8 @@ def _configure(root: Path, loop: str, tag: str | None) -> None:
         f"UUID={efi_uuid} /boot/efi vfat umask=0077 0 2\n", encoding="utf-8",
     )
     _run("systemctl", "--root", str(root), "enable", "NetworkManager", "bluetooth.service", "smbd.service",
-         "nmbd.service", "pideck-updater.service", "pideck-grow-root.service", "pideck-nvidia-load.service",
+         "nmbd.service", "pideck-updater.service", "pideck-grow-root.service",
+         "pideck-hibernate-swap.service", "pideck-nvidia-load.service",
          "getty@tty1.service")
     chroot("grub-install", "--target=i386-pc", "--no-nvram", loop)
     chroot("grub-install", "--target=x86_64-efi", "--efi-directory=/boot/efi",

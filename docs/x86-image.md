@@ -13,7 +13,9 @@ reproducible or globally minimal size.
 
 The raw image is 12 GiB and requires a disk at least that large. It contains a
 GPT BIOS boot partition, an EFI system partition and an ext4 root partition.
-It is intended for BIOS and 64-bit UEFI systems with Secure Boot disabled.
+After first boot, `pideck-hibernate-swap` creates a RAM-sized `/swapfile` for
+hibernate (the destination must leave free space ≥ RAM plus ~256 MiB). It is
+intended for BIOS and 64-bit UEFI systems with Secure Boot disabled.
 Larger destinations should expand the root partition and filesystem at boot.
 The installed size and package inventories are recorded by the build.
 The v0.5.0 build, which preinstalls only Kodi and Red, used approximately
@@ -287,7 +289,9 @@ blocking `systemd-modules-load`. Only the first console waits for that load,
 then for `/dev/dri/card0` (up to 20 seconds) before starting X, so the session
 does not start before the graphics driver is ready. The initramfs is compressed
 with zstd, which decompresses faster than the gzip fallback used when `zstd` is
-missing, and it skips the resume lookup because the image has no swap. New
+missing. Hibernate resume is configured after first boot by
+`pideck-hibernate-swap` (GRUB `resume=` / `resume_offset=` and
+`/etc/initramfs-tools/conf.d/pideck-resume.conf`). New
 builds install `intel-microcode` so Intel CPUs apply microcode updates from the
 initramfs. Steam Link's Flatpak runtime is installed with the default GL
 drivers and the GL extension for the image's NVIDIA driver, never one for the
@@ -310,6 +314,37 @@ physical hardware. The splash uses the default theme's colors because it
 starts before user theme settings are available. Boot components are not
 updated by PiDeck's application updater: an existing installation needs a
 separately applied system update or a newly built image.
+
+### Hibernate / Turn off
+
+New x86 images pass `--hibernate-on-shutdown` from `pideck-xsession`, so the
+home-screen **Turn off** / **Ausschalten** button hibernates. Settings →
+System → Shutdown remains a real power-off. Application OTA alone does not
+install swap, resume, polkit, or the xsession flag.
+
+To enable hibernate on an existing x86 appliance without reflashing, use
+[root SSH](remote-support.md#root-ssh-initramfs--systemd--image-files) and
+install the host pieces from this tree (or run the equivalent once):
+
+```bash
+# From a checkout on the maintainer machine, then on the TV as root:
+install -m 755 image/x86/pideck-hibernate-swap /usr/lib/pideck/pideck-hibernate-swap
+install -m 644 image/x86/pideck-hibernate-swap.service \
+  /etc/systemd/system/pideck-hibernate-swap.service
+install -m 644 image/x86/52-pideck-login1.rules \
+  /etc/polkit-1/rules.d/52-pideck-login1.rules
+# Drop RESUME=none if present:
+sed -i '/^RESUME=none$/d' /etc/initramfs-tools/conf.d/pideck.conf
+systemctl enable --now pideck-hibernate-swap.service
+# Point the appliance session at hibernate (image file, not OTA current/):
+sed -i 's/--power-off-on-shutdown/--hibernate-on-shutdown/' \
+  /usr/lib/pideck/pideck-xsession
+reboot
+```
+
+After reboot, ship or apply the application change that labels the button
+Turn off and calls `systemctl hibernate`. The flash target must have free
+space ≥ RAM plus about 256 MiB after root grow.
 
 The launcher wallpaper fills the window while preserving its aspect ratio;
 edges are cropped on screens with a different shape. The image's default
@@ -427,14 +462,15 @@ Before relying on an image, record the build and compressed sizes, inspect the
 partition and package manifests, and test:
 
 - Boot, display, audio, network and input checks on the target physical
-  hardware, including its specific firmware, login, shutdown and root
-  expansion on a larger disk.
+  hardware, including its specific firmware, login, Turn off (hibernate) and
+  root expansion on a larger disk.
 - Offline Wi-Fi prompt, skip, Settings entry, WPA connection and reconnect;
   Ethernet; keyboard, mouse and controller navigation.
 - Display mode confirmation, timeout rollback, and restoration after reboot;
   audio device selection, HDMI mode (surround PCM vs bitstream), and volume;
   Bluetooth discovery, pairing confirmation, connect/disconnect and cancellation;
-  restart and shutdown authorization.
+  restart and shutdown authorization; home-screen Turn off hibernates and
+  resumes.
 - Installing, launching and removing every catalog application from Settings,
   its external window, return to PiDeck, audio, video, updates, German user
   interface, and persistence across reboot and reinstallation.

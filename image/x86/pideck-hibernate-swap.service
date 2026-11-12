@@ -1,0 +1,11 @@
+[Unit]
+Description=Configure PiDeck hibernate swapfile and resume
+After=pideck-grow-root.service local-fs.target
+Before=getty@tty1.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/pideck/pideck-hibernate-swap
+
+[Install]
+WantedBy=multi-user.target

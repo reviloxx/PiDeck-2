@@ -337,7 +337,7 @@ class LauncherWindow(QMainWindow):
         """Translate launcher controls and switch the clock date format."""
         self._language = language if language in {"en", "de"} else "en"
         self._settings_button.setText(tr(self._language, "settings"))
-        self._shutdown_button.setText(tr(self._language, "shutdown"))
+        self._shutdown_button.setText(tr(self._language, "turn_off"))
         self._connected_inputs.set_language(self._language)
         self._update_clock()
 
@@ -356,7 +356,7 @@ class LauncherWindow(QMainWindow):
         settings.navigation_requested.connect(
             lambda direction: self._handle_action_navigation(settings, direction)
         )
-        shutdown = LauncherAction(tr(self._language, "shutdown"), self._root)
+        shutdown = LauncherAction(tr(self._language, "turn_off"), self._root)
         shutdown.setObjectName("launcher_action")
         shutdown.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         shutdown.setIcon(icon_for_path(self._theme.icons.get("power")))
@@ -390,7 +390,7 @@ class LauncherWindow(QMainWindow):
         """Ask for confirmation, then emit ``shutdown_requested``."""
         if self._dialog is not None:
             return
-        dialog = PowerDialog("shutdown", self._theme, self._language, self)
+        dialog = PowerDialog("turn_off", self._theme, self._language, self)
         self._dialog = dialog
 
         def finish(result: int) -> None:

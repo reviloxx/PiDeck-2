@@ -37,6 +37,12 @@ def test_appliance_shutdown_request(
         def close(self) -> None:
             events.append("cleanup")
 
+        def connected_gamepad_count(self) -> int:
+            return 0
+
+        def connected_keyboard_count(self) -> int:
+            return 0
+
     monkeypatch.setattr(bootstrap, "SystemPower", FakePower)
     monkeypatch.setattr(bootstrap, "EvdevGamepadAdapter", FakeGamepad)
     monkeypatch.setattr(QtWidgets, "QApplication", lambda _: app)
@@ -68,6 +74,66 @@ def test_appliance_shutdown_request(
 
 
 @pytest.mark.parametrize("fail", [False, True])
+def test_appliance_hibernate_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool
+) -> None:
+    """A shutdown signal hibernates when configured; failures keep the launcher open."""
+    app = QApplication.instance() or QApplication([])
+    events: list[str] = []
+
+    class FakePower:
+        def hibernate(self) -> None:
+            events.append("hibernate")
+            if fail:
+                raise PowerError("denied")
+
+        def power_off(self) -> None:
+            raise AssertionError("power_off must not run for hibernate-on-shutdown")
+
+    class FakeGamepad:
+        def start(self, observer: object) -> None:
+            pass
+
+        def close(self) -> None:
+            events.append("cleanup")
+
+        def connected_gamepad_count(self) -> int:
+            return 0
+
+        def connected_keyboard_count(self) -> int:
+            return 0
+
+    monkeypatch.setattr(bootstrap, "SystemPower", FakePower)
+    monkeypatch.setattr(bootstrap, "EvdevGamepadAdapter", FakeGamepad)
+    monkeypatch.setattr(QtWidgets, "QApplication", lambda _: app)
+    original_show = LauncherWindow.show_launcher
+    scheduled = False
+
+    def show_and_trigger(window: LauncherWindow) -> None:
+        nonlocal scheduled
+        original_show(window)
+        if scheduled:
+            return
+        scheduled = True
+
+        def trigger() -> None:
+            window.shutdown_requested.emit()
+            if fail:
+                assert events == ["hibernate"]
+                assert window.isVisible()
+            app.quit()
+
+        QTimer.singleShot(0, trigger)
+
+    monkeypatch.setattr(LauncherWindow, "show_launcher", show_and_trigger)
+
+    assert bootstrap.main(
+        ["--config", str(tmp_path / "missing.yaml"), "--hibernate-on-shutdown"]
+    ) == 0
+    assert events == ["hibernate", "cleanup"]
+
+
+@pytest.mark.parametrize("fail", [False, True])
 def test_confirmed_settings_restart_uses_host_power_adapter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool,
 ) -> None:
@@ -88,6 +154,13 @@ def test_confirmed_settings_restart_uses_host_power_adapter(
 
         def close(self) -> None:
             events.append("cleanup")
+
+        def connected_gamepad_count(self) -> int:
+            return 0
+
+        def connected_keyboard_count(self) -> int:
+            return 0
+
 
     monkeypatch.setattr(bootstrap, "SystemPower", FakePower)
     monkeypatch.setattr(bootstrap, "EvdevGamepadAdapter", FakeGamepad)

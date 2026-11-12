@@ -1,0 +1,102 @@
+#!/bin/sh
+# Create a RAM-sized swapfile and configure hibernate resume after root grow.
+set -eu
+
+SWAPFILE=/swapfile
+FSTAB=/etc/fstab
+GRUB_RESUME=/etc/default/grub.d/91-pideck-resume.cfg
+INITRAMFS_RESUME=/etc/initramfs-tools/conf.d/pideck-resume.conf
+
+mem_kib="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo)"
+if [ -z "$mem_kib" ] || [ "$mem_kib" -lt 1 ]; then
+    echo "PiDeck hibernate swap refused: unable to read MemTotal." >&2
+    exit 1
+fi
+expected_bytes=$((mem_kib * 1024))
+
+ensure_swapfile() {
+    if [ -f "$SWAPFILE" ]; then
+        actual="$(stat -c%s "$SWAPFILE")"
+        if [ "$actual" -eq "$expected_bytes" ]; then
+            return 0
+        fi
+        swapoff "$SWAPFILE" 2>/dev/null || true
+        rm -f "$SWAPFILE"
+    fi
+    available_kib="$(df -Pk / | awk 'NR==2 {print $4; exit}')"
+    # Leave a small free margin so the root filesystem stays usable.
+    needed_kib=$((mem_kib + 262144))
+    if [ -z "$available_kib" ] || [ "$available_kib" -lt "$needed_kib" ]; then
+        echo "PiDeck hibernate swap refused: need ${needed_kib} KiB free, have ${available_kib:-0}." >&2
+        exit 1
+    fi
+    # Prefer fallocate; fall back to dd on filesystems that reject it.
+    if ! fallocate -l "$expected_bytes" "$SWAPFILE" 2>/dev/null; then
+        dd if=/dev/zero of="$SWAPFILE" bs=1024 count="$mem_kib" status=none
+    fi
+    chmod 600 "$SWAPFILE"
+    mkswap "$SWAPFILE" >/dev/null
+}
+
+ensure_fstab() {
+    if grep -Eq '^[[:space:]]*/swapfile[[:space:]]' "$FSTAB"; then
+        return 0
+    fi
+    printf '\n/swapfile none swap sw 0 0\n' >>"$FSTAB"
+}
+
+resume_offset() {
+    # First physical extent start (ext4 swapfile resume).
+    filefrag -v "$SWAPFILE" | awk '
+        $1 == "0:" {
+            offset = $4
+            sub(/\.\.$/, "", offset)
+            print offset
+            exit
+        }
+    '
+}
+
+write_if_changed() {
+    path="$1"
+    content="$2"
+    temporary="${path}.tmp"
+    printf '%s\n' "$content" >"$temporary"
+    if [ -f "$path" ] && cmp -s "$temporary" "$path"; then
+        rm -f "$temporary"
+        return 1
+    fi
+    mv "$temporary" "$path"
+    return 0
+}
+
+ensure_swapfile
+ensure_fstab
+if ! swapon --show=NAME --noheadings | grep -qx "$SWAPFILE"; then
+    swapon "$SWAPFILE"
+fi
+
+uuid="$(findmnt -no UUID -T "$SWAPFILE")"
+offset="$(resume_offset)"
+if [ -z "$uuid" ] || [ -z "$offset" ]; then
+    echo "PiDeck hibernate swap refused: unable to compute resume UUID/offset." >&2
+    exit 1
+fi
+
+grub_content="# Managed by pideck-hibernate-swap. Do not edit by hand.
+GRUB_CMDLINE_LINUX_DEFAULT=\"\${GRUB_CMDLINE_LINUX_DEFAULT:+\$GRUB_CMDLINE_LINUX_DEFAULT }resume=UUID=${uuid} resume_offset=${offset}\""
+initramfs_content="# Managed by pideck-hibernate-swap. Do not edit by hand.
+RESUME=UUID=${uuid}"
+
+changed=0
+if write_if_changed "$GRUB_RESUME" "$grub_content"; then
+    changed=1
+fi
+if write_if_changed "$INITRAMFS_RESUME" "$initramfs_content"; then
+    changed=1
+fi
+
+if [ "$changed" -eq 1 ]; then
+    update-grub
+    update-initramfs -u -k all
+fi

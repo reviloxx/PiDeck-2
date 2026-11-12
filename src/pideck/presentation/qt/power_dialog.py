@@ -82,7 +82,7 @@ class PowerDialog(ConfirmationDialog):
 
     def __init__(self, action: str, theme: ThemeDefinition, language: str, parent: QWidget) -> None:
         """Create a power-action confirmation."""
-        if action not in {"restart", "shutdown"}:
+        if action not in {"restart", "shutdown", "turn_off"}:
             raise ValueError("Invalid system power action")
         super().__init__(
             tr(language, action), tr(language, f"confirm_{action}"),

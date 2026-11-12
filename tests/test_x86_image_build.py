@@ -286,6 +286,8 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "picom-nvidia.conf" not in xsession
     assert "/usr/lib/pideck/picom.conf" in xsession
     assert "openbox-rc.xml" in xsession
+    assert "--hibernate-on-shutdown" in xsession
+    assert "--power-off-on-shutdown" not in xsession
     assert 'name="Frame"' not in (tmp_path / "usr/share/pideck/openbox/rc.xml").read_text()
     from image.update_bundle import project_version
 
@@ -316,6 +318,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     timezone = (tmp_path / "etc/polkit-1/rules.d/51-pideck-timezone.rules").read_text()
     assert 'subject.user === "pideck"' in timezone and "subject.local && subject.active" in timezone
     assert "org.freedesktop.timedate1.set-timezone" in timezone
+    login1 = (tmp_path / "etc/polkit-1/rules.d/52-pideck-login1.rules").read_text()
+    assert 'subject.user === "pideck"' in login1 and "subject.local && subject.active" in login1
+    assert "org.freedesktop.login1.hibernate" in login1
     assert 'Option "XkbLayout" "de"' in (tmp_path / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf").read_text()
     assert "UserspaceHID=true" in (tmp_path / "etc/bluetooth/input.conf").read_text()
     assert "FastConnectable=true" in (tmp_path / "etc/bluetooth/main.conf").read_text()
@@ -342,7 +347,14 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
         for line in modules_load.splitlines()
     )
     assert "pideck-nvidia-load.service" in modules_load
-    assert "RESUME=none" in (tmp_path / "etc/initramfs-tools/conf.d/pideck.conf").read_text()
+    initramfs = (tmp_path / "etc/initramfs-tools/conf.d/pideck.conf").read_text()
+    assert "RESUME=none" not in initramfs
+    assert "pideck-hibernate-swap" in initramfs
+    assert (tmp_path / "usr/lib/pideck/pideck-hibernate-swap").is_file()
+    assert (tmp_path / "usr/lib/pideck/pideck-hibernate-swap").stat().st_mode & 0o111
+    hibernate_unit = (tmp_path / "etc/systemd/system/pideck-hibernate-swap.service").read_text()
+    assert "After=pideck-grow-root.service" in hibernate_unit
+    assert "ExecStart=/usr/lib/pideck/pideck-hibernate-swap" in hibernate_unit
     assert (tmp_path / "etc/initramfs-tools/hooks/pideck-slim").stat().st_mode & 0o111
     assert (tmp_path / "usr/share/plymouth/themes/pideck/pideck.script").is_file()
     assert {"plymouth", "plymouth-label"} <= packages
@@ -590,7 +602,14 @@ def test_source_changes_abort_before_compression(tmp_path: Path, monkeypatch: py
 
 @pytest.mark.parametrize(
     "name",
-    ["pideck-getty", "pideck-grow-root", "pideck-wait-drm", "initramfs-pideck-slim"],
+    [
+        "pideck-getty",
+        "pideck-grow-root",
+        "pideck-hibernate-swap",
+        "pideck-wait-drm",
+        "pideck-xsession",
+        "initramfs-pideck-slim",
+    ],
 )
 def test_x86_session_shell_is_valid(name: str) -> None:
     """Keep installed shell scripts syntactically valid."""

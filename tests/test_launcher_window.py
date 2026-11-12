@@ -79,7 +79,7 @@ def test_german_launcher_localizes_controls_and_clock(application: QApplication)
     window.set_language("de")
 
     assert window._settings_button.text() == "Einstellungen"
-    assert window._shutdown_button.text() == "Herunterfahren"
+    assert window._shutdown_button.text() == "Ausschalten"
     assert "." in window._clock_label.text()
     window.close()
 

@@ -69,6 +69,10 @@ ssh -i ~/.ssh/pideck-tv-support -o BatchMode=yes root@<TV_LAN_IP>
 
 Prefer root SSH for boot-image work; do not enable PasswordAuthentication.
 
+Hibernate host prep (swapfile, GRUB/initramfs resume, polkit, xsession flag)
+is documented under [x86 image → Hibernate / Turn off](x86-image.md#hibernate--turn-off).
+OTA does not apply those pieces.
+
 ### Historical bootstrap (do not reinject)
 
 Before path validation, Samba share enable accepted a path containing a

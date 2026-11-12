@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from pideck.application.power import shutdown
+from pideck.application.power import hibernate, shutdown
 from pideck.domain.errors import PowerError
 from pideck.infrastructure.system_power import SystemPower
 
@@ -23,6 +23,22 @@ def test_power_off_requests_noninteractive_system_shutdown(monkeypatch: pytest.M
     SystemPower().power_off()
 
     assert calls == [["systemctl", "poweroff", "--no-block", "--no-ask-password"]]
+
+
+def test_hibernate_requests_noninteractive_system_hibernate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Request hibernate without starting an interactive authentication prompt."""
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        assert kwargs["timeout"] == 10
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    SystemPower().hibernate()
+
+    assert calls == [["systemctl", "hibernate", "--no-block", "--no-ask-password"]]
 
 
 def test_power_off_reports_command_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -81,6 +97,31 @@ def test_shutdown_without_power_control_only_cleans_up() -> None:
     shutdown(None, lambda: events.append("cleanup"))
 
     assert events == ["cleanup"]
+
+
+def test_hibernate_cleans_up_only_after_request_succeeds() -> None:
+    """Keep services running if hibernate fails, and clean up on success."""
+    events: list[str] = []
+
+    class FakePower:
+        fail = True
+
+        def hibernate(self) -> None:
+            events.append("hibernate")
+            if self.fail:
+                raise PowerError("denied")
+
+        def power_off(self) -> None:
+            raise AssertionError("power_off must not run")
+
+    power = FakePower()
+    with pytest.raises(PowerError, match="denied"):
+        hibernate(power, lambda: events.append("cleanup"))
+    assert events == ["hibernate"]
+
+    power.fail = False
+    hibernate(power, lambda: events.append("cleanup"))
+    assert events == ["hibernate", "hibernate", "cleanup"]
 
 
 def test_restart_is_noninteractive_and_reports_failure(monkeypatch) -> None:
