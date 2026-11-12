@@ -83,10 +83,15 @@ if [ -z "$uuid" ] || [ -z "$offset" ]; then
     exit 1
 fi
 
+# Resume for a swap *file* must use the kernel cmdline (UUID of the filesystem
+# that holds the file + resume_offset). Do not set RESUME=UUID=... in
+# initramfs-tools: that UUID is the root filesystem, not a swap device, and
+# the resume hook can hang waiting for a matching swap partition.
 grub_content="# Managed by pideck-hibernate-swap. Do not edit by hand.
 GRUB_CMDLINE_LINUX_DEFAULT=\"\${GRUB_CMDLINE_LINUX_DEFAULT:+\$GRUB_CMDLINE_LINUX_DEFAULT }resume=UUID=${uuid} resume_offset=${offset}\""
 initramfs_content="# Managed by pideck-hibernate-swap. Do not edit by hand.
-RESUME=UUID=${uuid}"
+# Swapfile resume uses GRUB resume= / resume_offset= only.
+RESUME=none"
 
 changed=0
 if write_if_changed "$GRUB_RESUME" "$grub_content"; then

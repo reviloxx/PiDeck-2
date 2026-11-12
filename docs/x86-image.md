@@ -290,8 +290,8 @@ then for `/dev/dri/card0` (up to 20 seconds) before starting X, so the session
 does not start before the graphics driver is ready. The initramfs is compressed
 with zstd, which decompresses faster than the gzip fallback used when `zstd` is
 missing. Hibernate resume is configured after first boot by
-`pideck-hibernate-swap` (GRUB `resume=` / `resume_offset=` and
-`/etc/initramfs-tools/conf.d/pideck-resume.conf`). New
+`pideck-hibernate-swap` (GRUB `resume=` / `resume_offset=`; initramfs keeps
+`RESUME=none` because the swap target is a file, not a partition). New
 builds install `intel-microcode` so Intel CPUs apply microcode updates from the
 initramfs. Steam Link's Flatpak runtime is installed with the default GL
 drivers and the GL extension for the image's NVIDIA driver, never one for the
@@ -333,18 +333,19 @@ install -m 644 image/x86/pideck-hibernate-swap.service \
   /etc/systemd/system/pideck-hibernate-swap.service
 install -m 644 image/x86/52-pideck-login1.rules \
   /etc/polkit-1/rules.d/52-pideck-login1.rules
-# Drop RESUME=none if present:
-sed -i '/^RESUME=none$/d' /etc/initramfs-tools/conf.d/pideck.conf
 systemctl enable --now pideck-hibernate-swap.service
 # Point the appliance session at hibernate (image file, not OTA current/):
 sed -i 's/--power-off-on-shutdown/--hibernate-on-shutdown/' \
   /usr/lib/pideck/pideck-xsession
-reboot
+# Apply the app release (OTA or hot-install) *before* rebooting with the new
+# xsession flag, then reboot so GRUB picks up resume=.
 ```
 
-After reboot, ship or apply the application change that labels the button
-Turn off and calls `systemctl hibernate`. The flash target must have free
-space ≥ RAM plus about 256 MiB after root grow.
+The flash target must have free space ≥ RAM plus about 256 MiB after root grow.
+If a boot hangs after enabling resume, interrupt firmware/boot, use recovery
+media, set `RESUME=none` in `/etc/initramfs-tools/conf.d/pideck-resume.conf`,
+run `update-initramfs -u`, and reboot (swapfile resume uses GRUB
+`resume=` / `resume_offset=` only).
 
 The launcher wallpaper fills the window while preserving its aspect ratio;
 edges are cropped on screens with a different shape. The image's default
