@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.94
+
+- Fixed: Turn off shows an error dialog when hibernate fails instead of doing
+  nothing visible.
+- Fixed: x86 hibernate swapfile is fully written (not sparse) and uses
+  ``HibernateMode=shutdown`` so Ausschalten can hibernate on typical PCs.
+
 ## v0.5.93
 
 - Changed: The home-screen power button is now **Turn off** / **Ausschalten** and

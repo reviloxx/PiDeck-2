@@ -17,7 +17,7 @@ from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
 from pideck.presentation.qt.launcher_window import LauncherWindow, calculate_tile_columns
-from pideck.presentation.qt.power_dialog import PowerDialog
+from pideck.presentation.qt.power_dialog import ConfirmationDialog, PowerDialog
 from pideck.presentation.qt.spinner import BusySpinner
 from tests.test_configuration import configuration_document
 
@@ -85,13 +85,19 @@ def test_german_launcher_localizes_controls_and_clock(application: QApplication)
 
 
 def test_power_error_keeps_launcher_open(application: QApplication) -> None:
-    """A rejected power-off keeps the launcher open for another attempt."""
+    """A rejected power-off keeps the launcher open and explains the failure."""
+    from PySide6.QtWidgets import QLabel
+
     window = launcher_window(application)
     window.set_language("de")
 
     window.show_power_error("Not authorized")
 
     assert window.isVisible()
+    dialog = window.findChild(ConfirmationDialog)
+    assert dialog is not None
+    assert any("Not authorized" in label.text() for label in dialog.findChildren(QLabel))
+    dialog.reject()
     window.close()
 
 

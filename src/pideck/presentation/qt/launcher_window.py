@@ -550,8 +550,28 @@ class LauncherWindow(QMainWindow):
         self.session_failed.emit(application, message)
 
     def show_power_error(self, message: str) -> None:
-        """Keep the launcher usable when system power-off fails."""
+        """Keep the launcher usable and show why hibernate/power-off failed."""
         self.show_launcher()
+        if self._dialog is not None:
+            return
+        dialog = ConfirmationDialog(
+            tr(self._language, "turn_off"),
+            tr(self._language, "hibernate_failed", message=message),
+            tr(self._language, "back"),
+            tr(self._language, "back"),
+            self._theme,
+            self,
+        )
+        self._dialog = dialog
+
+        def finish(_result: int) -> None:
+            self._dialog = None
+            dialog.deleteLater()
+            self.activateWindow()
+            self._shutdown_button.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        dialog.finished.connect(finish)
+        dialog.open()
 
     def notify_session_visible(self, application: ApplicationDefinition) -> None:
         """Publish external application-window readiness safely to Qt."""

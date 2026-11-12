@@ -6,6 +6,8 @@ SWAPFILE=/swapfile
 FSTAB=/etc/fstab
 GRUB_RESUME=/etc/default/grub.d/91-pideck-resume.cfg
 INITRAMFS_RESUME=/etc/initramfs-tools/conf.d/pideck-resume.conf
+SLEEP_DROPIN_DIR=/etc/systemd/sleep.conf.d
+SLEEP_DROPIN="$SLEEP_DROPIN_DIR/pideck-hibernate.conf"
 
 mem_kib="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo)"
 if [ -z "$mem_kib" ] || [ "$mem_kib" -lt 1 ]; then
@@ -14,15 +16,22 @@ if [ -z "$mem_kib" ] || [ "$mem_kib" -lt 1 ]; then
 fi
 expected_bytes=$((mem_kib * 1024))
 
+swapfile_is_usable() {
+    # fallocate leaves unwritten/sparse extents; hibernate needs a fully written file.
+    [ -f "$SWAPFILE" ] || return 1
+    actual="$(stat -c%s "$SWAPFILE")"
+    [ "$actual" -eq "$expected_bytes" ] || return 1
+    allocated="$(du -B1 "$SWAPFILE" | awk '{print $1; exit}')"
+    [ "$allocated" -ge "$expected_bytes" ] || return 1
+    ! filefrag -v "$SWAPFILE" 2>/dev/null | grep -q unwritten
+}
+
 ensure_swapfile() {
-    if [ -f "$SWAPFILE" ]; then
-        actual="$(stat -c%s "$SWAPFILE")"
-        if [ "$actual" -eq "$expected_bytes" ]; then
-            return 0
-        fi
-        swapoff "$SWAPFILE" 2>/dev/null || true
-        rm -f "$SWAPFILE"
+    if swapfile_is_usable; then
+        return 0
     fi
+    swapoff "$SWAPFILE" 2>/dev/null || true
+    rm -f "$SWAPFILE"
     available_kib="$(df -Pk / | awk 'NR==2 {print $4; exit}')"
     # Leave a small free margin so the root filesystem stays usable.
     needed_kib=$((mem_kib + 262144))
@@ -30,10 +39,8 @@ ensure_swapfile() {
         echo "PiDeck hibernate swap refused: need ${needed_kib} KiB free, have ${available_kib:-0}." >&2
         exit 1
     fi
-    # Prefer fallocate; fall back to dd on filesystems that reject it.
-    if ! fallocate -l "$expected_bytes" "$SWAPFILE" 2>/dev/null; then
-        dd if=/dev/zero of="$SWAPFILE" bs=1024 count="$mem_kib" status=none
-    fi
+    # Fully write the file; fallocate holes break hibernate ("Cannot find swap device").
+    dd if=/dev/zero of="$SWAPFILE" bs=1024 count="$mem_kib" status=none
     chmod 600 "$SWAPFILE"
     mkswap "$SWAPFILE" >/dev/null
 }
@@ -43,6 +50,16 @@ ensure_fstab() {
         return 0
     fi
     printf '\n/swapfile none swap sw 0 0\n' >>"$FSTAB"
+}
+
+ensure_sleep_config() {
+    mkdir -p "$SLEEP_DROPIN_DIR"
+    # platform S4 is often unavailable; shutdown mode writes the image then powers off.
+    content="# Managed by pideck-hibernate-swap. Do not edit by hand.
+[Sleep]
+AllowHibernation=yes
+HibernateMode=shutdown"
+    write_if_changed "$SLEEP_DROPIN" "$content" || true
 }
 
 resume_offset() {
@@ -72,6 +89,7 @@ write_if_changed() {
 
 ensure_swapfile
 ensure_fstab
+ensure_sleep_config
 if ! swapon --show=NAME --noheadings | grep -qx "$SWAPFILE"; then
     swapon "$SWAPFILE"
 fi
@@ -81,6 +99,11 @@ offset="$(resume_offset)"
 if [ -z "$uuid" ] || [ -z "$offset" ]; then
     echo "PiDeck hibernate swap refused: unable to compute resume UUID/offset." >&2
     exit 1
+fi
+
+# Keep the running kernel's resume_offset in sync so hibernate works before reboot.
+if [ -w /sys/power/resume_offset ]; then
+    printf '%s' "$offset" > /sys/power/resume_offset
 fi
 
 # Resume for a swap *file* must use the kernel cmdline (UUID of the filesystem
