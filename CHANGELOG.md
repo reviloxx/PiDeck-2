@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.6
+
+- Added: Appearance → Snowflakes can show falling snow on the home screen
+  (Off, On, or Automatic). Automatic is on from 1 December through 6 January.
+
 ## v0.6.5
 
 - Changed: Opening an application in Settings → Applications shows a short

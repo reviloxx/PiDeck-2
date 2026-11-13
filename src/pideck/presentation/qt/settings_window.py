@@ -28,6 +28,7 @@ from pideck.application.ports.installation import InstallProgress
 from pideck.application.updates import ApplicationUpdateService
 from pideck.domain.backgrounds import BACKGROUND_STYLE_IDS
 from pideck.domain.configuration import Configuration
+from pideck.domain.snowflakes import SNOWFLAKES_MODES
 from pideck.domain.input_settings import CecSettings
 from pideck.domain.keyboard_layout import KeyboardLayout
 from pideck.domain.theme import ThemeDefinition
@@ -183,6 +184,7 @@ class SettingsWindow(QDialog):
         apply_theme(self, theme, asset_root=asset_root)
         self._theme_combo.currentIndexChanged.connect(self._emit_current_settings)
         self._background_combo.currentIndexChanged.connect(self._emit_current_settings)
+        self._snowflakes_combo.currentIndexChanged.connect(self._emit_current_settings)
         self._language_combo.currentIndexChanged.connect(self._handle_language_changed)
         self._select_page(0, focus_first=False)
         self.apply_language(self._language)
@@ -320,7 +322,7 @@ class SettingsWindow(QDialog):
         return layout
 
     def _build_appearance_page(self) -> QWidget:
-        """Create theme, background, and language controls."""
+        """Create theme, background, snowflakes, and language controls."""
         self._appearance_scroll, page = self._scroll_page()
         layout = self._page_layout(page)
         theme_row, self._theme_combo = self._control_row(
@@ -353,6 +355,21 @@ class SettingsWindow(QDialog):
         background_index = self._background_combo.findData(self._configuration.home.background)
         if background_index >= 0:
             self._background_combo.setCurrentIndex(background_index)
+        snowflakes_row, self._snowflakes_combo = self._control_row(
+            page,
+            "Snowflakes",
+            "Falling snow on the home screen. Automatic is on from 1 December through 6 January.",
+            SettingsComboBox(page),
+        )
+        self._snowflakes_combo.setObjectName("settings_control")
+        configure_combo_box(self._snowflakes_combo)
+        self._snowflakes_row = snowflakes_row
+        self._snowflakes_labels = snowflakes_row.findChildren(QLabel)
+        for mode in SNOWFLAKES_MODES:
+            self._snowflakes_combo.addItem(tr(self._language, f"snowflakes_{mode}"), mode)
+        snowflakes_index = self._snowflakes_combo.findData(self._configuration.home.snowflakes)
+        if snowflakes_index >= 0:
+            self._snowflakes_combo.setCurrentIndex(snowflakes_index)
         language_row, self._language_combo = self._control_row(
             page,
             "Language",
@@ -370,9 +387,10 @@ class SettingsWindow(QDialog):
             self._language_combo.setCurrentIndex(language_index)
         layout.addWidget(theme_row)
         layout.addWidget(background_row)
+        layout.addWidget(snowflakes_row)
         layout.addWidget(language_row)
         layout.addStretch()
-        self._page_controls[0] = [theme_row, background_row, language_row]
+        self._page_controls[0] = [theme_row, background_row, snowflakes_row, language_row]
         return self._appearance_scroll
 
     def _build_applications_page(self) -> QWidget:
@@ -932,7 +950,12 @@ class SettingsWindow(QDialog):
 
     def _open_dropdown(self) -> QComboBox | None:
         """Return the currently open Appearance combo box, if any."""
-        combos = [self._theme_combo, self._background_combo, self._language_combo]
+        combos = [
+            self._theme_combo,
+            self._background_combo,
+            self._snowflakes_combo,
+            self._language_combo,
+        ]
         if self._input_page is not None:
             combos.append(self._input_port)
             if self._keyboard_combo is not None:
@@ -948,6 +971,8 @@ class SettingsWindow(QDialog):
             self._theme_combo.showPopup()
         elif row is self._background_row:
             self._background_combo.showPopup()
+        elif row is self._snowflakes_row:
+            self._snowflakes_combo.showPopup()
         elif row is self._language_row:
             self._language_combo.showPopup()
         elif self._input_page is not None and row in self._input_rows.values():
@@ -1068,6 +1093,7 @@ class SettingsWindow(QDialog):
         setting_rows = (
             (self._theme_labels, "theme", "theme_hint"),
             (self._background_labels, "background", "background_hint"),
+            (self._snowflakes_labels, "snowflakes", "snowflakes_hint"),
             (self._language_labels, "language", "language_hint"),
         )
         for labels, title_key, hint_key in setting_rows:
@@ -1079,6 +1105,11 @@ class SettingsWindow(QDialog):
             for index, style_id in enumerate(BACKGROUND_STYLE_IDS):
                 self._background_combo.setItemText(
                     index, tr(self._language, f"background_{style_id}"),
+                )
+        with QSignalBlocker(self._snowflakes_combo):
+            for index, mode in enumerate(SNOWFLAKES_MODES):
+                self._snowflakes_combo.setItemText(
+                    index, tr(self._language, f"snowflakes_{mode}"),
                 )
         self._language_combo.setItemText(0, tr(self._language, "english"))
         self._language_combo.setItemText(1, tr(self._language, "german"))
@@ -1351,6 +1382,7 @@ class SettingsWindow(QDialog):
             visible_applications=selected_applications,
             language=self._language,
             background=self._background_combo.currentData(),
+            snowflakes=self._snowflakes_combo.currentData(),
         )
 
     def select_applications_page(self) -> None:

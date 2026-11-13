@@ -85,11 +85,27 @@ def test_parser_defaults_missing_home_background() -> None:
     assert configuration.home.background == "glow"
 
 
+def test_parser_defaults_missing_home_snowflakes() -> None:
+    """Older configs without home.snowflakes use automatic seasonal snow."""
+    document = configuration_document()
+    assert "snowflakes" not in document["home"]
+    configuration = YamlConfigurationParser().parse(document)
+    assert configuration.home.snowflakes == "automatic"
+
+
 def test_parser_rejects_unknown_home_background() -> None:
     """Unknown background style ids fail validation."""
     document = configuration_document()
     document["home"]["background"] = "nebula"
     with pytest.raises(ConfigurationValidationError, match="background"):
+        YamlConfigurationParser().parse(document)
+
+
+def test_parser_rejects_unknown_home_snowflakes() -> None:
+    """Unknown snowflakes modes fail validation."""
+    document = configuration_document()
+    document["home"]["snowflakes"] = "blizzard"
+    with pytest.raises(ConfigurationValidationError, match="snowflakes"):
         YamlConfigurationParser().parse(document)
 
 

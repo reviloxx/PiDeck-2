@@ -8,6 +8,7 @@ from typing import Mapping
 
 from .backgrounds import BACKGROUND_STYLE_ID_SET, DEFAULT_BACKGROUND
 from .errors import ConfigurationValidationError
+from .snowflakes import DEFAULT_SNOWFLAKES, SNOWFLAKES_MODE_SET
 from .theme import ThemeDefinition
 
 
@@ -91,7 +92,7 @@ class ApplicationDefinition:
 
 @dataclass(frozen=True, slots=True)
 class HomeScreenConfiguration:
-    """Define home-screen tile order, theme, and background style.
+    """Define home-screen tile order, theme, background, and snowflake mode.
 
     An empty ``visible_applications`` list means every configured application is
     shown, using the ``applications`` order.
@@ -100,6 +101,7 @@ class HomeScreenConfiguration:
     visible_applications: tuple[str, ...]
     theme: str
     background: str = DEFAULT_BACKGROUND
+    snowflakes: str = DEFAULT_SNOWFLAKES
 
     def __post_init__(self) -> None:
         """Validate home-screen references."""
@@ -110,6 +112,12 @@ class HomeScreenConfiguration:
         if self.background not in BACKGROUND_STYLE_ID_SET:
             raise ConfigurationValidationError(
                 f"Home-screen background does not exist: {self.background!r}"
+            )
+        if not self.snowflakes.strip():
+            raise ConfigurationValidationError("Home-screen snowflakes mode must not be empty")
+        if self.snowflakes not in SNOWFLAKES_MODE_SET:
+            raise ConfigurationValidationError(
+                f"Home-screen snowflakes mode does not exist: {self.snowflakes!r}"
             )
         object.__setattr__(self, "visible_applications", tuple(self.visible_applications))
 

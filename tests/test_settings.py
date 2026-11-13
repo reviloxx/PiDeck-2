@@ -29,7 +29,26 @@ def test_settings_service_applies_and_persists_updates(tmp_path: Path) -> None:
     assert updated.settings.update_check_interval_hours == 12
     assert updated.home.visible_applications == ("browser",)
     assert updated.home.background == "horizon"
+    assert updated.home.snowflakes == "automatic"
     assert restored == updated
+
+
+def test_settings_service_persists_snowflakes_mode(tmp_path: Path) -> None:
+    """Snowflakes mode is stored under home and survives a reload."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    repository = FileConfigurationRepository(tmp_path / "pideck.yaml")
+    service = SettingsService()
+    update = SettingsUpdate(
+        theme="default",
+        visible_applications=("browser",),
+        snowflakes="on",
+    )
+
+    updated = service.save(repository, configuration, update)
+    restored = repository.load()
+
+    assert updated.home.snowflakes == "on"
+    assert restored.home.snowflakes == "on"
 
 
 def test_settings_service_rejects_unknown_application() -> None:
@@ -62,3 +81,19 @@ def test_settings_service_rejects_unknown_background() -> None:
         assert "unknown background" in str(error)
     else:
         raise AssertionError("Unknown background should be rejected")
+
+
+def test_settings_service_rejects_unknown_snowflakes() -> None:
+    """Settings cannot persist an unknown snowflakes mode."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    service = SettingsService()
+
+    try:
+        service.apply(
+            configuration,
+            SettingsUpdate("default", ("browser",), snowflakes="blizzard"),
+        )
+    except ConfigurationValidationError as error:
+        assert "unknown snowflakes" in str(error)
+    else:
+        raise AssertionError("Unknown snowflakes mode should be rejected")

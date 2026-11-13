@@ -712,6 +712,7 @@ def test_settings_window_loads_current_values(application: QApplication) -> None
 
     assert window._theme_combo.currentData() == "default"
     assert window._background_combo.currentData() == "glow"
+    assert window._snowflakes_combo.currentData() == "automatic"
     assert window._language_combo.currentData() == "en"
     assert [row.item.key for row in window._apps.rows()] == ["browser"]
     assert window._apps.row("browser").item.visible
@@ -763,6 +764,17 @@ def test_settings_window_emits_background_change(application: QApplication) -> N
     window.close()
 
 
+def test_settings_window_emits_snowflakes_change(application: QApplication) -> None:
+    """Selecting a snowflakes mode emits an immediate typed update."""
+    window = settings_window(application)
+    updates: list[SettingsUpdate] = []
+    window.settings_changed.connect(updates.append)
+    window._snowflakes_combo.setCurrentIndex(window._snowflakes_combo.findData("on"))
+    assert updates[-1].snowflakes == "on"
+    assert updates[-1].background == "glow"
+    window.close()
+
+
 def test_german_language_updates_settings_labels(application: QApplication) -> None:
     """Selecting German translates the visible settings navigation and controls."""
     window = settings_window(application)
@@ -776,6 +788,10 @@ def test_german_language_updates_settings_labels(application: QApplication) -> N
     assert window._background_labels[0].text() == "Hintergrund"
     assert window._background_combo.itemText(0) == "Glow"
     assert window._background_combo.itemText(1) == "Horizont"
+    assert window._snowflakes_labels[0].text() == "Schneeflocken"
+    assert window._snowflakes_combo.itemText(0) == "Aus"
+    assert window._snowflakes_combo.itemText(1) == "Ein"
+    assert window._snowflakes_combo.itemText(2) == "Automatisch"
     assert window._language_labels[0].text() == "Sprache"
     window.close()
 
@@ -839,6 +855,7 @@ def test_settings_are_responsive_and_controls_reachable(
     for row, control in (
         (window._theme_row, window._theme_combo),
         (window._background_row, window._background_combo),
+        (window._snowflakes_row, window._snowflakes_combo),
         (window._language_row, window._language_combo),
     ):
         row.setFocus()
@@ -928,11 +945,15 @@ def test_settings_window_supports_dpad_navigation(application: QApplication) -> 
     QTest.keyClick(window._theme_row, Qt.Key.Key_Down)
     assert window._background_row.hasFocus()
     QTest.keyClick(window._background_row, Qt.Key.Key_Down)
+    assert window._snowflakes_row.hasFocus()
+    QTest.keyClick(window._snowflakes_row, Qt.Key.Key_Down)
     assert window._language_row.hasFocus()
     QTest.keyClick(window._language_row, Qt.Key.Key_Return)
     assert window._language_combo.view().isVisible()
     QTest.keyClick(window._language_combo.view(), Qt.Key.Key_Escape)
     QTest.keyClick(window._language_row, Qt.Key.Key_Up)
+    assert window._snowflakes_row.hasFocus()
+    QTest.keyClick(window._snowflakes_row, Qt.Key.Key_Up)
     assert window._background_row.hasFocus()
     QTest.keyClick(window._background_row, Qt.Key.Key_Up)
     assert window._theme_row.hasFocus()

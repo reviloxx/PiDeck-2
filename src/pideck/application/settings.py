@@ -6,6 +6,7 @@ from pideck.application.ports.configuration import ConfigurationRepository
 from pideck.domain.backgrounds import BACKGROUND_STYLE_ID_SET, DEFAULT_BACKGROUND
 from pideck.domain.configuration import Configuration
 from pideck.domain.errors import ConfigurationValidationError
+from pideck.domain.snowflakes import DEFAULT_SNOWFLAKES, SNOWFLAKES_MODE_SET
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +17,7 @@ class SettingsUpdate:
     visible_applications: tuple[str, ...]
     language: str = "en"
     background: str = DEFAULT_BACKGROUND
+    snowflakes: str = DEFAULT_SNOWFLAKES
 
     def __post_init__(self) -> None:
         """Normalize the selected application identifiers."""
@@ -45,6 +47,12 @@ class SettingsService:
             raise ConfigurationValidationError(
                 f"Settings reference unknown background: {update.background!r}"
             )
+        if not update.snowflakes.strip():
+            raise ConfigurationValidationError("Settings snowflakes mode must not be empty")
+        if update.snowflakes not in SNOWFLAKES_MODE_SET:
+            raise ConfigurationValidationError(
+                f"Settings reference unknown snowflakes mode: {update.snowflakes!r}"
+            )
         return replace(
             configuration,
             home=replace(
@@ -52,6 +60,7 @@ class SettingsService:
                 visible_applications=update.visible_applications,
                 theme=update.theme,
                 background=update.background,
+                snowflakes=update.snowflakes,
             ),
             settings=replace(
                 configuration.settings,

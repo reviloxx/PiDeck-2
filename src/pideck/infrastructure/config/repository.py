@@ -153,6 +153,7 @@ def _serialize_configuration(configuration: Configuration) -> dict[str, Any]:
             "visible_applications": list(configuration.home.visible_applications),
             "theme": configuration.home.theme,
             "background": configuration.home.background,
+            "snowflakes": configuration.home.snowflakes,
         },
         "input": {
             "enabled_sources": list(configuration.input.enabled_sources),

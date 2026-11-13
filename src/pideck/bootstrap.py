@@ -354,6 +354,7 @@ def build_launcher_window(
         theme,
         asset_root,
         dependencies.configuration.settings.language,
+        snowflakes=dependencies.configuration.home.snowflakes,
     )
 
 

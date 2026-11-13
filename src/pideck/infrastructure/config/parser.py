@@ -7,6 +7,7 @@ from typing import Any, Mapping
 import yaml
 
 from pideck.domain.backgrounds import DEFAULT_BACKGROUND
+from pideck.domain.snowflakes import DEFAULT_SNOWFLAKES
 from pideck.domain.configuration import (
     ApplicationDefinition,
     ApplicationProfile,
@@ -218,13 +219,15 @@ class YamlConfigurationParser:
             data,
             {"visible_applications", "theme"},
             "home",
-            optional={"background"},
+            optional={"background", "snowflakes"},
         )
         background_value = data.get("background", DEFAULT_BACKGROUND)
+        snowflakes_value = data.get("snowflakes", DEFAULT_SNOWFLAKES)
         return HomeScreenConfiguration(
             visible_applications=tuple(_string_list(data["visible_applications"], "home.visible_applications")),
             theme=_string(data["theme"], "home.theme"),
             background=_string(background_value, "home.background"),
+            snowflakes=_string(snowflakes_value, "home.snowflakes"),
         )
 
     def _parse_input(self, raw_data: Any) -> InputConfiguration:

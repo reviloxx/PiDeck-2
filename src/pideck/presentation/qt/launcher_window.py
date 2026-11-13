@@ -23,12 +23,14 @@ from pideck.application.launcher import LauncherController, NavigationDirection
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.domain.configuration import Configuration
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile, PreferredInput
+from pideck.domain.snowflakes import DEFAULT_SNOWFLAKES
 from pideck.domain.theme import ThemeDefinition
 
 from .connected_inputs import ConnectedInputs, ConnectedInputsStrip
 from .theme import FocusGlow, apply_theme, icon_for_path
 from .localization import clock_text, tr
 from .power_dialog import ConfirmationDialog, PowerDialog
+from .snowflakes import SnowflakeOverlay
 from .spinner import BusySpinner
 from .wallpaper import WallpaperWidget
 
@@ -184,6 +186,7 @@ class LauncherWindow(QMainWindow):
         theme: ThemeDefinition,
         asset_root: Path,
         language: str = "en",
+        snowflakes: str = DEFAULT_SNOWFLAKES,
         parent: QWidget | None = None,
     ) -> None:
         """Build the launcher presentation around injected application state."""
@@ -207,6 +210,10 @@ class LauncherWindow(QMainWindow):
         self._root_layout = QVBoxLayout(self._root)
         self._root_layout.setContentsMargins(48, 36, 48, 28)
         self._root_layout.setSpacing(12)
+        self._snowflake_overlay = SnowflakeOverlay(self._root)
+        self._snowflake_overlay.set_mode(snowflakes)
+        self._snowflake_overlay.set_color(theme.colors["primary"])
+        self._snowflake_overlay.lower()
         self._clock_timer = QTimer(self)
         self._clock_timer.timeout.connect(self._update_clock)
         self.session_started.connect(self._handle_session_started)
@@ -223,6 +230,8 @@ class LauncherWindow(QMainWindow):
         self._grid_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._root_layout.addWidget(self._grid_container, stretch=1)
         self._build_footer()
+        self._snowflake_overlay.setGeometry(self._root.rect())
+        self._snowflake_overlay.lower()
         apply_theme(self, theme, asset_root=asset_root)
         self._rebuild_tiles()
 
@@ -235,6 +244,8 @@ class LauncherWindow(QMainWindow):
         self.showFullScreen()
         self.raise_()
         self.activateWindow()
+        self._snowflake_overlay.setGeometry(self._root.rect())
+        self._snowflake_overlay.set_launcher_visible(True)
         self._focus_current_tile()
 
     def schedule_fullscreen_reassert(self, delay_ms: int = 100) -> None:
@@ -249,11 +260,19 @@ class LauncherWindow(QMainWindow):
     def hideEvent(self, event: object) -> None:
         """Cancel pending restacks so a hidden launcher cannot reclaim focus."""
         self._cancel_fullscreen_timers()
+        self._snowflake_overlay.set_launcher_visible(False)
         super().hideEvent(event)
+
+    def showEvent(self, event: object) -> None:
+        """Resume seasonal snow when the launcher becomes visible again."""
+        super().showEvent(event)
+        self._snowflake_overlay.setGeometry(self._root.rect())
+        self._snowflake_overlay.set_launcher_visible(True)
 
     def resizeEvent(self, event: object) -> None:
         """Reflow tiles when the available screen geometry changes."""
         super().resizeEvent(event)
+        self._snowflake_overlay.setGeometry(self._root.rect())
         if self._controller.state.applications and self._column_count() != self._controller.state.columns:
             self._rebuild_tiles()
 
@@ -332,6 +351,7 @@ class LauncherWindow(QMainWindow):
     def _update_clock(self) -> None:
         """Refresh the date and time using the local system timezone."""
         self._clock_label.setText(clock_text(self._language))
+        self._snowflake_overlay.sync()
 
     def set_language(self, language: str) -> None:
         """Translate launcher controls and switch the clock date format."""
@@ -531,6 +551,8 @@ class LauncherWindow(QMainWindow):
         self._connected_inputs.set_theme(theme)
         self._apply_footer_icon_size()
         apply_theme(self, theme, asset_root=self._asset_root)
+        self._snowflake_overlay.set_color(theme.colors["primary"])
+        self._snowflake_overlay.set_mode(configuration.home.snowflakes)
         self._rebuild_tiles()
 
     def notify_session_started(
