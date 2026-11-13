@@ -830,9 +830,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
     )
     bluetooth_reconnect_timer: QTimer | None = None
     bluetooth_reconnect_gateway = None
+    bluetooth_reconnect_watch = None
+    bluetooth_reconnect = None
     try:
         from pideck.infrastructure.bluez import BluezGateway
         from pideck.infrastructure.bluetooth_reconnect import BluetoothReconnectService
+        from pideck.infrastructure.bluetooth_reconnect_watch import BluetoothReconnectWatch
 
         def bluetooth_pairing_active() -> bool:
             return bluetooth_window is not None and bluetooth_window.isVisible()
@@ -842,16 +845,37 @@ def main(arguments: Sequence[str] | None = None) -> int:
             bluetooth_reconnect_gateway,
             pairing_active=bluetooth_pairing_active,
         )
+        bluetooth_reconnect_watch = BluetoothReconnectWatch(
+            bluetooth_reconnect_gateway.bus,
+            bluetooth_reconnect,
+            pairing_active=bluetooth_pairing_active,
+            parent=application,
+        )
+
+        def bluetooth_reconnect_tick() -> None:
+            """Poll reconnect candidates and keep Connected watches in sync."""
+            if bluetooth_reconnect is None:
+                return
+            bluetooth_reconnect.tick()
+            if bluetooth_reconnect_watch is not None:
+                bluetooth_reconnect_watch.sync_paths(bluetooth_reconnect.watched_paths)
+            if bluetooth_reconnect_timer is not None:
+                bluetooth_reconnect_timer.setInterval(bluetooth_reconnect.poll_interval_ms)
+
         bluetooth_reconnect_timer = QTimer(application)
-        bluetooth_reconnect_timer.setInterval(1500)
-        bluetooth_reconnect_timer.timeout.connect(bluetooth_reconnect.tick)
+        bluetooth_reconnect_timer.setInterval(bluetooth_reconnect.poll_interval_ms)
+        bluetooth_reconnect_timer.timeout.connect(bluetooth_reconnect_tick)
         bluetooth_reconnect_timer.start()
+        bluetooth_reconnect_tick()
 
         def handle_gamepad_device_lost(address: str) -> None:
             """Clear a stale BlueZ Connected session so reconnect can run again."""
             if bluetooth_reconnect_gateway is None:
                 return
+            path = bluetooth_reconnect_gateway.path_for_address(address)
             bluetooth_reconnect_gateway.disconnect_address(address)
+            if path is not None and bluetooth_reconnect is not None:
+                bluetooth_reconnect.clear_pending(path)
 
         gamepad_bridge.device_lost.connect(
             handle_gamepad_device_lost,
@@ -963,6 +987,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         hide_session_overlay()
         if bluetooth_reconnect_timer is not None:
             bluetooth_reconnect_timer.stop()
+        if bluetooth_reconnect_watch is not None:
+            bluetooth_reconnect_watch.close()
         session_service.close()
         update_service.close()
         gamepad_adapter.close()

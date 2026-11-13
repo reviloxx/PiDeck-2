@@ -2,11 +2,13 @@
 
 import time
 
-from PySide6.QtDBus import QDBusVariant
+from PySide6.QtCore import QCoreApplication
+from PySide6.QtDBus import QDBusConnection, QDBusVariant
 
 from pideck.application.ports.bluetooth import BluetoothError
 from pideck.infrastructure.bluez import BluezGateway, ConnectAttempt, is_reconnect_gamepad
 from pideck.infrastructure.bluetooth_reconnect import BluetoothReconnectService
+from pideck.infrastructure.bluetooth_reconnect_watch import BluetoothReconnectWatch
 
 
 DEVICE = "/org/bluez/hci0/dev_98_B6_E9_B2_4F_2C"
@@ -35,6 +37,7 @@ class FakeReconnectBluez(BluezGateway):
             },
         }
         self.fail_connect: BluetoothError | None = None
+        self.connect_marks_connected_on_fail = False
         self.connect_calls = 0
 
     def _call(self, path, interface, method, *arguments, timeout=10000):
@@ -73,6 +76,8 @@ class FakeReconnectBluez(BluezGateway):
         if method == "Connect":
             self.connect_calls += 1
             if self.fail_connect is not None:
+                if self.connect_marks_connected_on_fail:
+                    self.devices[path]["Connected"] = True
                 raise self.fail_connect
             self.devices[path]["Connected"] = True
             return []
@@ -106,6 +111,10 @@ def test_reconnect_candidates_skip_connected_and_non_gamepads() -> None:
         "Connected": True,
     }
     assert gateway.reconnect_candidates() == (DEVICE,)
+    assert gateway.trusted_gamepad_paths() == (
+        DEVICE,
+        "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF",
+    )
 
     gateway.devices[DEVICE]["Connected"] = True
     assert gateway.reconnect_candidates() == ()
@@ -151,7 +160,7 @@ def test_try_connect_classifies_timeout_and_busy() -> None:
 def test_reconnect_tick_connects_and_is_single_flight() -> None:
     """One tick connects a candidate; a nested tick while busy is ignored."""
     gateway = FakeReconnectBluez()
-    service = BluetoothReconnectService(gateway, pending_seconds=45.0)
+    service = BluetoothReconnectService(gateway, busy_seconds=45.0)
     reentered = False
 
     original_try = gateway.try_connect
@@ -169,6 +178,8 @@ def test_reconnect_tick_connects_and_is_single_flight() -> None:
     assert gateway.devices[DEVICE]["Connected"] is True
     assert reentered is True
     assert service.busy is False
+    assert service.has_candidates is False
+    assert service.poll_interval_ms == 1500
 
 
 def test_reconnect_tick_skips_while_pairing_ui_active() -> None:
@@ -183,7 +194,7 @@ def test_reconnect_does_not_retry_within_cooldown_after_timeout() -> None:
     """A timed-out Connect must not start another attempt while BlueZ may still run."""
     gateway = FakeReconnectBluez()
     gateway.fail_connect = BluetoothError("Bluetooth service did not complete Connect")
-    service = BluetoothReconnectService(gateway, pending_seconds=45.0, connect_timeout_ms=10000)
+    service = BluetoothReconnectService(gateway, timeout_seconds=12.0, connect_timeout_ms=10000)
 
     service.tick()
     assert gateway.connect_calls == 1
@@ -200,6 +211,55 @@ def test_reconnect_does_not_retry_within_cooldown_after_timeout() -> None:
     assert gateway.devices[DEVICE]["Connected"] is True
 
 
+def test_reconnect_timeout_connected_recheck_counts_as_success() -> None:
+    """D-Bus wait may end while BlueZ already finished Connected=true."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("Bluetooth service did not complete Connect")
+    gateway.connect_marks_connected_on_fail = True
+    service = BluetoothReconnectService(gateway, timeout_seconds=12.0, connect_timeout_ms=10000)
+    service.tick()
+    assert gateway.connect_calls == 1
+    assert DEVICE not in service._pending_until
+    assert gateway.devices[DEVICE]["Connected"] is True
+
+
+def test_reconnect_clear_pending_allows_immediate_retry() -> None:
+    """PropertiesChanged / device_lost must clear a TIMEOUT blackout immediately."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("Bluetooth service did not complete Connect")
+    service = BluetoothReconnectService(gateway, timeout_seconds=12.0, connect_timeout_ms=10000)
+    service.tick()
+    assert gateway.connect_calls == 1
+    assert DEVICE in service._pending_until
+
+    service.clear_pending(DEVICE)
+    gateway.fail_connect = None
+    gateway.devices[DEVICE]["Connected"] = False
+    service.tick()
+    assert gateway.connect_calls == 2
+    assert gateway.devices[DEVICE]["Connected"] is True
+
+
+def test_reconnect_timeout_cooldown_shorter_than_busy() -> None:
+    """TIMEOUT uses a shorter blackout than InProgress/BUSY."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("Bluetooth service did not complete Connect")
+    service = BluetoothReconnectService(
+        gateway, busy_seconds=45.0, timeout_seconds=12.0, connect_timeout_ms=10000,
+    )
+    before = time.monotonic()
+    service.tick()
+    timeout_until = service._pending_until[DEVICE]
+    assert 0 < timeout_until - before <= 12.5
+
+    service.clear_pending(DEVICE)
+    gateway.fail_connect = BluetoothError("org.bluez.Error.InProgress br-connection-busy")
+    before = time.monotonic()
+    service.tick()
+    busy_until = service._pending_until[DEVICE]
+    assert busy_until - before > 40.0
+
+
 def test_reconnect_enables_page_scan_before_connect() -> None:
     """Paired pads can only page in when the adapter is Connectable."""
     gateway = FakeReconnectBluez()
@@ -212,11 +272,11 @@ def test_reconnect_enables_page_scan_before_connect() -> None:
 
 
 def test_reconnect_retries_after_asleep_cooldown_clears() -> None:
-    """Asleep failures use a short wake-window cooldown, not the 45s in-flight window."""
+    """Asleep failures use a short wake-window cooldown, not the busy window."""
     gateway = FakeReconnectBluez()
     gateway.fail_connect = BluetoothError("Host is down")
     service = BluetoothReconnectService(
-        gateway, pending_seconds=45.0, asleep_cooldown_seconds=0.0, connect_timeout_ms=10000,
+        gateway, busy_seconds=45.0, asleep_cooldown_seconds=0.0, connect_timeout_ms=10000,
     )
     service.tick()
     assert gateway.connect_calls == 1
@@ -229,19 +289,21 @@ def test_reconnect_default_asleep_cooldown_blocks_immediate_retry() -> None:
     """Host-is-down must not hammer Connect every timer tick."""
     gateway = FakeReconnectBluez()
     gateway.fail_connect = BluetoothError("Host is down")
-    service = BluetoothReconnectService(gateway, pending_seconds=45.0)
+    service = BluetoothReconnectService(gateway, busy_seconds=45.0)
     service.tick()
     assert gateway.connect_calls == 1
     service.tick()
     assert gateway.connect_calls == 1
     assert service._pending_until[DEVICE] > 0
+    assert service.has_candidates is True
+    assert service.poll_interval_ms == 500
 
 
 def test_reconnect_asleep_cooldown_is_shorter_than_pending() -> None:
     """Wake retries must clear well before the InProgress blackout window."""
     gateway = FakeReconnectBluez()
     gateway.fail_connect = BluetoothError("Host is down")
-    service = BluetoothReconnectService(gateway, pending_seconds=45.0)
+    service = BluetoothReconnectService(gateway, busy_seconds=45.0)
     before = time.monotonic()
     service.tick()
     pending_until = service._pending_until[DEVICE]
@@ -249,14 +311,50 @@ def test_reconnect_asleep_cooldown_is_shorter_than_pending() -> None:
 
 
 def test_reconnect_generic_failed_uses_failed_cooldown() -> None:
-    """Non-asleep finished failures use the failed cooldown, not 45s."""
+    """Non-asleep finished failures use the failed cooldown, not busy seconds."""
     gateway = FakeReconnectBluez()
     gateway.fail_connect = BluetoothError("org.bluez.Error.Failed Operation failed")
     service = BluetoothReconnectService(
-        gateway, pending_seconds=45.0, failed_cooldown_seconds=0.0, connect_timeout_ms=10000,
+        gateway, busy_seconds=45.0, failed_cooldown_seconds=0.0, connect_timeout_ms=10000,
     )
     service.tick()
     assert gateway.connect_calls == 1
     gateway.fail_connect = None
     service.tick()
     assert gateway.connect_calls == 2
+
+
+def test_reconnect_watch_connected_clears_pending() -> None:
+    """PropertiesChanged Connected=true ends a reconnect blackout immediately."""
+    app = QCoreApplication.instance() or QCoreApplication([])
+    del app
+    gateway = FakeReconnectBluez()
+    service = BluetoothReconnectService(gateway)
+    service._pending_until[DEVICE] = time.monotonic() + 45.0
+    watch = BluetoothReconnectWatch(
+        QDBusConnection.systemBus(), service, pairing_active=lambda: False,
+    )
+    watch.handle_properties_changed(
+        DEVICE, "org.bluez.Device1", {"Connected": QDBusVariant(True)},
+    )
+    assert DEVICE not in service._pending_until
+    watch.close()
+
+
+def test_reconnect_watch_disconnected_clears_pending_and_ticks() -> None:
+    """PropertiesChanged Connected=false clears blackout and schedules a tick."""
+    app = QCoreApplication.instance() or QCoreApplication([])
+    gateway = FakeReconnectBluez()
+    service = BluetoothReconnectService(gateway)
+    service._pending_until[DEVICE] = time.monotonic() + 45.0
+    watch = BluetoothReconnectWatch(
+        QDBusConnection.systemBus(), service, pairing_active=lambda: False,
+    )
+    watch.handle_properties_changed(
+        DEVICE, "org.bluez.Device1", {"Connected": False},
+    )
+    assert DEVICE not in service._pending_until
+    app.processEvents()
+    assert gateway.connect_calls == 1
+    assert gateway.devices[DEVICE]["Connected"] is True
+    watch.close()

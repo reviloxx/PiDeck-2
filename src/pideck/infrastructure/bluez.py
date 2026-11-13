@@ -58,6 +58,11 @@ class BluezGateway:
         self._agent_path = agent_path
         self._discovery_loop: QEventLoop | None = None
 
+    @property
+    def bus(self) -> QDBusConnection:
+        """Return the system bus used for BlueZ method calls and watches."""
+        return self._bus
+
     def _call(self, path: str, interface: str, method: str, *arguments: object, timeout: int = 10000) -> list[object]:
         return call_dbus(self._bus, _SERVICE, path, interface, method, arguments, timeout=timeout)
 
@@ -172,8 +177,8 @@ class BluezGateway:
         self._call(path, _DEVICE, "Connect", timeout=30000)
         return self.inspect()
 
-    def reconnect_candidates(self) -> tuple[str, ...]:
-        """Return trusted paired gamepads that are not currently Connected."""
+    def trusted_gamepad_paths(self, *, connected: bool | None = None) -> tuple[str, ...]:
+        """Return trusted paired gamepad paths, optionally filtered by Connected."""
         adapter = self._adapter()
         powered = self._property(adapter, _ADAPTER, "Powered")
         if powered is not True:
@@ -186,13 +191,15 @@ class BluezGateway:
             alias = self._property(path, _DEVICE, "Alias")
             paired = self._property(path, _DEVICE, "Paired")
             trusted = self._property(path, _DEVICE, "Trusted")
-            connected = self._property(path, _DEVICE, "Connected")
+            device_connected = self._property(path, _DEVICE, "Connected")
             if (
                 not isinstance(alias, str)
                 or paired is not True
                 or trusted is not True
-                or connected is not False
+                or type(device_connected) is not bool
             ):
+                continue
+            if connected is not None and device_connected is not connected:
                 continue
             icon = ""
             try:
@@ -205,6 +212,30 @@ class BluezGateway:
                 continue
             paths.append(path)
         return tuple(paths)
+
+    def reconnect_candidates(self) -> tuple[str, ...]:
+        """Return trusted paired gamepads that are not currently Connected."""
+        return self.trusted_gamepad_paths(connected=False)
+
+    def device_is_connected(self, path: str) -> bool:
+        """Return whether BlueZ currently reports Connected for one device path."""
+        try:
+            path = self._device_path(path)
+            connected = self._property(path, _DEVICE, "Connected")
+        except BluetoothError:
+            return False
+        return connected is True
+
+    def path_for_address(self, address: str) -> str | None:
+        """Return the BlueZ device path for a Bluetooth MAC, if still present."""
+        normalized = address.strip().upper().replace("-", ":")
+        if not normalized:
+            return None
+        try:
+            adapter = self._adapter()
+            return self._device_path(f"{adapter}/dev_{normalized.replace(':', '_')}")
+        except BluetoothError:
+            return None
 
     def ensure_accepts_connections(self) -> None:
         """Turn on page scan so paired controllers can reconnect inbound.
