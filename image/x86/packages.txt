@@ -1,8 +1,6 @@
 linux-image-amd64
 intel-microcode
 systemd-sysv
-plymouth
-plymouth-label
 libpam-systemd
 dbus-user-session
 grub-pc-bin

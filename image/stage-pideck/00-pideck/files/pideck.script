@@ -1,19 +1,35 @@
 Window.SetBackgroundTopColor(0.063, 0.071, 0.078);
 Window.SetBackgroundBottomColor(0.063, 0.071, 0.078);
 
-logo = Image.Text("PiDeck", 0.957, 0.969, 0.969, 1, "DejaVu Sans Bold 36");
+logo = Image.Text("PiDeck", 0.957, 0.969, 0.969, 1, "DejaVu Sans Bold 64");
 logo_sprite = Sprite(logo);
 logo_sprite.SetX((Window.GetWidth() - logo.GetWidth()) / 2);
-logo_sprite.SetY((Window.GetHeight() - logo.GetHeight()) / 2);
+logo_sprite.SetY((Window.GetHeight() - logo.GetHeight()) / 2 - 24);
+
+status = Image.Text("Starting…", 0.65, 0.68, 0.72, 1, "DejaVu Sans 18");
+status_sprite = Sprite(status);
+status_sprite.SetX((Window.GetWidth() - status.GetWidth()) / 2);
+status_sprite.SetY((Window.GetHeight() + logo.GetHeight()) / 2 + 8);
+status_sprite.SetOpacity(1);
 
 message_sprite = Sprite();
+tick = 0;
+
+fun refresh_callback()
+{
+    tick += 1;
+    if (tick % 40 < 20)
+        status_sprite.SetOpacity(1);
+    else
+        status_sprite.SetOpacity(0.35);
+}
 
 fun show_message(text)
 {
     message = Image.Text(text, 0.957, 0.969, 0.969, 1, "DejaVu Sans 14", "center");
     message_sprite.SetImage(message);
     message_sprite.SetX((Window.GetWidth() - message.GetWidth()) / 2);
-    message_sprite.SetY((Window.GetHeight() + logo.GetHeight()) / 2 + 40);
+    message_sprite.SetY((Window.GetHeight() + logo.GetHeight()) / 2 + 48);
     message_sprite.SetOpacity(1);
 }
 
@@ -35,6 +51,7 @@ fun show_normal()
     message_sprite.SetOpacity(0);
 }
 
+Plymouth.SetRefreshFunction(refresh_callback);
 Plymouth.SetMessageFunction(show_message);
 Plymouth.SetDisplayPasswordFunction(show_password);
 Plymouth.SetDisplayQuestionFunction(show_question);

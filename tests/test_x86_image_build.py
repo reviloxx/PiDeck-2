@@ -307,6 +307,8 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "pideck-wait-drm" in override
     assert "udevadm settle" not in override
     assert "pideck-nvidia-load.service" in override
+    assert "After=pideck-activate.service pideck-nvidia-load.service" in override
+    assert "After=pideck-updater.service" not in override
     assert "PIDECK_NETWORK=1" in (tmp_path / "etc/profile.d/00-pideck-network.sh").read_text()
     policy = (tmp_path / "etc/polkit-1/rules.d/49-pideck-network.rules").read_text()
     assert 'subject.user === "pideck"' in policy
@@ -332,7 +334,8 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "GRUB_TIMEOUT_STYLE=hidden\n" in grub
     assert "GRUB_TIMEOUT=0\n" in grub
     assert "GRUB_RECORDFAIL_TIMEOUT=0\n" in grub
-    assert "quiet splash loglevel=3" in grub
+    assert "quiet loglevel=3 systemd.show_status=false" in grub
+    assert "splash" not in grub.split("GRUB_CMDLINE_LINUX_DEFAULT=", 1)[-1]
     assert "GRUB_TERMINAL=console\n" in grub
     nvidia_load = (tmp_path / "etc/systemd/system/pideck-nvidia-load.service").read_text()
     assert "modprobe nvidia-drm" in nvidia_load
@@ -355,10 +358,21 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert (tmp_path / "usr/lib/pideck/pideck-hibernate-swap").stat().st_mode & 0o111
     hibernate_unit = (tmp_path / "etc/systemd/system/pideck-hibernate-swap.service").read_text()
     assert "After=pideck-grow-root.service" in hibernate_unit
+    assert "Before=getty@tty1.service" not in hibernate_unit
     assert "ExecStart=/usr/lib/pideck/pideck-hibernate-swap" in hibernate_unit
     assert (tmp_path / "etc/initramfs-tools/hooks/pideck-slim").stat().st_mode & 0o111
-    assert (tmp_path / "usr/share/plymouth/themes/pideck/pideck.script").is_file()
-    assert {"plymouth", "plymouth-label"} <= packages
+    nvidia_bottom = tmp_path / "etc/initramfs-tools/scripts/local-bottom/pideck-nvidia"
+    assert nvidia_bottom.is_file()
+    assert nvidia_bottom.stat().st_mode & 0o111
+    assert "nvidia-drm" in nvidia_bottom.read_text()
+    assert not (tmp_path / "usr/share/plymouth/themes/pideck/pideck.script").exists()
+    assert "plymouth quit" not in (tmp_path / "usr/lib/pideck/pideck-xsession").read_text()
+    assert "plymouth quit" not in (tmp_path / "usr/lib/pideck/pideck-session").read_text()
+    assert not (tmp_path / "usr/lib/pideck/pideck-plymouth-handoff").exists()
+    assert not (tmp_path / "etc/systemd/system/pideck-plymouth-handoff.service").exists()
+    getty = (tmp_path / "etc/systemd/system/getty@tty1.service.d/pideck.conf").read_text()
+    assert "Type=simple" in getty
+    assert "TTYVTDisallocate" not in getty
 
 
 def test_x86_image_uses_proprietary_nvidia_driver_with_video_decoding(tmp_path: Path) -> None:
@@ -610,6 +624,7 @@ def test_source_changes_abort_before_compression(tmp_path: Path, monkeypatch: py
         "pideck-wait-drm",
         "pideck-xsession",
         "initramfs-pideck-slim",
+        "initramfs-pideck-nvidia-load",
     ],
 )
 def test_x86_session_shell_is_valid(name: str) -> None:
@@ -696,7 +711,7 @@ def test_initramfs_hook_removes_gpu_drivers_and_firmware(tmp_path: Path) -> None
     (dkms / "nvidia-current.ko.xz").touch()
     (dkms / "other.ko.xz").touch()
     hook = x86_build.INPUTS / "initramfs-pideck-slim"
-    assert subprocess.run(["sh", str(hook), "prereqs"], capture_output=True, text=True).stdout.strip() == "plymouth"
+    assert subprocess.run(["sh", str(hook), "prereqs"], capture_output=True, text=True).stdout.strip() == ""
     subprocess.run(["sh", str(hook)], check=True, env={
         **os.environ, "DESTDIR": str(tmp_path), "version": version,
         "MODULESDIR": str(source), "__MODULES_TO_ADD": str(queue),

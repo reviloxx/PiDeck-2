@@ -229,6 +229,11 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(INPUTS / "grub-pideck.cfg", root / "etc/default/grub.d/90-pideck.cfg")
     _install(INPUTS / "initramfs-pideck.conf", root / "etc/initramfs-tools/conf.d/pideck.conf")
     _install(INPUTS / "initramfs-pideck-slim", root / "etc/initramfs-tools/hooks/pideck-slim", 0o755)
+    _install(
+        INPUTS / "initramfs-pideck-nvidia-load",
+        root / "etc/initramfs-tools/scripts/local-bottom/pideck-nvidia",
+        0o755,
+    )
     _install(INPUTS / "nvidia-pideck.conf", root / "etc/modprobe.d/pideck-nvidia.conf")
     # Replace Debian's modules-load symlink so nvidia-drm does not block sysinit.
     modules_load = root / "etc/modules-load.d/nvidia.conf"
@@ -238,8 +243,6 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(INPUTS / "firefox-pideck.js", root / "etc/firefox-esr/pideck-video.js")
     _install(INPUTS / "chromium-pideck", root / "etc/chromium.d/pideck-video")
     _write_application_prerequisites(root)
-    for name in ("pideck.plymouth", "pideck.script"):
-        _install(PI_FILES / name, root / "usr/share/plymouth/themes/pideck" / name)
     for name in ("pideck-updater.service", "pideck-activate.service"):
         _install(PI_FILES / name, root / "etc/systemd/system" / name)
     _install(INPUTS / "pideck-grow-root.service", root / "etc/systemd/system/pideck-grow-root.service")
@@ -373,11 +376,19 @@ def _configure(root: Path, loop: str, tag: str | None) -> None:
         raise RuntimeError(f"Flathub did not provide the {gl_driver} GL extension")
     # A NoMachine Player installed later from Settings must never start a server.
     _run("systemctl", "--root", str(root), "mask", "nxserver.service")
+    # No x86 splash (modeset is too late without GPU-in-initrd); do not stall on "network online".
+    _run(
+        "systemctl",
+        "--root",
+        str(root),
+        "mask",
+        "plymouth-start.service",
+        "NetworkManager-wait-online.service",
+    )
     policy.unlink()
     _write_inputs(root, tag)
     _install_kodi_language(root)
     _configure_locale(root, chroot)
-    chroot("plymouth-set-default-theme", "pideck")
     chroot("update-initramfs", "-u", "-k", "all")
     for group in ("audio", "video", "render", "input", "plugdev"):
         chroot("groupadd", "-f", group)

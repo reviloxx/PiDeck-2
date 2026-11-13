@@ -122,10 +122,10 @@ X configuration selects the NVIDIA X driver only for NVIDIA devices.
   rebuild it with the included `linux-headers-amd64` and compiler. Secure
   Boot must stay disabled because the module is unsigned.
 - **Modesetting:** `/etc/modprobe.d/pideck-nvidia.conf` sets
-  `nvidia-drm modeset=1 fbdev=1`, which rootless X, the Plymouth splash and the
-  VA-API driver require. Tear-free composited video additionally needs picom
-  vsync (see below). Like other GPU drivers, the NVIDIA modules stay out
-  of the initramfs and load from the root filesystem.
+  `nvidia-drm modeset=1 fbdev=1`, which rootless X and the VA-API driver
+  require. Tear-free composited video additionally needs picom vsync (see
+  below). Like other GPU drivers, the NVIDIA modules stay out of the
+  initramfs and load from the root filesystem.
 - **Nouveau** is blacklisted by the driver package. Kepler and older NVIDIA
   GPUs are not supported by driver 550 and are therefore unsupported by this
   image. The package's legacy check runs on the build host, so build on a
@@ -281,19 +281,22 @@ requires selecting a different boot entry. GRUB uses a text console to avoid an
 extra display mode change, which can be slow on TVs.
 
 To shorten boots from USB media, new builds keep GPU drivers and GPU firmware
-(NVIDIA, AMD and Intel) out of the initramfs; the Plymouth hook would
-otherwise add over 100 MiB. The drivers load from the root filesystem via
-`pideck-nvidia-load.service` as soon as udev is up, in parallel with the rest
-of early userspace (including Plymouth, dbus and NetworkManager), instead of
-blocking `systemd-modules-load`. Only the first console waits for that load,
-then for `/dev/dri/card0` (up to 20 seconds) before starting X, so the session
-does not start before the graphics driver is ready. The initramfs is compressed
-with zstd, which decompresses faster than the gzip fallback used when `zstd` is
-missing. Hibernate resume is configured after first boot by
-`pideck-hibernate-swap` (GRUB `resume=` / `resume_offset=`; initramfs keeps
-`RESUME=none` because the swap target is a file, not a partition). New
-builds install `intel-microcode` so Intel CPUs apply microcode updates from the
-initramfs. Steam Link's Flatpak runtime is installed with the default GL
+(NVIDIA, AMD and Intel) out of the initramfs image itself; a Plymouth hook
+would otherwise add over 100 MiB. On NVIDIA appliances an initramfs
+`local-bottom` script still loads `nvidia-drm` from the mounted root before
+`switch_root`, so modeset (and X) can start earlier without bloating the
+initrd. Userspace also runs `pideck-nvidia-load.service` after udev. Only the
+first console waits for `/dev/dri/card0` (up to 20 seconds) before starting X.
+There is no Plymouth splash on x86: with the GPU out of the initrd, modeset is
+too late for a splash that covers the long wait, and a late flash is worse
+than none. Boot instead uses a quiet console (`quiet loglevel=3
+systemd.show_status=false`). `plymouth-start` and
+`NetworkManager-wait-online` are masked. Getty on tty1 uses `Type=simple` and
+no longer waits on the updater broker or hibernate-swap maintenance. The
+initramfs is compressed with zstd when available. Hibernate resume tooling may
+still create a swapfile after first boot, but it does not block the launcher.
+New builds install `intel-microcode` so Intel CPUs apply microcode updates from
+the initramfs. Steam Link's Flatpak runtime is installed with the default GL
 drivers and the GL extension for the image's NVIDIA driver, never one for the
 build host's driver.
 
@@ -303,17 +306,10 @@ unused ports in the system firmware when possible. Booting the image from an
 internal disk is faster than USB because the kernel does not wait for
 usb-storage to enumerate the root device.
 
-New builds use a PiDeck Plymouth splash while Linux starts. Firmware screens
-before Linux starts are outside its control. Because GPU drivers load after
-the initramfs, the splash may appear before modeset is ready and can look
-incomplete until the driver finishes; when booting in BIOS mode it may not
-appear until later. Press Escape to switch to boot details,
-and use the system journal when diagnosing failures; the splash does not
-remove journal entries. Graphics-driver availability may affect the splash on
-physical hardware. The splash uses the default theme's colors because it
-starts before user theme settings are available. Boot components are not
-updated by PiDeck's application updater: an existing installation needs a
-separately applied system update or a newly built image.
+Firmware screens before Linux starts are outside PiDeck's control. Boot
+components are not updated by PiDeck's application updater: apply them via a
+new image or a one-time root SSH host update (`update-initramfs`, unit masks,
+getty drop-in, GRUB).
 
 ### Hibernate / Turn off
 

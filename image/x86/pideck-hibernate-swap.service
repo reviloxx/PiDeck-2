@@ -1,7 +1,6 @@
 [Unit]
 Description=Configure PiDeck hibernate swapfile and resume
 After=pideck-grow-root.service local-fs.target
-Before=getty@tty1.service
 
 [Service]
 Type=oneshot
