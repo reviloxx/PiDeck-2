@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Set Switch Pro player LEDs when udev adds its hidraw node."""
+
+from __future__ import annotations
+
+import os
+import sys
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        return 1
+    path = sys.argv[1]
+    player = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    if player < 1 or player > 4:
+        return 1
+    masks = (0x01, 0x02, 0x04, 0x08)
+    report = bytes(
+        [0x01, 0x00, 0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40, 0x30, masks[player - 1]]
+    )
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError:
+        return 1
+    try:
+        os.write(fd, report)
+    except OSError:
+        return 1
+    finally:
+        os.close(fd)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

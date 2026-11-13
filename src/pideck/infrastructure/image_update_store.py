@@ -169,9 +169,11 @@ class ImageUpdateStore:
         if not host_root.is_dir():
             return
         allowed = {
-            Path("etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"),
+            Path("etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"): 0o644,
+            Path("etc/udev/rules.d/99-pideck-switch-pro-hidraw.rules"): 0o644,
+            Path("usr/lib/pideck/pideck-switch-pro-led"): 0o755,
         }
-        for relative in sorted(allowed):
+        for relative, mode in sorted(allowed.items()):
             source = host_root / relative
             if not source.is_file():
                 continue
@@ -179,7 +181,7 @@ class ImageUpdateStore:
             try:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
-                os.chmod(destination, 0o644)
+                os.chmod(destination, mode)
             except OSError as error:
                 _LOGGER.warning("Unable to install host overlay %s: %s", relative, error)
 

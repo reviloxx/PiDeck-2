@@ -223,6 +223,12 @@ def _write_inputs(root: Path, tag: str | None) -> None:
         PI_FILES / "pideck-blacklist-hid-nintendo.conf",
         root / "etc/modprobe.d/pideck-blacklist-hid-nintendo.conf",
     )
+    _install(
+        PI_FILES / "99-pideck-switch-pro-hidraw.rules",
+        root / "etc/udev/rules.d/99-pideck-switch-pro-hidraw.rules",
+    )
+    (root / "usr/lib/pideck").mkdir(parents=True, exist_ok=True)
+    _install(PI_FILES / "pideck-switch-pro-led", root / "usr/lib/pideck/pideck-switch-pro-led", 0o755)
     _install(PI_FILES / "71-pideck-cec-attach.rules", root / "etc/udev/rules.d/71-pideck-cec-attach.rules")
     _install(PI_FILES / "pideck-cec-attach@.service", root / "etc/systemd/system/pideck-cec-attach@.service")
     cec_share = root / "usr/share/pideck/cec_support"

@@ -330,6 +330,10 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "blacklist hid-nintendo" in (
         tmp_path / "etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"
     ).read_text()
+    assert "pideck-switch-pro-led" in (
+        tmp_path / "etc/udev/rules.d/99-pideck-switch-pro-hidraw.rules"
+    ).read_text()
+    assert (tmp_path / "usr/lib/pideck/pideck-switch-pro-led").is_file()
     assert {"udisks2", "samba", "x11-xkb-utils", "intel-microcode"} <= packages
     assert (tmp_path / "etc/samba/smb.conf").read_text() == (x86_build.PI_FILES / "smb.conf").read_text()
     assert "Managed by PiDeck" in (tmp_path / "var/lib/pideck/samba/shares.conf").read_text()

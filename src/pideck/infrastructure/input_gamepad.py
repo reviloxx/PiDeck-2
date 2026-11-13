@@ -365,6 +365,14 @@ class EvdevGamepadAdapter:
             self._devices[path] = managed
             exclusive = self._exclusive
         self._apply_grab(managed, exclusive)
+        if nintendo:
+            # hid-generic never stops the connecting LED animation; set player 1.
+            try:
+                from pideck.infrastructure.switch_pro_leds import apply_switch_pro_player_led
+
+                apply_switch_pro_player_led(address=address, player=1)
+            except Exception:
+                _LOGGER.debug("Unable to set Switch Pro player LED", exc_info=True)
         threading.Thread(
             target=self._read_device,
             args=(managed,),

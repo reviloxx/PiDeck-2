@@ -27,6 +27,8 @@ def release_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ImageUpdat
     project = tmp_path / "project"
     (project / "src/pideck").mkdir(parents=True)
     (project / "assets/host/etc/modprobe.d").mkdir(parents=True)
+    (project / "assets/host/etc/udev/rules.d").mkdir(parents=True)
+    (project / "assets/host/usr/lib/pideck").mkdir(parents=True)
     (project / "pyproject.toml").write_text('[project]\nversion = "1.1.0"\n')
     (project / "src/pideck/__init__.py").write_text('__version__ = "1.1.0"\n')
     (project / "src/pideck/bootstrap.py").write_text('"""Entry point."""\n')
@@ -34,6 +36,14 @@ def release_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ImageUpdat
     (
         project / "assets/host/etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"
     ).write_text("blacklist hid-nintendo\n")
+    (
+        project / "assets/host/etc/udev/rules.d/99-pideck-switch-pro-hidraw.rules"
+    ).write_text(
+        'KERNEL=="hidraw*", RUN+="/usr/lib/pideck/pideck-switch-pro-led /dev/%k 1")\n'
+    )
+    led = project / "assets/host/usr/lib/pideck/pideck-switch-pro-led"
+    led.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    led.chmod(0o755)
     release = tmp_path / "release"
     create_bundle(project, release, "v1.1.0")
     monkeypatch.setattr(image_update_store, "_download", lambda version, name, target: shutil.copyfile(release / name, target))
@@ -59,6 +69,12 @@ def test_staging_activation_and_readiness(
     )
     assert blacklist.is_file()
     assert "blacklist hid-nintendo" in blacklist.read_text()
+    assert (
+        tmp_path / "host/etc/udev/rules.d/99-pideck-switch-pro-hidraw.rules"
+    ).is_file()
+    led_helper = tmp_path / "host/usr/lib/pideck/pideck-switch-pro-led"
+    assert led_helper.is_file()
+    assert led_helper.stat().st_mode & 0o111
     release_store.mark_ready("1.1.0")
     assert release_store.status() == {"phase": "idle", "current_version": "1.1.0"}
     release_store.activate_at_startup()

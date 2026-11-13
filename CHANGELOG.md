@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.3
+
+- Fixed: Switch Pro Controller player LEDs show player 1 after connect instead
+  of staying in the connecting animation (``hid-generic`` never set them).
+
 ## v0.6.2
 
 - Fixed: After Bluetooth connects, the Pro Controller input device appears

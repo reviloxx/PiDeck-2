@@ -71,6 +71,11 @@ install -m 644 files/bluetooth-input.conf "${ROOTFS_DIR}/etc/bluetooth/input.con
 install -m 644 files/bluetooth-main.conf "${ROOTFS_DIR}/etc/bluetooth/main.conf"
 install -m 644 files/pideck-blacklist-hid-nintendo.conf \
     "${ROOTFS_DIR}/etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"
+install -m 644 files/99-pideck-switch-pro-hidraw.rules \
+    "${ROOTFS_DIR}/etc/udev/rules.d/99-pideck-switch-pro-hidraw.rules"
+install -d "${ROOTFS_DIR}/usr/lib/pideck"
+install -m 755 files/pideck-switch-pro-led \
+    "${ROOTFS_DIR}/usr/lib/pideck/pideck-switch-pro-led"
 
 # Kodi's German language add-on, pinned and verified, so Kodi starts in German offline.
 . files/kodi-language.env
