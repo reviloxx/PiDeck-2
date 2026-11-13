@@ -3,6 +3,8 @@
 from enum import Enum
 import logging
 import re
+import shutil
+import subprocess
 from threading import Event
 import xml.etree.ElementTree as ET
 
@@ -238,28 +240,69 @@ class BluezGateway:
             return None
 
     def ensure_accepts_connections(self) -> None:
-        """Turn on page scan so paired controllers can reconnect inbound.
+        """Turn on page scan / fast-connectable so paired controllers page in.
 
-        CSR USB adapters often leave ``Connectable`` false after boot. Without
-        page scan the pad cannot page in and only host-initiated Connect works,
-        which feels like luck when the pad wakes between attempts.
+        CSR USB adapters often leave ``Connectable`` false after boot. BlueZ 5.82
+        also omits the D-Bus ``FastConnectable`` property even though the
+        controller supports it; enable that via ``btmgmt fast-conn on``.
         """
         try:
             adapter = self._adapter()
         except BluetoothError as error:
             _LOGGER.debug("Bluetooth page scan skipped: %s", error)
             return
-        for name in ("Connectable", "FastConnectable"):
+        try:
+            current = self._property(adapter, _ADAPTER, "Connectable")
+        except BluetoothError:
+            current = None
+        if current is not True:
             try:
-                current = self._property(adapter, _ADAPTER, name)
-            except BluetoothError:
-                continue
-            if current is True:
-                continue
-            try:
-                self._call(adapter, _PROPERTIES, "Set", _ADAPTER, name, QDBusVariant(True))
+                self._call(adapter, _PROPERTIES, "Set", _ADAPTER, "Connectable", QDBusVariant(True))
             except BluetoothError as error:
-                _LOGGER.debug("Unable to set adapter %s: %s", name, error)
+                _LOGGER.debug("Unable to set adapter Connectable: %s", error)
+        fast_set = False
+        try:
+            fast = self._property(adapter, _ADAPTER, "FastConnectable")
+        except BluetoothError:
+            fast = None
+        else:
+            if fast is True:
+                fast_set = True
+            elif fast is False:
+                try:
+                    self._call(
+                        adapter, _PROPERTIES, "Set", _ADAPTER, "FastConnectable", QDBusVariant(True),
+                    )
+                    fast_set = True
+                except BluetoothError as error:
+                    _LOGGER.debug("Unable to set adapter FastConnectable: %s", error)
+        if not fast_set:
+            self._enable_fast_connectable_btmgmt(adapter)
+
+    def _enable_fast_connectable_btmgmt(self, adapter_path: str) -> None:
+        """Enable interlaced page scan when D-Bus FastConnectable is unavailable."""
+        match = re.search(r"hci(\d+)\Z", adapter_path)
+        index = match.group(1) if match else "0"
+        btmgmt = shutil.which("btmgmt")
+        if btmgmt is None:
+            _LOGGER.debug("btmgmt unavailable; FastConnectable not enabled")
+            return
+        try:
+            result = subprocess.run(
+                [btmgmt, "--index", index, "fast-conn", "on"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            _LOGGER.debug("btmgmt fast-conn failed: %s", error)
+            return
+        if result.returncode != 0:
+            _LOGGER.debug(
+                "btmgmt fast-conn rejected: %s",
+                (result.stderr or result.stdout or "").strip(),
+            )
 
     def try_connect(self, path: str, *, timeout: int = 10000) -> ConnectAttempt:
         """Best-effort Connect for auto-reconnect.

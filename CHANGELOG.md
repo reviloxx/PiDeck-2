@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.1
+
+- Fixed: Paired Nintendo Switch Pro Controllers connect on the first power-on.
+  Automatic host Connect was still racing the pad’s page-in every ~30s; PiDeck
+  now only keeps page scan / fast-connectable enabled and lets the controller
+  reconnect inbound.
+
 ## v0.6.0
 
 - Fixed: When an update is available, **Update** / **Aktualisieren** in About
