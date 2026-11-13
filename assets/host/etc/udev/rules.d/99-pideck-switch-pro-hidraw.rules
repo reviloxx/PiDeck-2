@@ -1,3 +1,3 @@
 # PiDeck: Switch Pro hidraw access + stop connecting LED animation (player 1).
-KERNEL=="hidraw*", KERNELS=="0005:057E:2009.*", MODE="0660", GROUP="input", RUN+="/usr/lib/pideck/pideck-switch-pro-led /dev/%k 1")
-KERNEL=="hidraw*", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="2009", MODE="0660", GROUP="input", RUN+="/usr/lib/pideck/pideck-switch-pro-led /dev/%k 1")
+KERNEL=="hidraw*", KERNELS=="0005:057E:2009.*", MODE="0660", GROUP="input", RUN+="/usr/lib/pideck/pideck-switch-pro-led /dev/%k 1"
+KERNEL=="hidraw*", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="2009", MODE="0660", GROUP="input", RUN+="/usr/lib/pideck/pideck-switch-pro-led /dev/%k 1"

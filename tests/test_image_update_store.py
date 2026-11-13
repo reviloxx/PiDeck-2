@@ -39,7 +39,7 @@ def release_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ImageUpdat
     (
         project / "assets/host/etc/udev/rules.d/99-pideck-switch-pro-hidraw.rules"
     ).write_text(
-        'KERNEL=="hidraw*", RUN+="/usr/lib/pideck/pideck-switch-pro-led /dev/%k 1")\n'
+        'KERNEL=="hidraw*", RUN+="/usr/lib/pideck/pideck-switch-pro-led /dev/%k 1"\n'
     )
     led = project / "assets/host/usr/lib/pideck/pideck-switch-pro-led"
     led.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
