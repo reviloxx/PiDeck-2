@@ -501,8 +501,7 @@ def apply_theme(
             min-width: 92px;
             padding: 1px;
         }
-        QPushButton#update_action:focus,
-        QFrame#update_row:focus QPushButton#update_action {
+        QPushButton#update_action:focus {
             background-color: %(active_surface)s;
             border: 2px solid %(focus)s;
             padding: 0;

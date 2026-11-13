@@ -590,6 +590,36 @@ def test_about_nav_highlight_stays_on_rail_until_right(application: QApplication
     window.close()
 
 
+def test_about_update_button_focuses_only_when_navigated(application: QApplication) -> None:
+    """Aktualisieren is visible when available but highlighted only after navigating to it."""
+    configuration = YamlConfigurationParser().parse(configuration_document())
+    window = SettingsWindow(
+        configuration, DEFAULT_THEME, Path.cwd(),
+        pideck_update_info=PiDeckUpdateInfo(PiDeckUpdateStatus.AVAILABLE, "1.0.0", "1.1.0"),
+    )
+    window.show()
+    application.processEvents()
+    about = window._pideck_page
+    assert about is not None
+    window._select_page(about)
+    application.processEvents()
+    action = window._pideck_action_button
+    assert action.isVisible() and action.isEnabled()
+    assert action.objectName() == "update_action"
+    window._focus_nav(about)
+    application.processEvents()
+    assert window._nav_buttons[about].hasFocus()
+    assert not action.hasFocus()
+    QTest.keyClick(window._nav_buttons[about], Qt.Key.Key_Right)
+    application.processEvents()
+    assert window._pideck_check_button.hasFocus()
+    assert not action.hasFocus()
+    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
+    application.processEvents()
+    assert action.hasFocus()
+    window.close()
+
+
 def test_versions_and_build_date_are_visible(application: QApplication) -> None:
     """Each update page shows installed versions and the PiDeck build date."""
     configuration = YamlConfigurationParser().parse(configuration_document())

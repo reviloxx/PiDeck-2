@@ -55,6 +55,13 @@ application updates.
   Platform features that are unavailable must degrade gracefully.
 - Saved configuration must stay readable by older application releases.
 
+### Stability and 1.0
+
+- `0.x` application releases are pre-stable milestones shipped via OTA.
+- **`v1.0.0` is reserved until the primary Raspberry Pi target works
+  end-to-end** (image, launcher, OTA, and TV UX). Until then, ship further
+  `0.x` milestones (for example `0.6.0`).
+
 ### Decision rule
 
 | Change | Delivery |
