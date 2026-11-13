@@ -1,4 +1,11 @@
-"""Host-initiated BlueZ reconnect for trusted gamepads (Switch Pro, etc.)."""
+"""Inbound-first BlueZ reconnect for trusted gamepads (Switch Pro, etc.).
+
+CSR dongles need page scan (Connectable). Continuous host ``Device1.Connect``
+while the pad is off pages for ~5s every few seconds and races the pad's own
+page-in: BlueZ then logs ``Refusing input device connect: Operation already in
+progress`` and resets the link. Keep the adapter connectable and let the pad
+initiate; only fall back to a rare host Connect after a long quiet window.
+"""
 
 from collections.abc import Callable
 import logging
@@ -9,30 +16,32 @@ from pideck.infrastructure.bluez import BluezGateway, ConnectAttempt
 
 _LOGGER = logging.getLogger(__name__)
 
+# After a disconnect (or boot with a paired pad off), wait this long for inbound
+# page-in before a single host Connect fallback.
+_DEFAULT_HOST_FALLBACK_SECONDS = 25.0
 # BlueZ may still own a BR connect after InProgress; do not hammer Connect.
 _DEFAULT_BUSY_SECONDS = 45.0
-# Client wait ended but BlueZ may still finish; shorter than busy so wake windows
-# are not blacked out for nearly a minute. PropertiesChanged clears this early.
+# Client wait ended but BlueZ may still finish; PropertiesChanged clears early.
 _DEFAULT_TIMEOUT_SECONDS = 12.0
-# Pad off / unreachable: BlueZ already finished. Keep short so the Switch Pro's
-# brief advertising window after power-on is not missed inside a long blackout.
-_DEFAULT_ASLEEP_COOLDOWN_SECONDS = 2.0
+# Host is down: stay quiet so inbound page-in owns the next wake window.
+_DEFAULT_ASLEEP_COOLDOWN_SECONDS = 60.0
 # Other finished Connect failures: brief backoff without starving wake retries.
-_DEFAULT_FAILED_COOLDOWN_SECONDS = 5.0
+_DEFAULT_FAILED_COOLDOWN_SECONDS = 15.0
 # Match manual connect: UserspaceHID setup can exceed a short D-Bus wait.
 _DEFAULT_CONNECT_TIMEOUT_MS = 30000
 _IDLE_POLL_MS = 1500
-_ACTIVE_POLL_MS = 500
+_ACTIVE_POLL_MS = 1000
 
 
 class BluetoothReconnectService:
-    """Periodically Connect trusted disconnected controllers on the Qt thread."""
+    """Keep page scan on and rarely host-Connect trusted disconnected pads."""
 
     def __init__(
         self,
         gateway: BluezGateway,
         *,
         pairing_active: Callable[[], bool] | None = None,
+        host_fallback_seconds: float = _DEFAULT_HOST_FALLBACK_SECONDS,
         busy_seconds: float = _DEFAULT_BUSY_SECONDS,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         asleep_cooldown_seconds: float = _DEFAULT_ASLEEP_COOLDOWN_SECONDS,
@@ -44,6 +53,7 @@ class BluetoothReconnectService:
         """Create a single-flight reconnect helper bound to one BlueZ gateway."""
         self._gateway = gateway
         self._pairing_active = pairing_active or (lambda: False)
+        self._host_fallback_seconds = host_fallback_seconds
         self._busy_seconds = busy_seconds if pending_seconds is None else pending_seconds
         self._timeout_seconds = timeout_seconds
         self._asleep_cooldown_seconds = asleep_cooldown_seconds
@@ -51,6 +61,7 @@ class BluetoothReconnectService:
         self._connect_timeout_ms = connect_timeout_ms
         self._busy = False
         self._pending_until: dict[str, float] = {}
+        self._seen_since: dict[str, float] = {}
         self._has_candidates = False
         self._watched_paths: tuple[str, ...] = ()
 
@@ -81,11 +92,13 @@ class BluetoothReconnectService:
     def note_connected(self, path: str) -> None:
         """BlueZ Connected became true — end any blackout for that device."""
         self.clear_pending(path)
+        self._seen_since.pop(path, None)
         _LOGGER.debug("Bluetooth reconnect pending cleared path=%s reason=connected", path)
 
     def note_disconnected(self, path: str) -> None:
-        """BlueZ Connected became false — allow an immediate reconnect tick."""
+        """BlueZ Connected became false — prefer inbound; reset fallback timer."""
         self.clear_pending(path)
+        self._seen_since[path] = time.monotonic()
         _LOGGER.debug("Bluetooth reconnect pending cleared path=%s reason=disconnected", path)
 
     def refresh_watched_paths(self) -> tuple[str, ...]:
@@ -98,7 +111,7 @@ class BluetoothReconnectService:
         return self._watched_paths
 
     def tick(self) -> None:
-        """Attempt Connect for candidates that are not already BlueZ-pending."""
+        """Keep page scan enabled; host-Connect only after inbound has had time."""
         if self._busy or self._pairing_active():
             return
         self._busy = True
@@ -116,23 +129,28 @@ class BluetoothReconnectService:
             candidate_set = set(candidates)
             for path in list(self._pending_until):
                 if path not in candidate_set:
-                    # Connected (or unpaired) — BlueZ finished; allow future retries.
                     del self._pending_until[path]
+            for path in list(self._seen_since):
+                if path not in candidate_set:
+                    del self._seen_since[path]
             for path in candidates:
+                self._seen_since.setdefault(path, now)
                 if self._pairing_active():
                     return
                 pending_until = self._pending_until.get(path)
                 if pending_until is not None and now < pending_until:
+                    continue
+                # Prefer inbound page-in; host Connect races it on CSR adapters.
+                if now - self._seen_since[path] < self._host_fallback_seconds:
                     continue
                 result = self._gateway.try_connect(path, timeout=self._connect_timeout_ms)
                 if result is ConnectAttempt.TIMEOUT and self._gateway.device_is_connected(path):
                     result = ConnectAttempt.OK
                 if result is ConnectAttempt.OK:
                     self._pending_until.pop(path, None)
+                    self._seen_since.pop(path, None)
                     _LOGGER.info("Bluetooth gamepad reconnected path=%s", path)
                     continue
-                # Busy: BlueZ still owns the attempt. Timeout: may finish soon.
-                # Asleep/failed: finished; asleep uses a short wake-window retry.
                 if result is ConnectAttempt.BUSY:
                     cooldown = self._busy_seconds
                 elif result is ConnectAttempt.TIMEOUT:
@@ -142,6 +160,8 @@ class BluetoothReconnectService:
                 else:
                     cooldown = self._failed_cooldown_seconds
                 self._pending_until[path] = time.monotonic() + cooldown
+                # After a host attempt, restart the inbound-first quiet window.
+                self._seen_since[path] = time.monotonic()
                 _LOGGER.debug(
                     "Bluetooth reconnect deferred path=%s result=%s cooldown=%.0fs",
                     path,

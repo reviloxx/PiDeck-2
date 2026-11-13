@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.100
+
+- Fixed: Paired Nintendo Switch Pro Controllers connect on the first power-on.
+  Host Connect was paging continuously and racing the pad’s own reconnect
+  (BlueZ “already in progress”), so inbound page-in is preferred and host
+  Connect is only a rare fallback.
+
 ## v0.5.99
 
 - Fixed: Paired Nintendo Switch Pro Controllers reconnect more reliably after
