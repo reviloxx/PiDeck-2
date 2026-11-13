@@ -435,12 +435,14 @@ class DisplayHotplugMonitor:
         gateway: X11DisplayGateway,
         *,
         after: Callable[[], None] | None = None,
+        on_link_changed: Callable[[bool], None] | None = None,
         interval: float = 2.5,
         debounce: float = 1.5,
     ) -> None:
         """Watch connected outputs and invoke forced reassert after quiet periods."""
         self._gateway = gateway
         self._after = after
+        self._on_link_changed = on_link_changed
         self._interval = interval
         self._debounce = debounce
         self._condition = threading.Condition()
@@ -514,6 +516,8 @@ class DisplayHotplugMonitor:
                     )
                     self.request()
                 continue
+            if bool(connected) != bool(previous_connected):
+                self._emit_link_changed(bool(connected))
             if connected != previous_connected:
                 _LOGGER.info(
                     "Display outputs changed from %s to %s; scheduling reassert",
@@ -526,6 +530,15 @@ class DisplayHotplugMonitor:
                     sorted(inactive),
                 )
                 self.request()
+
+    def _emit_link_changed(self, connected: bool) -> None:
+        """Notify listeners when any HDMI/output link appears or disappears."""
+        if self._on_link_changed is None:
+            return
+        try:
+            self._on_link_changed(connected)
+        except Exception:
+            _LOGGER.warning("Display link-changed hook failed", exc_info=True)
 
     def _recover(self) -> None:
         try:

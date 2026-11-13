@@ -825,6 +825,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
     connected_inputs_timer.timeout.connect(refresh_connected_inputs)
     connected_inputs_timer.start()
     refresh_connected_inputs()
+    cec_status_bridge.status_received.connect(
+        refresh_connected_inputs, Qt.ConnectionType.QueuedConnection,
+    )
     bluetooth_reconnect_timer: QTimer | None = None
     bluetooth_reconnect_gateway = None
     try:
@@ -1540,13 +1543,20 @@ def main(arguments: Sequence[str] | None = None) -> int:
         recovered = Signal()
 
     display_recovery_bridge = DisplayRecoveryBridge()
+
+    def handle_display_recovered() -> None:
+        """Reassert fullscreen and reclaim Anynet after a display modeset."""
+        window.schedule_fullscreen_reassert(100)
+        cec_adapter.reclaim_active_source()
+
     display_recovery_bridge.recovered.connect(
-        lambda: window.schedule_fullscreen_reassert(100),
+        handle_display_recovered,
         Qt.ConnectionType.QueuedConnection,
     )
     display_hotplug = DisplayHotplugMonitor(
         display_gateway,
         after=display_recovery_bridge.recovered.emit,
+        on_link_changed=cec_adapter.notify_hdmi_link,
     )
     cec_adapter.set_tv_power_on_handler(display_hotplug.request)
     display_hotplug.start()

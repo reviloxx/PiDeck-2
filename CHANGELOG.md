@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.97
+
+- Fixed: HDMI-CEC reclaims the TV remote more reliably when PiDeck boots while
+  the TV is already on (delayed Active Source retries).
+- Fixed: The bottom-left TV-remote icon hides as soon as CEC disconnects or
+  reconnects, and when the HDMI link drops.
+
 ## v0.5.96
 
 - Changed: Home-screen **Turn off** / **Ausschalten** powers the system off again.

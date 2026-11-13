@@ -24,11 +24,16 @@ _KEY_IDLE = re.compile(r"\bKey .*: idle \(duration:\d+\) \(ff\) timeout:")
 # Restart after TV wake or a dropped link. Ignore unknown→on (normal startup)
 # and transitions into standby.
 _CONNECTION_LOST = re.compile(r"connection lost", re.IGNORECASE)
+_TV_POWER_STATUS = re.compile(
+    r"\bTV\b.*power status changed from '([^']*)' to '([^']*)'",
+    re.IGNORECASE,
+)
 _TV_POWER_ON = re.compile(
     r"\bTV\b.*power status changed from '(?:standby|in transition[^']*)' "
     r"to '(?:on|in transition standby to on)'",
     re.IGNORECASE,
 )
+_CLAIM_RETRY_DELAYS = (1.0, 3.0)
 _ACTIONS = {
     0x00: InputAction.ACTIVATE,
     0x01: InputAction.UP,
@@ -73,9 +78,11 @@ class CecClientAdapter:
         status_changed: Callable[[str], None] | None = None,
         key_observed: Callable[[CecKeyObservation], None] | None = None,
         on_tv_power_on: Callable[[], None] | None = None,
+        claim_retry_delays: tuple[float, ...] = _CLAIM_RETRY_DELAYS,
     ) -> None:
         """Create an adapter with bounded retry intervals for missing hardware."""
         self._retry_interval = retry_interval
+        self._claim_retry_delays = claim_retry_delays
         self._condition = threading.Condition()
         self._process: subprocess.Popen[str] | None = None
         self._sink: InputSink | None = None
@@ -90,6 +97,8 @@ class CecClientAdapter:
         self._key_observed = key_observed
         self._on_tv_power_on = on_tv_power_on
         self._status = "Disconnected"
+        self._tv_on = False
+        self._claim_timers: list[threading.Timer] = []
         self._stop_lock = threading.Lock()
         self._logged_unmapped: set[int] = set()
         self._history: deque[CecKeyObservation] = deque(maxlen=_HISTORY_LIMIT)
@@ -97,6 +106,43 @@ class CecClientAdapter:
     def set_tv_power_on_handler(self, handler: Callable[[], None] | None) -> None:
         """Install or clear the late-TV display recovery callback."""
         self._on_tv_power_on = handler
+
+    def notify_hdmi_link(self, connected: bool) -> None:
+        """Restart or reclaim when DRM reports HDMI link loss or recovery."""
+        if not connected:
+            with self._condition:
+                process = self._process
+                generation = self._generation
+                desired = self._desired and not self._closed and not self._suspended
+                status = self._status
+            if process is not None:
+                self._request_bus_reconnect(process, generation)
+            elif desired and status == "Connected":
+                self._set_status("Reconnecting")
+                with self._condition:
+                    self._condition.notify_all()
+            return
+        with self._condition:
+            if self._closed or self._suspended:
+                return
+            if self._desired:
+                self._condition.notify_all()
+            process = self._process
+            status = self._status
+            generation = self._generation
+            tv_on = self._tv_on
+        if process is not None and status == "Connected":
+            self._claim_active_source(process)
+            if tv_on:
+                self._schedule_claim_retries(process, generation)
+
+    def reclaim_active_source(self) -> None:
+        """Re-send Active Source when the client is already connected."""
+        with self._condition:
+            process = self._process
+            status = self._status
+        if process is not None and status == "Connected":
+            self._claim_active_source(process)
 
     @property
     def status(self) -> str:
@@ -143,6 +189,8 @@ class CecClientAdapter:
             if reconnect:
                 self._generation += 1
             self._condition.notify_all()
+        if reconnect:
+            self._cancel_claim_retries()
         if process is not None:
             self._stop_async(process)
         elif not self._desired:
@@ -164,6 +212,7 @@ class CecClientAdapter:
             self._generation += 1
             process = self._process
             self._condition.notify_all()
+        self._cancel_claim_retries()
         if process is not None:
             self._stop_async(process)
         else:
@@ -189,19 +238,71 @@ class CecClientAdapter:
             ):
                 return False
             self._generation += 1
+        self._cancel_claim_retries()
         self._set_status("Reconnecting")
         _LOGGER.info("Restarting CEC client after connection loss")
         self._stop_async(process)
         return True
 
+    def _note_tv_power(self, previous: str, current: str) -> None:
+        """Update whether the TV is powered on from a libCEC power-status line."""
+        target = current.lower()
+        with self._condition:
+            if target.startswith("on") or "standby to on" in target:
+                self._tv_on = True
+            elif target.startswith("standby") or "to standby" in target:
+                self._tv_on = False
+            elif previous.lower() == "unknown" and "on" in target:
+                self._tv_on = True
+
+    def _cancel_claim_retries(self) -> None:
+        """Cancel pending Active Source retries for a superseded client."""
+        with self._condition:
+            timers = self._claim_timers
+            self._claim_timers = []
+        for timer in timers:
+            timer.cancel()
+
+    def _schedule_claim_retries(
+        self, process: subprocess.Popen[str], generation: int,
+    ) -> None:
+        """Retry Active Source after boot when the TV was already on."""
+        self._cancel_claim_retries()
+        timers: list[threading.Timer] = []
+        for delay in self._claim_retry_delays:
+            timer = threading.Timer(
+                delay, self._delayed_claim, args=(process, generation),
+            )
+            timer.daemon = True
+            timers.append(timer)
+            timer.start()
+        with self._condition:
+            self._claim_timers = timers
+
+    def _delayed_claim(self, process: subprocess.Popen[str], generation: int) -> None:
+        """Send Active Source only while the same client generation is active."""
+        with self._condition:
+            if (
+                self._closed or self._suspended or not self._desired
+                or self._process is not process or self._generation != generation
+            ):
+                return
+        self._claim_active_source(process)
+
     def _claim_active_source(
-        self, process: subprocess.Popen[str], *, on_connect: bool = False,
+        self,
+        process: subprocess.Popen[str],
+        *,
+        on_connect: bool = False,
+        tv_on: bool | None = None,
     ) -> None:
         """Ask the TV to route Anynet / HDMI to PiDeck when switch-input is enabled."""
         settings = self._settings
         if settings is None or not settings.switch_input or process.stdin is None:
             return
-        if on_connect and not settings.wake_tv:
+        known_on = self._tv_on if tv_on is None else tv_on
+        # wake_tv gates waking a standby set; an already-on TV still needs reclaim.
+        if on_connect and not settings.wake_tv and not known_on:
             return
         try:
             process.stdin.write("as\n")
@@ -239,6 +340,7 @@ class CecClientAdapter:
             if not self._condition.wait_for(lambda: not self._preparing, timeout=5):
                 raise ProcessError("CEC adapter preparation did not stop")
             process = self._process
+        self._cancel_claim_retries()
         if process is not None:
             self._stop_process(process)
 
@@ -260,6 +362,7 @@ class CecClientAdapter:
             self._generation += 1
             process = self._process
             self._condition.notify_all()
+        self._cancel_claim_retries()
         if process is not None:
             self._stop_process(process)
         if self._thread is not None:
@@ -399,30 +502,40 @@ class CecClientAdapter:
         connected = False
         for line in output:
             line = line.strip()
+            power = _TV_POWER_STATUS.search(line)
+            if power:
+                self._note_tv_power(power.group(1), power.group(2))
+                # Only after "waiting for input": startup always logs unknown→on.
+                if connected and _TV_POWER_ON.search(line):
+                    # Reclaim Anynet without restarting; Samsung often stays on Fernseher.
+                    self._claim_active_source(process)
+                    if self._on_tv_power_on is not None:
+                        try:
+                            self._on_tv_power_on()
+                        except Exception:
+                            _LOGGER.warning(
+                                "TV power-on display recovery failed", exc_info=True,
+                            )
+                continue
             if self._settings is not None and not connected and line == "waiting for input":
                 with self._condition:
                     active = (
                         self._process is process and not self._suspended
                         and self._desired and generation == self._generation
                     )
+                    tv_on = self._tv_on
                     if active:
                         connected = True
                         self._set_status("Connected")
-                        self._claim_active_source(process, on_connect=True)
+                        self._claim_active_source(
+                            process, on_connect=True, tv_on=tv_on,
+                        )
+                if connected and tv_on:
+                    self._schedule_claim_retries(process, generation)
                 continue
-            # Only after "waiting for input": startup always logs unknown→on.
             if connected and _CONNECTION_LOST.search(line):
                 if self._request_bus_reconnect(process, generation):
                     return
-                continue
-            if connected and _TV_POWER_ON.search(line):
-                # Reclaim Anynet without restarting; Samsung often stays on Fernseher.
-                self._claim_active_source(process)
-                if self._on_tv_power_on is not None:
-                    try:
-                        self._on_tv_power_on()
-                    except Exception:
-                        _LOGGER.warning("TV power-on display recovery failed", exc_info=True)
                 continue
             if _KEY_IDLE.search(line):
                 held.clear()

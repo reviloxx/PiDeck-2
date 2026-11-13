@@ -330,6 +330,7 @@ def test_display_hotplug_monitor_recovers_when_outputs_change(display, monkeypat
     gateway, preferences, log = display
     preferences.save("HDMI-1", DisplayMode("1920x1080", "60.00"))
     after: list[str] = []
+    link_events: list[bool] = []
     states = iter([
         (frozenset(), frozenset()),
         (frozenset({"HDMI-1"}), frozenset({"HDMI-1"})),
@@ -344,7 +345,11 @@ def test_display_hotplug_monitor_recovers_when_outputs_change(display, monkeypat
 
     monkeypatch.setattr(gateway, "connection_state", fake_state)
     monitor = DisplayHotplugMonitor(
-        gateway, after=lambda: after.append("done"), interval=0.05, debounce=0.05,
+        gateway,
+        after=lambda: after.append("done"),
+        on_link_changed=link_events.append,
+        interval=0.05,
+        debounce=0.05,
     )
     monitor.start()
     deadline = time.monotonic() + 2
@@ -352,7 +357,39 @@ def test_display_hotplug_monitor_recovers_when_outputs_change(display, monkeypat
         time.sleep(0.02)
     monitor.close()
     assert after == ["done"]
+    assert link_events == [True]
     assert "--primary" in log.read_text()
+
+
+def test_display_hotplug_monitor_reports_link_down(display, monkeypatch) -> None:
+    """Losing all connected outputs notifies the HDMI-down listener."""
+    from pideck.infrastructure.x11_display import DisplayHotplugMonitor
+
+    gateway, preferences, _log = display
+    preferences.save("HDMI-1", DisplayMode("1920x1080", "60.00"))
+    link_events: list[bool] = []
+    states = iter([
+        (frozenset({"HDMI-1"}), frozenset({"HDMI-1"})),
+        (frozenset(), frozenset()),
+        (frozenset(), frozenset()),
+    ])
+
+    def fake_state() -> tuple[frozenset[str], frozenset[str]]:
+        try:
+            return next(states)
+        except StopIteration:
+            return frozenset(), frozenset()
+
+    monkeypatch.setattr(gateway, "connection_state", fake_state)
+    monitor = DisplayHotplugMonitor(
+        gateway, on_link_changed=link_events.append, interval=0.05, debounce=0.05,
+    )
+    monitor.start()
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and link_events != [False]:
+        time.sleep(0.02)
+    monitor.close()
+    assert link_events == [False]
 
 
 def test_display_hotplug_monitor_recovers_inactive_connected(display, monkeypatch) -> None:
