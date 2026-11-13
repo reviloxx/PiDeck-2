@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.5
+
+- Changed: Opening an application in Settings → Applications shows a short
+  description under the name (English or German). The German arrange action is
+  now **Anordnen** instead of **Verschieben**.
+
 ## v0.6.4
 
 - Fixed: Switch Pro player LED udev rule was ignored (trailing parenthesis), so
