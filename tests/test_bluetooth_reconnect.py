@@ -1,5 +1,7 @@
 """Tests for host-initiated Bluetooth gamepad reconnect."""
 
+import time
+
 from PySide6.QtDBus import QDBusVariant
 
 from pideck.application.ports.bluetooth import BluetoothError
@@ -109,15 +111,22 @@ def test_reconnect_candidates_skip_connected_and_non_gamepads() -> None:
     assert gateway.reconnect_candidates() == ()
 
 
-def test_try_connect_returns_failed_when_pad_is_off() -> None:
-    """A rejected Connect must not raise into the reconnect timer."""
+def test_try_connect_returns_asleep_when_pad_is_off() -> None:
+    """A rejected Connect for a powered-off pad must not raise into the timer."""
     gateway = FakeReconnectBluez()
     gateway.fail_connect = BluetoothError("Host is down")
-    assert gateway.try_connect(DEVICE) is ConnectAttempt.FAILED
+    assert gateway.try_connect(DEVICE) is ConnectAttempt.ASLEEP
     assert gateway.connect_calls == 1
     methods = [method for _, _, method in gateway.calls]
     assert "Disconnect" not in methods
     assert "Connect" in methods
+
+
+def test_try_connect_classifies_generic_failed() -> None:
+    """Non-asleep Connect errors remain a generic finished failure."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("org.bluez.Error.Failed Operation failed")
+    assert gateway.try_connect(DEVICE) is ConnectAttempt.FAILED
 
 
 def test_try_connect_does_not_disconnect_first() -> None:
@@ -202,12 +211,12 @@ def test_reconnect_enables_page_scan_before_connect() -> None:
     assert gateway.connect_calls == 1
 
 
-def test_reconnect_retries_after_failed_cooldown_clears() -> None:
-    """Finished failures use a short cooldown, not the 45s in-flight window."""
+def test_reconnect_retries_after_asleep_cooldown_clears() -> None:
+    """Asleep failures use a short wake-window cooldown, not the 45s in-flight window."""
     gateway = FakeReconnectBluez()
     gateway.fail_connect = BluetoothError("Host is down")
     service = BluetoothReconnectService(
-        gateway, pending_seconds=45.0, failed_cooldown_seconds=0.0, connect_timeout_ms=10000,
+        gateway, pending_seconds=45.0, asleep_cooldown_seconds=0.0, connect_timeout_ms=10000,
     )
     service.tick()
     assert gateway.connect_calls == 1
@@ -216,7 +225,7 @@ def test_reconnect_retries_after_failed_cooldown_clears() -> None:
     assert gateway.connect_calls == 2
 
 
-def test_reconnect_default_failed_cooldown_blocks_immediate_retry() -> None:
+def test_reconnect_default_asleep_cooldown_blocks_immediate_retry() -> None:
     """Host-is-down must not hammer Connect every timer tick."""
     gateway = FakeReconnectBluez()
     gateway.fail_connect = BluetoothError("Host is down")
@@ -226,3 +235,28 @@ def test_reconnect_default_failed_cooldown_blocks_immediate_retry() -> None:
     service.tick()
     assert gateway.connect_calls == 1
     assert service._pending_until[DEVICE] > 0
+
+
+def test_reconnect_asleep_cooldown_is_shorter_than_pending() -> None:
+    """Wake retries must clear well before the InProgress blackout window."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("Host is down")
+    service = BluetoothReconnectService(gateway, pending_seconds=45.0)
+    before = time.monotonic()
+    service.tick()
+    pending_until = service._pending_until[DEVICE]
+    assert 0 < pending_until - before <= 2.5
+
+
+def test_reconnect_generic_failed_uses_failed_cooldown() -> None:
+    """Non-asleep finished failures use the failed cooldown, not 45s."""
+    gateway = FakeReconnectBluez()
+    gateway.fail_connect = BluetoothError("org.bluez.Error.Failed Operation failed")
+    service = BluetoothReconnectService(
+        gateway, pending_seconds=45.0, failed_cooldown_seconds=0.0, connect_timeout_ms=10000,
+    )
+    service.tick()
+    assert gateway.connect_calls == 1
+    gateway.fail_connect = None
+    service.tick()
+    assert gateway.connect_calls == 2

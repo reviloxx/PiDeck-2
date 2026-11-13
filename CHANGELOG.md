@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.5.98
+
+- Fixed: Paired Nintendo Switch Pro Controllers connect on the first power-on
+  more reliably. Host reconnect no longer waits out a long “controller off”
+  cooldown that could miss the pad’s short advertising window.
+
 ## v0.5.97
 
 - Fixed: HDMI-CEC reclaims the TV remote more reliably when PiDeck boots while

@@ -44,6 +44,7 @@ class ConnectAttempt(Enum):
 
     OK = "ok"
     FAILED = "failed"
+    ASLEEP = "asleep"
     TIMEOUT = "timeout"
     BUSY = "busy"
 
@@ -248,6 +249,13 @@ class BluezGateway:
                 return ConnectAttempt.TIMEOUT
             if "in progress" in message or "inprogress" in message or "br-connection-busy" in message:
                 return ConnectAttempt.BUSY
+            if (
+                "host is down" in message
+                or "not available" in message
+                or "connection refused" in message
+                or "no route" in message
+            ):
+                return ConnectAttempt.ASLEEP
             return ConnectAttempt.FAILED
         return ConnectAttempt.OK
 

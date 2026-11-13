@@ -12,9 +12,11 @@ _LOGGER = logging.getLogger(__name__)
 # BlueZ keeps a BR connect running after the client D-Bus wait times out; do not
 # start another Connect for the same device until this window ends.
 _DEFAULT_PENDING_SECONDS = 45.0
-# Host is down / similar: BlueZ already finished. Keep this long enough that
-# inbound page-in (Connectable) can win instead of hammering host Connect.
-_DEFAULT_FAILED_COOLDOWN_SECONDS = 20.0
+# Pad off / unreachable: BlueZ already finished. Keep short so the Switch Pro's
+# brief advertising window after power-on is not missed inside a long blackout.
+_DEFAULT_ASLEEP_COOLDOWN_SECONDS = 2.0
+# Other finished Connect failures: brief backoff without starving wake retries.
+_DEFAULT_FAILED_COOLDOWN_SECONDS = 5.0
 _DEFAULT_CONNECT_TIMEOUT_MS = 10000
 
 
@@ -27,6 +29,7 @@ class BluetoothReconnectService:
         *,
         pairing_active: Callable[[], bool] | None = None,
         pending_seconds: float = _DEFAULT_PENDING_SECONDS,
+        asleep_cooldown_seconds: float = _DEFAULT_ASLEEP_COOLDOWN_SECONDS,
         failed_cooldown_seconds: float = _DEFAULT_FAILED_COOLDOWN_SECONDS,
         connect_timeout_ms: int = _DEFAULT_CONNECT_TIMEOUT_MS,
     ) -> None:
@@ -34,6 +37,7 @@ class BluetoothReconnectService:
         self._gateway = gateway
         self._pairing_active = pairing_active or (lambda: False)
         self._pending_seconds = pending_seconds
+        self._asleep_cooldown_seconds = asleep_cooldown_seconds
         self._failed_cooldown_seconds = failed_cooldown_seconds
         self._connect_timeout_ms = connect_timeout_ms
         self._busy = False
@@ -73,12 +77,14 @@ class BluetoothReconnectService:
                     self._pending_until.pop(path, None)
                     _LOGGER.info("Bluetooth gamepad reconnected path=%s", path)
                     continue
-                # Timeout/busy: BlueZ may still own the attempt. Failed: finished.
-                cooldown = (
-                    self._pending_seconds
-                    if result in (ConnectAttempt.TIMEOUT, ConnectAttempt.BUSY)
-                    else self._failed_cooldown_seconds
-                )
+                # Timeout/busy: BlueZ may still own the attempt.
+                # Asleep/failed: finished; asleep uses a short wake-window retry.
+                if result in (ConnectAttempt.TIMEOUT, ConnectAttempt.BUSY):
+                    cooldown = self._pending_seconds
+                elif result is ConnectAttempt.ASLEEP:
+                    cooldown = self._asleep_cooldown_seconds
+                else:
+                    cooldown = self._failed_cooldown_seconds
                 self._pending_until[path] = time.monotonic() + cooldown
                 _LOGGER.debug(
                     "Bluetooth reconnect deferred path=%s result=%s cooldown=%.0fs",
