@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pideck.presentation.qt.localization import clock_text, tr
+from pideck.presentation.qt.localization import app_description, clock_text, tr
 
 
 def test_german_clock_uses_german_date_form() -> None:
@@ -18,6 +18,15 @@ def test_translation_catalog_falls_back_to_english() -> None:
     """Unknown language codes remain safe for presentation rendering."""
     assert tr("fr", "settings") == "Settings"
     assert tr("de", "settings") == "Einstellungen"
+
+
+def test_app_description_is_localized_and_empty_for_unknown_ids() -> None:
+    """Catalog apps get short copy; unknown ids stay blank without a missing-key warning."""
+    assert app_description("en", "kodi") == "Play movies, TV shows, and music"
+    assert app_description("de", "kodi") == "Filme, Serien und Musik abspielen"
+    assert app_description("en", "custom-app") == ""
+    assert tr("en", "action_move") == "Arrange"
+    assert tr("de", "action_move") == "Anordnen"
 
 def test_every_language_defines_the_same_keys() -> None:
     """A key missing in one language would otherwise show an English or raw string."""

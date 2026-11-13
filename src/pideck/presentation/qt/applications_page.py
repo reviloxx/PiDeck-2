@@ -28,7 +28,7 @@ from pideck.domain.theme import ThemeDefinition
 
 from .application_actions_dialog import ApplicationActionsDialog
 from .install_row import install_status_text
-from .localization import tr
+from .localization import app_description, tr
 from .power_dialog import ConfirmationDialog
 from .update_rows import PasswordPrompt, UpdateRow
 
@@ -260,7 +260,15 @@ class ApplicationsPage(QScrollArea):
         actions = self._actions(row)
         if not actions:
             return
-        dialog = ApplicationActionsDialog(row.item.name, actions, self._theme, self._language, self)
+        app_id = row.item.catalog_id or row.item.key
+        dialog = ApplicationActionsDialog(
+            row.item.name,
+            actions,
+            self._theme,
+            self._language,
+            self,
+            description=app_description(self._language, app_id),
+        )
         self.dialog, self._dialog_key = dialog, key
         dialog.action_chosen.connect(self._handle_action)
         dialog.finished.connect(lambda _result: self._close_dialog(dialog))

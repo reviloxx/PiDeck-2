@@ -148,6 +148,36 @@ def test_action_menu_offers_state_dependent_actions(application: QApplication) -
     window.close()
 
 
+def test_action_menu_shows_localized_app_description(application: QApplication) -> None:
+    """The menu shows a short description under the app name in the UI language."""
+    from PySide6.QtWidgets import QLabel
+
+    window = applications_window(application)
+    menu = open_menu(window, application, "kodi")
+    description = menu.findChild(QLabel, "settings_description")
+    assert description is not None
+    assert description.isVisible()
+    assert description.text() == "Play movies, TV shows, and music"
+    menu.reject()
+    window.apply_language("de")
+    menu = open_menu(window, application, "youtube")
+    description = menu.findChild(QLabel, "settings_description")
+    assert description.text() == "YouTube auf dem Fernseher ansehen"
+    menu.reject()
+    window.close()
+
+    window, _orders = sorting_window(application, ("one", "two"))
+    menu = open_menu(window, application, "one")
+    assert menu.findChild(QLabel, "settings_description").isVisible() is False
+    assert any(button.text() == "Arrange" for button in menu.buttons)
+    menu.reject()
+    window.apply_language("de")
+    menu = open_menu(window, application, "one")
+    assert any(button.text() == "Anordnen" for button in menu.buttons)
+    menu.reject()
+    window.close()
+
+
 def sorting_window(application: QApplication, identifiers: tuple[str, ...]):
     """Open Applications with the given configured apps, saving requested orders like the composition root."""
     from pideck.application.home_layout import set_application_order

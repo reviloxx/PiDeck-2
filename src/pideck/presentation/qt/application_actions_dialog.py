@@ -24,7 +24,7 @@ class ApplicationActionsDialog(WallpaperDialog):
 
     def __init__(
         self, name: str, actions: tuple[ApplicationAction, ...], theme: ThemeDefinition,
-        language: str, parent: QWidget,
+        language: str, parent: QWidget, *, description: str = "",
     ) -> None:
         """Build a fullscreen menu whose last entry closes it."""
         super().__init__(parent)
@@ -37,6 +37,11 @@ class ApplicationActionsDialog(WallpaperDialog):
         title = QLabel(name, self)
         title.setObjectName("settings_heading")
         layout.addWidget(title)
+        self.description = QLabel(description, self)
+        self.description.setObjectName("settings_description")
+        self.description.setWordWrap(True)
+        self.description.setVisible(bool(description))
+        layout.addWidget(self.description)
         self._buttons_layout = QVBoxLayout()
         self._buttons_layout.setSpacing(10)
         layout.addLayout(self._buttons_layout)

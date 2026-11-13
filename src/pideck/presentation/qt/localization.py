@@ -228,10 +228,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "action_cancel_install": "Cancel installation",
         "action_update": "Update",
         "action_cancel_update": "Cancel update",
-        "action_move": "Move",
+        "action_move": "Arrange",
         "application_sorting_hint": "Up/Down to move · OK to save · Back to cancel",
         "action_install": "Install",
         "action_remove": "Remove",
+        "app_kodi_description": "Play movies, TV shows, and music",
+        "app_youtube_description": "Watch YouTube on your TV",
+        "app_steam-link_description": "Stream games from your PC",
+        "app_chromium_description": "Browse the web with Chromium",
+        "app_chrome_description": "Browse the web with Chrome",
+        "app_brave_description": "Browse the web with Brave",
+        "app_firefox_description": "Browse the web with Firefox",
+        "app_nomachine_description": "Access another computer remotely",
+        "app_retroarch_description": "Play classic games",
         "release_notes_title": "What's new in PiDeck {version}",
         "removing_application": "Removing {name}",
         "application_unavailable": "Not available on this device",
@@ -338,10 +347,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "action_cancel_install": "Installation abbrechen",
         "action_update": "Aktualisieren",
         "action_cancel_update": "Aktualisierung abbrechen",
-        "action_move": "Verschieben",
-        "application_sorting_hint": "Hoch/Runter zum Verschieben · OK zum Speichern · Zurück zum Abbrechen",
+        "action_move": "Anordnen",
+        "application_sorting_hint": "Hoch/Runter zum Anordnen · OK zum Speichern · Zurück zum Abbrechen",
         "action_install": "Installieren",
         "action_remove": "Entfernen",
+        "app_kodi_description": "Filme, Serien und Musik abspielen",
+        "app_youtube_description": "YouTube auf dem Fernseher ansehen",
+        "app_steam-link_description": "Spiele vom PC streamen",
+        "app_chromium_description": "Im Web mit Chromium surfen",
+        "app_chrome_description": "Im Web mit Chrome surfen",
+        "app_brave_description": "Im Web mit Brave surfen",
+        "app_firefox_description": "Im Web mit Firefox surfen",
+        "app_nomachine_description": "Fernzugriff auf einen anderen Computer",
+        "app_retroarch_description": "Klassische Spiele spielen",
         "release_notes_title": "Neu in PiDeck {version}",
         "removing_application": "{name} wird entfernt",
         "application_unavailable": "Auf diesem Gerät nicht verfügbar",
@@ -641,6 +659,14 @@ def tr(language: str, key: str, **values: object) -> str:
             _LOGGER.warning("Missing translation key: %s", key)
             text = key
     return text.format(**values)
+
+
+def app_description(language: str, app_id: str) -> str:
+    """Return the localized short description for a catalog app, or empty if unknown."""
+    key = f"app_{app_id}_description"
+    if key not in TRANSLATIONS["en"]:
+        return ""
+    return tr(language, key)
 
 
 def format_timestamp(language: str, value: str) -> str:
