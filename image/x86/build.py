@@ -219,6 +219,10 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "00-pideck-keyboard.conf", root / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf")
     _install(PI_FILES / "bluetooth-input.conf", root / "etc/bluetooth/input.conf")
     _install(PI_FILES / "bluetooth-main.conf", root / "etc/bluetooth/main.conf")
+    _install(
+        PI_FILES / "pideck-blacklist-hid-nintendo.conf",
+        root / "etc/modprobe.d/pideck-blacklist-hid-nintendo.conf",
+    )
     _install(PI_FILES / "71-pideck-cec-attach.rules", root / "etc/udev/rules.d/71-pideck-cec-attach.rules")
     _install(PI_FILES / "pideck-cec-attach@.service", root / "etc/systemd/system/pideck-cec-attach@.service")
     cec_share = root / "usr/share/pideck/cec_support"

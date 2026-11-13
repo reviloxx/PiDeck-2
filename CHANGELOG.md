@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.2
+
+- Fixed: After Bluetooth connects, the Pro Controller input device appears
+  reliably. The kernel ``hid-nintendo`` driver often failed probe on CSR
+  reconnect (no ``/dev/input`` node); images and OTA now blacklist it so
+  ``hid-generic`` binds instead.
+
 ## v0.6.1
 
 - Fixed: Paired Nintendo Switch Pro Controllers connect on the first power-on.

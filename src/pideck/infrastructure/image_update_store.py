@@ -99,9 +99,10 @@ def _download(version: str, name: str, target: Path) -> None:
 class ImageUpdateStore:
     """Stage validated releases and activate them atomically at image startup."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, host_root: Path | None = None) -> None:
         """Use an image-owned root directory for unsigned updates."""
         self.root = root
+        self._host_root = Path("/") if host_root is None else host_root
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
@@ -160,6 +161,27 @@ class ImageUpdateStore:
         temporary.symlink_to(f"releases/{version}")
         os.replace(temporary, self.root / "current")
         self._sync_root()
+        self._apply_host_overlay(version)
+
+    def _apply_host_overlay(self, version: str) -> None:
+        """Install allowlisted rootfs drop-ins shipped under the release assets/host tree."""
+        host_root = self.root / "releases" / version / "assets" / "host"
+        if not host_root.is_dir():
+            return
+        allowed = {
+            Path("etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"),
+        }
+        for relative in sorted(allowed):
+            source = host_root / relative
+            if not source.is_file():
+                continue
+            destination = self._host_root / relative
+            try:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+                os.chmod(destination, 0o644)
+            except OSError as error:
+                _LOGGER.warning("Unable to install host overlay %s: %s", relative, error)
 
     def status(self) -> dict[str, str]:
         """Return the active version and durable update state."""

@@ -26,21 +26,27 @@ def release_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ImageUpdat
     """Create an isolated image layout and locally built release."""
     project = tmp_path / "project"
     (project / "src/pideck").mkdir(parents=True)
-    (project / "assets").mkdir()
+    (project / "assets/host/etc/modprobe.d").mkdir(parents=True)
     (project / "pyproject.toml").write_text('[project]\nversion = "1.1.0"\n')
     (project / "src/pideck/__init__.py").write_text('__version__ = "1.1.0"\n')
     (project / "src/pideck/bootstrap.py").write_text('"""Entry point."""\n')
     (project / "assets/example.svg").write_text("<svg/>\n")
+    (
+        project / "assets/host/etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"
+    ).write_text("blacklist hid-nintendo\n")
     release = tmp_path / "release"
     create_bundle(project, release, "v1.1.0")
     monkeypatch.setattr(image_update_store, "_download", lambda version, name, target: shutil.copyfile(release / name, target))
     root = tmp_path / "image"
+    host_root = tmp_path / "host"
     (root / "releases/1.0.0").mkdir(parents=True)
     (root / "current").symlink_to("releases/1.0.0")
-    return ImageUpdateStore(root)
+    return ImageUpdateStore(root, host_root=host_root)
 
 
-def test_staging_activation_and_readiness(release_store: ImageUpdateStore) -> None:
+def test_staging_activation_and_readiness(
+    release_store: ImageUpdateStore, tmp_path: Path,
+) -> None:
     """Staging leaves the running version intact until activation and readiness."""
     release_store.stage("1.1.0")
     assert release_store.status() == {"phase": "pending", "version": "1.1.0", "current_version": "1.0.0"}
@@ -48,6 +54,11 @@ def test_staging_activation_and_readiness(release_store: ImageUpdateStore) -> No
     assert release_store.status()["phase"] == "activating"
     assert release_store.status()["current_version"] == "1.1.0"
     assert (release_store.root / "current/python/pideck/bootstrap.py").is_file()
+    blacklist = (
+        tmp_path / "host/etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"
+    )
+    assert blacklist.is_file()
+    assert "blacklist hid-nintendo" in blacklist.read_text()
     release_store.mark_ready("1.1.0")
     assert release_store.status() == {"phase": "idle", "current_version": "1.1.0"}
     release_store.activate_at_startup()
@@ -179,18 +190,27 @@ def test_real_bundled_application_starts_after_activation(
     create_bundle(project, release, f"v{version}")
     monkeypatch.setattr(image_update_store, "_download", lambda _version, name, target: shutil.copyfile(release / name, target))
     root = tmp_path / "image"
+    host_root = tmp_path / "host"
     (root / "releases/0.0.0").mkdir(parents=True)
     (root / "current").symlink_to("releases/0.0.0")
-    store = ImageUpdateStore(root)
+    store = ImageUpdateStore(root, host_root=host_root)
     store.stage(version)
     store.activate_at_startup()
+    assert (
+        host_root / "etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"
+    ).is_file()
     script = """
 from PySide6 import QtWidgets
 from PySide6.QtCore import QTimer
 from pideck import bootstrap
 class NoGamepad:
+    presence_changed = None
+    device_lost = None
     def start(self, observer): pass
     def close(self): pass
+    def connected_gamepad_count(self): return 0
+    def connected_keyboard_count(self): return 0
+    def set_exclusive(self, exclusive): pass
 bootstrap.EvdevGamepadAdapter = NoGamepad
 app = QtWidgets.QApplication([])
 QtWidgets.QApplication = lambda _: app

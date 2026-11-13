@@ -69,6 +69,8 @@ install -m 644 files/56-steamlink.rules "${ROOTFS_DIR}/usr/lib/udev/rules.d/56-s
 install -m 644 files/uinput.conf "${ROOTFS_DIR}/etc/modules-load.d/pideck-uinput.conf"
 install -m 644 files/bluetooth-input.conf "${ROOTFS_DIR}/etc/bluetooth/input.conf"
 install -m 644 files/bluetooth-main.conf "${ROOTFS_DIR}/etc/bluetooth/main.conf"
+install -m 644 files/pideck-blacklist-hid-nintendo.conf \
+    "${ROOTFS_DIR}/etc/modprobe.d/pideck-blacklist-hid-nintendo.conf"
 
 # Kodi's German language add-on, pinned and verified, so Kodi starts in German offline.
 . files/kodi-language.env

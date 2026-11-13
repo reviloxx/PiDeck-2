@@ -1,178 +1,212 @@
 version: 1
 applications:
-  - id: kodi
-    name: Kodi
-    executable: kodi
-    arguments: []
-    profiles: []
-    icon: ../assets/icons/kodi.svg
-    preferred_input: cec
-  - id: youtube
-    name: YouTube
-    executable: flatpak
-    # Neutral seed for Pi and x86; amd64 appliance migrate picks up NVIDIA Flatpak
-    # env overrides from assets/catalog/applications.yaml install.amd64.
-    arguments: [run, com.ktechpit.red, --tv]
-    profiles: []
-    icon: ../assets/icons/youtube.svg
-    preferred_input: cec
+- id: kodi
+  name: Kodi
+  executable: kodi
+  arguments: []
+  profiles: []
+  icon: ../assets/icons/kodi.svg
+  preferred_input: cec
+- id: youtube
+  name: YouTube
+  executable: flatpak
+  arguments:
+  - run
+  - com.ktechpit.red
+  - --tv
+  profiles: []
+  icon: ../assets/icons/youtube.svg
+  preferred_input: cec
+- id: steam-link
+  name: Steam Link
+  executable: flatpak
+  arguments:
+  - run
+  - com.valvesoftware.SteamLink
+  profiles: []
+  icon: /tmp/pytest-of-oliver/pytest-5/test_real_bundled_application_0/image/current/assets/icons/steam-link.svg
+  preferred_input: gamepad
 themes:
-  - id: aurora
-    name: Aurora
-    colors:
-      background: '#0a0f18'
-      surface: '#121a28'
-      primary: '#6ec9a8'
-      text: '#eaf2f7'
-      muted_text: '#8a9bb0'
-      focus: '#6ec9a8'
-      running: '#b89be0'
-      error: '#e07a8a'
-    fonts:
-      family: DejaVu Sans
-      heading_size: 28
-      body_size: 18
-    icons:
-      settings: ../assets/icons/settings.svg
-      power: ../assets/icons/power.svg
-      input_cec: ../assets/icons/input-cec.svg
-      input_gamepad: ../assets/icons/input-gamepad.svg
-      input_keyboard: ../assets/icons/input-keyboard.svg
-      input_mouse: ../assets/icons/input-mouse.svg
-    wallpaper: ../assets/themes/aurora/wallpaper.svg
-    tile:
-      width: 240
-      height: 135
-      gap: 32
-    animation:
-      duration_ms: 180
-      reduced_motion_duration_ms: 0
-  - id: default
-    name: Midnight
-    colors:
-      background: '#070809'
-      surface: '#12151a'
-      primary: '#63d6c5'
-      text: '#f4f7f7'
-      muted_text: '#9ca8aa'
-      focus: '#63d6c5'
-      running: '#f2b880'
-      error: '#ed7777'
-    fonts:
-      family: DejaVu Sans
-      heading_size: 28
-      body_size: 18
-    icons:
-      settings: ../assets/icons/settings.svg
-      power: ../assets/icons/power.svg
-      input_cec: ../assets/icons/input-cec.svg
-      input_gamepad: ../assets/icons/input-gamepad.svg
-      input_keyboard: ../assets/icons/input-keyboard.svg
-      input_mouse: ../assets/icons/input-mouse.svg
-    wallpaper: ../assets/themes/default/wallpaper.svg
-    tile:
-      width: 240
-      height: 135
-      gap: 32
-    animation:
-      duration_ms: 180
-      reduced_motion_duration_ms: 0
-  - id: ember
-    name: Ember
-    colors:
-      background: '#14110f'
-      surface: '#221c18'
-      primary: '#e0a060'
-      text: '#f6efe6'
-      muted_text: '#a89888'
-      focus: '#e0a060'
-      running: '#d4a574'
-      error: '#e07870'
-    fonts:
-      family: DejaVu Sans
-      heading_size: 28
-      body_size: 18
-    icons:
-      settings: ../assets/icons/settings.svg
-      power: ../assets/icons/power.svg
-      input_cec: ../assets/icons/input-cec.svg
-      input_gamepad: ../assets/icons/input-gamepad.svg
-      input_keyboard: ../assets/icons/input-keyboard.svg
-      input_mouse: ../assets/icons/input-mouse.svg
-    wallpaper: ../assets/themes/ember/wallpaper.svg
-    tile:
-      width: 240
-      height: 135
-      gap: 32
-    animation:
-      duration_ms: 180
-      reduced_motion_duration_ms: 0
-  - id: nordic
-    name: Nordic
-    colors:
-      background: '#0e1218'
-      surface: '#171d26'
-      primary: '#7aa2c4'
-      text: '#e8eef4'
-      muted_text: '#8b9aab'
-      focus: '#7aa2c4'
-      running: '#c4a574'
-      error: '#d47878'
-    fonts:
-      family: DejaVu Sans
-      heading_size: 28
-      body_size: 18
-    icons:
-      settings: ../assets/icons/settings.svg
-      power: ../assets/icons/power.svg
-      input_cec: ../assets/icons/input-cec.svg
-      input_gamepad: ../assets/icons/input-gamepad.svg
-      input_keyboard: ../assets/icons/input-keyboard.svg
-      input_mouse: ../assets/icons/input-mouse.svg
-    wallpaper: ../assets/themes/nordic/wallpaper.svg
-    tile:
-      width: 240
-      height: 135
-      gap: 32
-    animation:
-      duration_ms: 180
-      reduced_motion_duration_ms: 0
-  - id: daylight
-    name: Daylight
-    colors:
-      background: '#e8eef2'
-      surface: '#f5f8fa'
-      primary: '#0d7a72'
-      text: '#152028'
-      muted_text: '#5a6a75'
-      focus: '#0d7a72'
-      running: '#b86e2c'
-      error: '#c44545'
-    fonts:
-      family: DejaVu Sans
-      heading_size: 28
-      body_size: 18
-    icons:
-      settings: ../assets/icons/settings.svg
-      power: ../assets/icons/power.svg
-      input_cec: ../assets/icons/input-cec.svg
-      input_gamepad: ../assets/icons/input-gamepad.svg
-      input_keyboard: ../assets/icons/input-keyboard.svg
-      input_mouse: ../assets/icons/input-mouse.svg
-    wallpaper: ../assets/themes/daylight/wallpaper.svg
-    tile:
-      width: 240
-      height: 135
-      gap: 32
-    animation:
-      duration_ms: 180
-      reduced_motion_duration_ms: 0
+- id: aurora
+  name: Aurora
+  colors:
+    background: '#0a0f18'
+    surface: '#121a28'
+    primary: '#6ec9a8'
+    text: '#eaf2f7'
+    muted_text: '#8a9bb0'
+    focus: '#6ec9a8'
+    running: '#b89be0'
+    error: '#e07a8a'
+  fonts:
+    family: DejaVu Sans
+    heading_size: 28
+    body_size: 18
+  icons:
+    settings: ../assets/icons/settings.svg
+    power: ../assets/icons/power.svg
+    input_cec: ../assets/icons/input-cec.svg
+    input_gamepad: ../assets/icons/input-gamepad.svg
+    input_keyboard: ../assets/icons/input-keyboard.svg
+    input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
+    network_ethernet: ../assets/icons/network-ethernet.svg
+    network_wifi: ../assets/icons/network-wifi.svg
+  wallpaper: ../assets/themes/aurora/wallpaper.svg
+  tile:
+    width: 240
+    height: 135
+    gap: 32
+  animation:
+    duration_ms: 180
+    reduced_motion_duration_ms: 0
+- id: default
+  name: Midnight
+  colors:
+    background: '#070809'
+    surface: '#12151a'
+    primary: '#63d6c5'
+    text: '#f4f7f7'
+    muted_text: '#9ca8aa'
+    focus: '#63d6c5'
+    running: '#f2b880'
+    error: '#ed7777'
+  fonts:
+    family: DejaVu Sans
+    heading_size: 28
+    body_size: 18
+  icons:
+    settings: ../assets/icons/settings.svg
+    power: ../assets/icons/power.svg
+    input_cec: ../assets/icons/input-cec.svg
+    input_gamepad: ../assets/icons/input-gamepad.svg
+    input_keyboard: ../assets/icons/input-keyboard.svg
+    input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
+    network_ethernet: ../assets/icons/network-ethernet.svg
+    network_wifi: ../assets/icons/network-wifi.svg
+  wallpaper: ../assets/themes/default/wallpaper.svg
+  tile:
+    width: 240
+    height: 135
+    gap: 32
+  animation:
+    duration_ms: 180
+    reduced_motion_duration_ms: 0
+- id: ember
+  name: Ember
+  colors:
+    background: '#14110f'
+    surface: '#221c18'
+    primary: '#e0a060'
+    text: '#f6efe6'
+    muted_text: '#a89888'
+    focus: '#e0a060'
+    running: '#d4a574'
+    error: '#e07870'
+  fonts:
+    family: DejaVu Sans
+    heading_size: 28
+    body_size: 18
+  icons:
+    settings: ../assets/icons/settings.svg
+    power: ../assets/icons/power.svg
+    input_cec: ../assets/icons/input-cec.svg
+    input_gamepad: ../assets/icons/input-gamepad.svg
+    input_keyboard: ../assets/icons/input-keyboard.svg
+    input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
+    network_ethernet: ../assets/icons/network-ethernet.svg
+    network_wifi: ../assets/icons/network-wifi.svg
+  wallpaper: ../assets/themes/ember/wallpaper.svg
+  tile:
+    width: 240
+    height: 135
+    gap: 32
+  animation:
+    duration_ms: 180
+    reduced_motion_duration_ms: 0
+- id: nordic
+  name: Nordic
+  colors:
+    background: '#0e1218'
+    surface: '#171d26'
+    primary: '#7aa2c4'
+    text: '#e8eef4'
+    muted_text: '#8b9aab'
+    focus: '#7aa2c4'
+    running: '#c4a574'
+    error: '#d47878'
+  fonts:
+    family: DejaVu Sans
+    heading_size: 28
+    body_size: 18
+  icons:
+    settings: ../assets/icons/settings.svg
+    power: ../assets/icons/power.svg
+    input_cec: ../assets/icons/input-cec.svg
+    input_gamepad: ../assets/icons/input-gamepad.svg
+    input_keyboard: ../assets/icons/input-keyboard.svg
+    input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
+    network_ethernet: ../assets/icons/network-ethernet.svg
+    network_wifi: ../assets/icons/network-wifi.svg
+  wallpaper: ../assets/themes/nordic/wallpaper.svg
+  tile:
+    width: 240
+    height: 135
+    gap: 32
+  animation:
+    duration_ms: 180
+    reduced_motion_duration_ms: 0
+- id: daylight
+  name: Daylight
+  colors:
+    background: '#e8eef2'
+    surface: '#f5f8fa'
+    primary: '#0d7a72'
+    text: '#152028'
+    muted_text: '#5a6a75'
+    focus: '#0d7a72'
+    running: '#b86e2c'
+    error: '#c44545'
+  fonts:
+    family: DejaVu Sans
+    heading_size: 28
+    body_size: 18
+  icons:
+    settings: ../assets/icons/settings.svg
+    power: ../assets/icons/power.svg
+    input_cec: ../assets/icons/input-cec.svg
+    input_gamepad: ../assets/icons/input-gamepad.svg
+    input_keyboard: ../assets/icons/input-keyboard.svg
+    input_mouse: ../assets/icons/input-mouse.svg
+    drive_mounted: ../assets/icons/drive-mounted.svg
+    drive_shared: ../assets/icons/drive-shared.svg
+    network_ethernet: ../assets/icons/network-ethernet.svg
+    network_wifi: ../assets/icons/network-wifi.svg
+  wallpaper: ../assets/themes/daylight/wallpaper.svg
+  tile:
+    width: 240
+    height: 135
+    gap: 32
+  animation:
+    duration_ms: 180
+    reduced_motion_duration_ms: 0
 home:
   visible_applications: []
   theme: aurora
   background: glow
 input:
-  enabled_sources: [cec, gamepad, keyboard, mouse]
+  enabled_sources:
+  - cec
+  - gamepad
+  - keyboard
+  - mouse
   bindings:
     home: Super
 settings:
