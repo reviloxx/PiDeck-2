@@ -311,7 +311,17 @@ class EvdevGamepadAdapter:
 
         On D-Bus failure keep the previous snapshot so one bad scan cannot make
         every open Bluetooth pad look dead and trigger mass Disconnect.
+        Skip entirely when no adapter is present so D-Bus does not block this
+        discovery thread for the bluetooth.service activation timeout.
         """
+        try:
+            from pideck.infrastructure.bluez import bluetooth_hardware_present
+        except ImportError:
+            self._bt_connected_cache = frozenset()
+            return self._bt_connected_cache
+        if not bluetooth_hardware_present():
+            self._bt_connected_cache = frozenset()
+            return self._bt_connected_cache
         try:
             from PySide6.QtDBus import QDBusConnection
         except ImportError:

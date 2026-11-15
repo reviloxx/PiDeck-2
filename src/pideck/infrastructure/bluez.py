@@ -2,6 +2,7 @@
 
 from enum import Enum
 import logging
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ from pideck.infrastructure.bluetooth_dbus import call_dbus
 
 _LOGGER = logging.getLogger(__name__)
 
+_BLUETOOTH_CLASS = Path("/sys/class/bluetooth")
 
 _SERVICE = "org.bluez"
 _ADAPTER = "org.bluez.Adapter1"
@@ -51,6 +53,21 @@ class ConnectAttempt(Enum):
     BUSY = "busy"
 
 
+def bluetooth_hardware_present() -> bool:
+    """Return whether the kernel currently exposes a Bluetooth adapter.
+
+    Call this before any ``org.bluez`` D-Bus method. When the USB dongle is
+    unplugged, D-Bus activation of ``bluetooth.service`` otherwise blocks for
+    the full service-start timeout (tens of seconds) and freezes the launcher.
+    """
+    try:
+        if not _BLUETOOTH_CLASS.is_dir():
+            return False
+        return any(_BLUETOOTH_CLASS.iterdir())
+    except OSError:
+        return False
+
+
 class BluezGateway:
     """Use BlueZ's standard adapter and device interfaces without shell commands."""
 
@@ -66,6 +83,8 @@ class BluezGateway:
         return self._bus
 
     def _call(self, path: str, interface: str, method: str, *arguments: object, timeout: int = 10000) -> list[object]:
+        if not bluetooth_hardware_present():
+            raise BluetoothError("No Bluetooth adapter is available")
         return call_dbus(self._bus, _SERVICE, path, interface, method, arguments, timeout=timeout)
 
     def _children(self, path: str) -> tuple[str, ...]:

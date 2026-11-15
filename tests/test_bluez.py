@@ -6,11 +6,29 @@ import pytest
 from PySide6.QtDBus import QDBusVariant
 
 from pideck.application.ports.bluetooth import BluetoothError
-from pideck.infrastructure.bluez import BluezGateway
+from pideck.infrastructure.bluez import BluezGateway, bluetooth_hardware_present
 
 
 DEVICE = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
 _DEVICE = "org.bluez.Device1"
+
+
+def test_bluetooth_hardware_present_reads_sysfs(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Missing or empty /sys/class/bluetooth means no adapter without D-Bus."""
+    missing = tmp_path / "missing"
+    monkeypatch.setattr("pideck.infrastructure.bluez._BLUETOOTH_CLASS", missing)
+    assert bluetooth_hardware_present() is False
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr("pideck.infrastructure.bluez._BLUETOOTH_CLASS", empty)
+    assert bluetooth_hardware_present() is False
+
+    present = tmp_path / "present"
+    present.mkdir()
+    (present / "hci0").mkdir()
+    monkeypatch.setattr("pideck.infrastructure.bluez._BLUETOOTH_CLASS", present)
+    assert bluetooth_hardware_present() is True
 
 
 class FakeBluez(BluezGateway):

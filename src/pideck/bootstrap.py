@@ -834,12 +834,15 @@ def main(arguments: Sequence[str] | None = None) -> int:
     bluetooth_reconnect_watch = None
     bluetooth_reconnect = None
     try:
-        from pideck.infrastructure.bluez import BluezGateway
+        from pideck.infrastructure.bluez import BluezGateway, bluetooth_hardware_present
         from pideck.infrastructure.bluetooth_reconnect import BluetoothReconnectService
         from pideck.infrastructure.bluetooth_reconnect_watch import BluetoothReconnectWatch
 
         def bluetooth_pairing_active() -> bool:
             return bluetooth_window is not None and bluetooth_window.isVisible()
+
+        if not bluetooth_hardware_present():
+            raise BluetoothError("No Bluetooth adapter is available")
 
         bluetooth_reconnect_gateway = BluezGateway("/org/pideck/agent/reconnect")
         bluetooth_reconnect = BluetoothReconnectService(
@@ -857,6 +860,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             """Poll reconnect candidates and keep Connected watches in sync."""
             if bluetooth_reconnect is None:
                 return
+            if not bluetooth_hardware_present():
+                return
             bluetooth_reconnect.tick()
             if bluetooth_reconnect_watch is not None:
                 bluetooth_reconnect_watch.sync_paths(bluetooth_reconnect.watched_paths)
@@ -867,7 +872,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
         bluetooth_reconnect_timer.setInterval(bluetooth_reconnect.poll_interval_ms)
         bluetooth_reconnect_timer.timeout.connect(bluetooth_reconnect_tick)
         bluetooth_reconnect_timer.start()
-        bluetooth_reconnect_tick()
+        # Never tick synchronously before the launcher maps: a missing USB
+        # dongle makes org.bluez D-Bus activation block the UI for many seconds.
+        QTimer.singleShot(0, bluetooth_reconnect_tick)
 
         def handle_gamepad_device_lost(address: str) -> None:
             """Clear a stale BlueZ Connected session so reconnect can run again."""

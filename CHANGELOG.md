@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.8
+
+- Fixed: Removing the Bluetooth USB dongle no longer freezes startup on a black
+  screen. PiDeck skips BlueZ when no adapter is present instead of waiting on
+  D-Bus service activation.
+
 ## v0.6.7
 
 - Fixed: On NVIDIA appliances, a black screen with only the mouse cursor after
