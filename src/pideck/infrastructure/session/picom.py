@@ -36,13 +36,17 @@ def apply_release_picom(
     config: Path | None = None,
     nvidia_present: Callable[[], bool] | None = None,
     virtual_machine: Callable[[], bool] | None = None,
+    force: bool = False,
 ) -> None:
     """Restart picom with the selected release config when a display is available.
 
     Failures are logged and never raised so an old image or missing compositor
     cannot block the launcher. No-op when picom is absent, DISPLAY is unset, or
-    picom is already running with the chosen config. Never SIGKILL picom: killing
-    a stuck GLX client can wedge the X server.
+    (unless *force*) picom is already running with the chosen config. Use
+    ``force=True`` after the launcher has mapped: xsession may start picom
+    before NVIDIA GLX is ready, leaving a black redirected pixmap for the
+    whole session even though the config path already matches. Never SIGKILL
+    picom: killing a stuck GLX client can wedge the X server.
     """
     conf = config or select_picom_config(
         nvidia_present=nvidia_present,
@@ -57,7 +61,7 @@ def apply_release_picom(
     if binary is None:
         return
     _reap_child_zombies()
-    if _picom_already_uses(conf):
+    if not force and _picom_already_uses(conf):
         _LOGGER.info("picom already using %s", conf)
         return
     try:
@@ -74,7 +78,7 @@ def apply_release_picom(
     except OSError as error:
         _LOGGER.warning("Unable to start picom with %s: %s", conf, error)
         return
-    _LOGGER.info("Started picom with %s", conf)
+    _LOGGER.info("%s picom with %s", "Restarted" if force else "Started", conf)
 
 
 def _reap_child_zombies() -> None:

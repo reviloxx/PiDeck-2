@@ -1608,6 +1608,17 @@ def main(arguments: Sequence[str] | None = None) -> int:
     # Openbox may have just restarted for the release rc; re-assert fullscreen.
     window.schedule_fullscreen_reassert(100)
 
+    def refresh_session_picom() -> None:
+        """Replace a cold-start compositor that can composite black on NVIDIA.
+
+        xsession starts picom before bootstrap; when that instance races GLX,
+        matching config alone leaves a black screen with only the X cursor.
+        Bounce once after the launcher has mapped, then re-assert fullscreen.
+        """
+        apply_release_picom(force=True)
+        window.schedule_fullscreen_reassert(100)
+
+    QTimer.singleShot(500, refresh_session_picom)
     QTimer.singleShot(0, pideck_update_service.check_async)
     if network_gateway is not None and network_setup_enabled:
         threading.Thread(target=check_initial_network, name="pideck-network-check", daemon=True).start()

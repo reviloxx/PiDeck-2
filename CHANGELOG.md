@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.7
+
+- Fixed: On NVIDIA appliances, a black screen with only the mouse cursor after
+  boot no longer sticks for the whole session. PiDeck restarts the compositor
+  once the home screen has mapped so a cold-start GLX composite is replaced.
+
 ## v0.6.6
 
 - Added: Appearance → Snowflakes can show falling snow on the home screen

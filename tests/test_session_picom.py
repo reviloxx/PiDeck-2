@@ -117,6 +117,49 @@ def test_apply_release_picom_skips_restart_when_config_matches(
     apply_release_picom(config=conf)
 
 
+def test_apply_release_picom_force_restarts_when_config_matches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """force=True replaces a matching picom (cold-start black composite recovery)."""
+    conf = tmp_path / "picom-nvidia.conf"
+    conf.write_text('backend = "glx"\n', encoding="utf-8")
+    binary = tmp_path / "picom"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    calls: list[object] = []
+    killed: list[tuple[int, int]] = []
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr("pideck.infrastructure.session.picom.shutil.which", lambda _: str(binary))
+
+    def fake_run(args, **kwargs):
+        if args[:1] == ["pgrep"] and "-ax" in args:
+            return type(
+                "Result", (), {"returncode": 0, "stdout": f"1111 picom --config {conf}\n"}
+            )()
+        return type("Result", (), {"returncode": 0, "stdout": "1111\n"})()
+
+    monkeypatch.setattr("pideck.infrastructure.session.picom.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom._pid_is_alive",
+        lambda pid: pid == 1111 and not killed,
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom.os.kill",
+        lambda pid, sig: killed.append((pid, sig)),
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom.subprocess.Popen",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    apply_release_picom(config=conf, force=True)
+
+    assert killed and killed[0][0] == 1111
+    assert len(calls) == 1
+    assert calls[0][0][0] == [str(binary), "--config", str(conf)]
+
+
 def test_apply_release_picom_noop_without_binary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Missing picom leaves the session alone."""
     conf = tmp_path / "picom.conf"
