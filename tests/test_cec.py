@@ -459,6 +459,139 @@ def test_cec_retries_active_source_when_tv_already_on(
     adapter._cancel_claim_retries()
 
 
+def test_cec_remote_verified_only_after_mapped_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Footer presence stays false until a mapped remote key reaches the sink."""
+    statuses: list[str] = []
+    adapter = CecClientAdapter(
+        settings=CecSettings(switch_input=True),
+        status_changed=statuses.append,
+        claim_retry_delays=(),
+        verify_reclaim_delays=(),
+        verify_restart_delay=0,
+    )
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    monkeypatch.setattr(adapter, "_stop_async", lambda *_: None)
+    adapter._read_output(io.StringIO("waiting for input\n"), process, adapter.generation)
+    assert adapter.status == "Connected"
+    assert adapter.remote_verified is False
+    adapter._read_output(
+        io.StringIO("DEBUG: [1] key pressed: power (40, 0)\n"),
+        process,
+        adapter.generation,
+    )
+    assert adapter.remote_verified is False
+    assert not sink.events
+    adapter._read_output(
+        io.StringIO("DEBUG: [2] key pressed: right (4, 0)\n"),
+        process,
+        adapter.generation,
+    )
+    assert adapter.remote_verified is True
+    assert [event.action for event in sink.events] == [InputAction.RIGHT]
+    assert statuses[-1] == "Connected"
+
+
+def test_cec_remote_verified_clears_on_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bus reconnect hides the icon until another mapped key arrives."""
+    adapter = CecClientAdapter(
+        settings=CecSettings(),
+        claim_retry_delays=(),
+        verify_reclaim_delays=(),
+        verify_restart_delay=0,
+    )
+    sink = RecordingSink()
+    process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
+    adapter._sink = sink
+    adapter._suspended = False
+    adapter._process = process
+    stopped: list[object] = []
+    monkeypatch.setattr(adapter, "_stop_async", stopped.append)
+    adapter._read_output(
+        io.StringIO(
+            "waiting for input\n"
+            "DEBUG: [1] key pressed: left (3, 0)\n"
+            "Connection lost - trying to reconnect\n"
+        ),
+        process,
+        adapter.generation,
+    )
+    assert stopped == [process]
+    assert adapter.status == "Reconnecting"
+    assert adapter.remote_verified is False
+    assert [event.action for event in sink.events] == [InputAction.LEFT]
+
+
+def test_cec_verify_watchdog_reclaims_then_restarts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Connected without keys sends extra Active Source, then restarts the client."""
+    stopped: list[object] = []
+    adapter = CecClientAdapter(
+        settings=CecSettings(switch_input=True, wake_tv=False),
+        claim_retry_delays=(),
+        verify_reclaim_delays=(0.02, 0.04),
+        verify_restart_delay=0.08,
+    )
+    process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
+    adapter._sink = RecordingSink()
+    adapter._suspended = False
+    adapter._process = process
+    monkeypatch.setattr(adapter, "_stop_async", stopped.append)
+    adapter._read_output(io.StringIO("waiting for input\n"), process, adapter.generation)
+    assert adapter.status == "Connected"
+    assert adapter.remote_verified is False
+    process.stdin.write.reset_mock()
+    deadline = threading.Event()
+    assert not deadline.wait(0.12)
+    assert [call.args[0] for call in process.stdin.write.call_args_list] == [
+        "as\n", "as\n",
+    ]
+    assert stopped == [process]
+    assert adapter.status == "Reconnecting"
+    adapter._cancel_claim_retries()
+
+
+def test_cec_error_while_connected_restarts_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """libCEC ERROR after Connected reconnects instead of a sticky error status."""
+    stopped: list[object] = []
+    adapter = CecClientAdapter(
+        settings=CecSettings(),
+        claim_retry_delays=(),
+        verify_reclaim_delays=(),
+        verify_restart_delay=0,
+    )
+    process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
+    adapter._sink = RecordingSink()
+    adapter._suspended = False
+    adapter._process = process
+    monkeypatch.setattr(adapter, "_stop_async", stopped.append)
+    adapter._read_output(
+        io.StringIO(
+            "waiting for input\n"
+            "ERROR:   [          239847]\tfailed to request the physical address\n"
+        ),
+        process,
+        adapter.generation,
+    )
+    assert stopped == [process]
+    assert adapter.status == "Reconnecting"
+    assert adapter.remote_verified is False
+
+
 def test_cec_hdmi_link_down_restarts_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """DRM HDMI disconnect demotes Connected and restarts the client."""
     statuses: list[str] = []
@@ -467,6 +600,8 @@ def test_cec_hdmi_link_down_restarts_client(monkeypatch: pytest.MonkeyPatch) -> 
         settings=CecSettings(),
         status_changed=statuses.append,
         claim_retry_delays=(),
+        verify_reclaim_delays=(),
+        verify_restart_delay=0,
     )
     process = MagicMock(spec=subprocess.Popen)
     process.stdin = MagicMock()
@@ -491,6 +626,8 @@ def test_cec_hdmi_link_up_reclaims_when_connected(
     adapter = CecClientAdapter(
         settings=CecSettings(switch_input=True),
         claim_retry_delays=(),
+        verify_reclaim_delays=(),
+        verify_restart_delay=0,
     )
     process = MagicMock(spec=subprocess.Popen)
     process.stdin = MagicMock()

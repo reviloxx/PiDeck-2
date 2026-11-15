@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.9
+
+- Fixed: The bottom-left TV-remote icon appears only after a mapped remote key
+  actually drives PiDeck, not merely when the CEC adapter is ready.
+- Fixed: When HDMI-CEC connects but the TV remote stays silent (common if the
+  TV was already on), PiDeck reclaims Active Source and restarts the client
+  until the remote works.
+
 ## v0.6.8
 
 - Fixed: Removing the Bluetooth USB dongle no longer freezes startup on a black

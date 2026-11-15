@@ -34,6 +34,9 @@ _TV_POWER_ON = re.compile(
     re.IGNORECASE,
 )
 _CLAIM_RETRY_DELAYS = (1.0, 3.0)
+# Extra Active Source while Connected but no mapped remote key yet, then restart.
+_VERIFY_RECLAIM_DELAYS = (3.0, 8.0)
+_VERIFY_RESTART_DELAY = 15.0
 _ACTIONS = {
     0x00: InputAction.ACTIVATE,
     0x01: InputAction.UP,
@@ -79,10 +82,14 @@ class CecClientAdapter:
         key_observed: Callable[[CecKeyObservation], None] | None = None,
         on_tv_power_on: Callable[[], None] | None = None,
         claim_retry_delays: tuple[float, ...] = _CLAIM_RETRY_DELAYS,
+        verify_reclaim_delays: tuple[float, ...] = _VERIFY_RECLAIM_DELAYS,
+        verify_restart_delay: float = _VERIFY_RESTART_DELAY,
     ) -> None:
         """Create an adapter with bounded retry intervals for missing hardware."""
         self._retry_interval = retry_interval
         self._claim_retry_delays = claim_retry_delays
+        self._verify_reclaim_delays = verify_reclaim_delays
+        self._verify_restart_delay = verify_restart_delay
         self._condition = threading.Condition()
         self._process: subprocess.Popen[str] | None = None
         self._sink: InputSink | None = None
@@ -97,8 +104,10 @@ class CecClientAdapter:
         self._key_observed = key_observed
         self._on_tv_power_on = on_tv_power_on
         self._status = "Disconnected"
+        self._remote_verified = False
         self._tv_on = False
         self._claim_timers: list[threading.Timer] = []
+        self._verify_timers: list[threading.Timer] = []
         self._stop_lock = threading.Lock()
         self._logged_unmapped: set[int] = set()
         self._history: deque[CecKeyObservation] = deque(maxlen=_HISTORY_LIMIT)
@@ -150,12 +159,32 @@ class CecClientAdapter:
         with self._condition:
             return self._status
 
+    @property
+    def remote_verified(self) -> bool:
+        """True once a mapped TV-remote key has driven PiDeck this session."""
+        with self._condition:
+            return self._remote_verified
+
     def _set_status(self, status: str) -> None:
         """Publish a changed status to the presentation bridge."""
         with self._condition:
             if self._status == status:
                 return
             self._status = status
+            if status != "Connected":
+                self._remote_verified = False
+        if self._status_changed is not None:
+            self._status_changed(status)
+
+    def _set_remote_verified(self, verified: bool) -> None:
+        """Update footer presence; re-emit status so the UI refreshes immediately."""
+        with self._condition:
+            if self._remote_verified == verified:
+                return
+            self._remote_verified = verified
+            status = self._status
+        if verified:
+            self._cancel_verify_watchdog()
         if self._status_changed is not None:
             self._status_changed(status)
 
@@ -256,10 +285,19 @@ class CecClientAdapter:
                 self._tv_on = True
 
     def _cancel_claim_retries(self) -> None:
-        """Cancel pending Active Source retries for a superseded client."""
+        """Cancel pending Active Source retries and the verify watchdog."""
         with self._condition:
-            timers = self._claim_timers
+            timers = self._claim_timers + self._verify_timers
             self._claim_timers = []
+            self._verify_timers = []
+        for timer in timers:
+            timer.cancel()
+
+    def _cancel_verify_watchdog(self) -> None:
+        """Cancel only the Connected-without-keys reclaim/restart timers."""
+        with self._condition:
+            timers = self._verify_timers
+            self._verify_timers = []
         for timer in timers:
             timer.cancel()
 
@@ -267,7 +305,11 @@ class CecClientAdapter:
         self, process: subprocess.Popen[str], generation: int,
     ) -> None:
         """Retry Active Source after boot when the TV was already on."""
-        self._cancel_claim_retries()
+        with self._condition:
+            previous = self._claim_timers
+            self._claim_timers = []
+        for timer in previous:
+            timer.cancel()
         timers: list[threading.Timer] = []
         for delay in self._claim_retry_delays:
             timer = threading.Timer(
@@ -279,6 +321,45 @@ class CecClientAdapter:
         with self._condition:
             self._claim_timers = timers
 
+    def _schedule_verify_watchdog(
+        self, process: subprocess.Popen[str], generation: int,
+    ) -> None:
+        """Reclaim, then restart, while Connected but no mapped remote key yet."""
+        settings = self._settings
+        if settings is None or not settings.switch_input:
+            return
+        self._cancel_verify_watchdog()
+        timers: list[threading.Timer] = []
+        for delay in self._verify_reclaim_delays:
+            timer = threading.Timer(
+                delay, self._delayed_verify_reclaim, args=(process, generation),
+            )
+            timer.daemon = True
+            timers.append(timer)
+            timer.start()
+        if self._verify_restart_delay > 0:
+            timer = threading.Timer(
+                self._verify_restart_delay,
+                self._delayed_verify_restart,
+                args=(process, generation),
+            )
+            timer.daemon = True
+            timers.append(timer)
+            timer.start()
+        with self._condition:
+            self._verify_timers = timers
+
+    def _session_active(
+        self, process: subprocess.Popen[str], generation: int,
+    ) -> bool:
+        """True while this client generation still owns an unsuspended session."""
+        with self._condition:
+            return (
+                not self._closed and not self._suspended and self._desired
+                and self._process is process and self._generation == generation
+                and not self._remote_verified
+            )
+
     def _delayed_claim(self, process: subprocess.Popen[str], generation: int) -> None:
         """Send Active Source only while the same client generation is active."""
         with self._condition:
@@ -288,6 +369,24 @@ class CecClientAdapter:
             ):
                 return
         self._claim_active_source(process)
+
+    def _delayed_verify_reclaim(
+        self, process: subprocess.Popen[str], generation: int,
+    ) -> None:
+        """Extra Active Source while waiting for the first mapped remote key."""
+        if not self._session_active(process, generation):
+            return
+        # Not on_connect: reclaim even when wake_tv is off and TV power was unknown.
+        self._claim_active_source(process)
+
+    def _delayed_verify_restart(
+        self, process: subprocess.Popen[str], generation: int,
+    ) -> None:
+        """Restart cec-client when Connected but the remote never drove input."""
+        if not self._session_active(process, generation):
+            return
+        _LOGGER.info("Restarting CEC client after Connected without remote keys")
+        self._request_bus_reconnect(process, generation)
 
     def _claim_active_source(
         self,
@@ -341,6 +440,7 @@ class CecClientAdapter:
                 raise ProcessError("CEC adapter preparation did not stop")
             process = self._process
         self._cancel_claim_retries()
+        self._set_remote_verified(False)
         if process is not None:
             self._stop_process(process)
 
@@ -532,6 +632,8 @@ class CecClientAdapter:
                         )
                 if connected and tv_on:
                     self._schedule_claim_retries(process, generation)
+                if connected:
+                    self._schedule_verify_watchdog(process, generation)
                 continue
             if connected and _CONNECTION_LOST.search(line):
                 if self._request_bus_reconnect(process, generation):
@@ -548,9 +650,13 @@ class CecClientAdapter:
             if not match:
                 if "ERROR:" in line or "unable to open" in line or "FAILED" in line:
                     _LOGGER.warning("CEC client: %s", line)
-                    with self._condition:
-                        if self._process is process and generation == self._generation:
-                            self._set_status(f"CEC error: {line}")
+                    if connected:
+                        if self._request_bus_reconnect(process, generation):
+                            return
+                    else:
+                        with self._condition:
+                            if self._process is process and generation == self._generation:
+                                self._set_status(f"CEC error: {line}")
                 continue
             label = match.group(1).strip()
             code = int(match.group(2), 16)
@@ -584,3 +690,8 @@ class CecClientAdapter:
                 sink = self._sink
                 if sink is not None:
                     sink.handle_input(InputEvent(action, "cec"))
+                    deliver = True
+                else:
+                    deliver = False
+            if deliver:
+                self._set_remote_verified(True)
