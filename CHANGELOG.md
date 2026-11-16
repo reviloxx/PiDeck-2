@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.15
+
+- Changed: Home tiles no longer zoom on focus. The app name stays under the
+  icon; the short description fades in on the right.
+
 ## v0.6.14
 
 - Fixed: Home-tile descriptions fade in only after the focus grow finishes, so

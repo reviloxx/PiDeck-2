@@ -7,8 +7,6 @@ from PySide6.QtCore import (
     Property,
     QEasingCurve,
     QPropertyAnimation,
-    QRect,
-    QSequentialAnimationGroup,
     QSize,
     Qt,
     QTimer,
@@ -47,12 +45,6 @@ from .wallpaper import WallpaperWidget
 _TILE_ICON_SIZE = 56
 _TILE_INPUT_ICON_SIZE = 24
 _TILE_SPINNER_SIZE = 20
-_FOCUS_SCALE = 1.06
-
-
-def tile_slot_size(tile_width: int, tile_height: int) -> tuple[int, int]:
-    """Return the fixed grid-slot size that reserves room for focus grow."""
-    return round(tile_width * _FOCUS_SCALE), round(tile_height * _FOCUS_SCALE)
 
 
 class LauncherTile(QPushButton):
@@ -75,23 +67,22 @@ class LauncherTile(QPushButton):
         super().__init__(parent)
         self.application = application
         self._language = language if language in {"en", "de"} else "en"
-        self._resting_size = QSize(theme.tile.width, theme.tile.height)
         self._muted_text = theme.colors["muted_text"]
         self._description_opacity_value = 0.0
         self.setObjectName("launcher_tile")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setFixedSize(theme.tile.width, theme.tile.height)
         self.setText("")
         self.setAccessibleName(application.name)
         self._build_content(application, asset_root, input_icon)
         self._spinner = BusySpinner(_TILE_SPINNER_SIZE, self)
         self._spinner.setObjectName("tile_spinner")
+        self._spinner.move(self.width() - 32, 8)
         self._spinner.set_running(False)
         self.clicked.connect(lambda: self.activated.emit(application))
         FocusGlow(self, theme, reduced_motion=True)
         self._setup_focus_animations(theme.animation.duration_ms)
-        self._apply_resting_geometry()
-        self._spinner.move(self.width() - 32, 8)
 
     def _get_description_opacity(self) -> float:
         """Return the current description fade value for animation."""
@@ -125,40 +116,42 @@ class LauncherTile(QPushButton):
         asset_root: Path,
         input_icon: Path | None,
     ) -> None:
-        """Build icon-left content with name and description stacked on the right."""
+        """Build icon+name on the left and a fading description on the right."""
         content = QVBoxLayout(self)
         content.setContentsMargins(12, 10, 12, 10)
         content.setSpacing(6)
 
-        header = QHBoxLayout()
-        header.setSpacing(12)
+        body = QHBoxLayout()
+        body.setSpacing(12)
+
+        brand = QVBoxLayout()
+        brand.setSpacing(6)
         application_icon = QLabel(self)
         application_icon.setObjectName("tile_icon")
         application_icon.setFixedSize(_TILE_ICON_SIZE, _TILE_ICON_SIZE)
         application_icon.setPixmap(
             icon_for_path(_resolve_asset(application.icon, asset_root)).pixmap(_TILE_ICON_SIZE, _TILE_ICON_SIZE)
         )
-        header.addWidget(application_icon, 0, Qt.AlignmentFlag.AlignTop)
+        brand.addWidget(application_icon, 0, Qt.AlignmentFlag.AlignLeft)
 
-        text_column = QVBoxLayout()
-        text_column.setSpacing(4)
         name = QLabel(application.name, self)
         name.setObjectName("tile_name")
         name.setWordWrap(True)
-        name.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        text_column.addWidget(name)
+        name.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        brand.addWidget(name)
+        brand.addStretch(1)
+        body.addLayout(brand, 0)
 
         description_text = app_description(self._language, application.identifier)
         self._has_description = bool(description_text)
         self._description_label = QLabel(description_text, self)
         self._description_label.setObjectName("tile_description")
         self._description_label.setWordWrap(True)
+        self._description_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self._description_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._apply_description_opacity()
-        text_column.addWidget(self._description_label)
-        text_column.addStretch(1)
-        header.addLayout(text_column, 1)
-        content.addLayout(header, 1)
+        body.addWidget(self._description_label, 1)
+        content.addLayout(body, 1)
 
         self._input_indicator = QLabel(self)
         self._input_indicator.setObjectName("tile_input")
@@ -184,68 +177,21 @@ class LauncherTile(QPushButton):
         )
 
     def _setup_focus_animations(self, duration_ms: int) -> None:
-        """Create interruptible grow and description-fade animations for focus."""
-        self._geometry_animation = QPropertyAnimation(self, b"geometry", self)
-        self._geometry_animation.setDuration(duration_ms)
-        self._geometry_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        """Create an interruptible description fade for focus changes."""
         self._opacity_animation = QPropertyAnimation(self, b"description_opacity", self)
         self._opacity_animation.setDuration(duration_ms)
         self._opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._focus_sequence = QSequentialAnimationGroup(self)
-        self.setProperty("focus_grow_animation", self._geometry_animation)
         self.setProperty("description_fade_animation", self._opacity_animation)
 
-    def _resting_rect(self) -> QRect:
-        """Return the centered resting geometry inside the slot parent."""
-        parent = self.parentWidget()
-        width = self._resting_size.width()
-        height = self._resting_size.height()
-        if parent is None:
-            return QRect(0, 0, width, height)
-        return QRect(
-            (parent.width() - width) // 2,
-            (parent.height() - height) // 2,
-            width,
-            height,
-        )
-
-    def _focused_rect(self) -> QRect:
-        """Return the full-slot focused geometry."""
-        parent = self.parentWidget()
-        if parent is None:
-            return self._resting_rect()
-        return QRect(0, 0, parent.width(), parent.height())
-
-    def _apply_resting_geometry(self) -> None:
-        """Place the tile at its resting size without animating."""
-        self.setGeometry(self._resting_rect())
-
-    def _clear_focus_sequence(self) -> None:
-        """Stop the focus sequence and detach child animations for reordering."""
-        self._focus_sequence.stop()
-        while self._focus_sequence.animationCount():
-            self._focus_sequence.takeAnimation(0)
-
     def _animate_focus(self, focused: bool) -> None:
-        """Grow first, then fade the description in; reverse order on focus out."""
-        if focused:
-            self.raise_()
-        self._clear_focus_sequence()
-        self._geometry_animation.setStartValue(self.geometry())
-        self._geometry_animation.setEndValue(self._focused_rect() if focused else self._resting_rect())
+        """Fade the short description in or out with the theme timing."""
         target_opacity = 1.0 if focused and self._has_description else 0.0
+        self._opacity_animation.stop()
         self._opacity_animation.setStartValue(self.description_opacity)
         self._opacity_animation.setEndValue(target_opacity)
-        fade_needed = self.description_opacity != target_opacity
-        if focused:
-            self._focus_sequence.addAnimation(self._geometry_animation)
-            if fade_needed:
-                self._focus_sequence.addAnimation(self._opacity_animation)
-        else:
-            if fade_needed:
-                self._focus_sequence.addAnimation(self._opacity_animation)
-            self._focus_sequence.addAnimation(self._geometry_animation)
-        self._focus_sequence.start()
+        if self.description_opacity == target_opacity:
+            return
+        self._opacity_animation.start()
 
     def set_language(self, language: str) -> None:
         """Refresh the localized description and input accessibility label."""
@@ -269,18 +215,18 @@ class LauncherTile(QPushButton):
         self._spinner.move(self.width() - 32, 8)
 
     def focusInEvent(self, event: object) -> None:
-        """Report keyboard focus and run the focus grow / description fade-in."""
+        """Report keyboard focus and fade the description in."""
         super().focusInEvent(event)
         self.focused.emit()
         self._animate_focus(True)
 
     def focusOutEvent(self, event: object) -> None:
-        """Shrink after focus truly leaves (ignore brief geometry-animation flickers)."""
+        """Fade the description out after focus truly leaves."""
         super().focusOutEvent(event)
         QTimer.singleShot(0, self._finish_focus_out)
 
     def _finish_focus_out(self) -> None:
-        """Apply the unfocused animation only when this tile no longer has focus."""
+        """Apply the unfocused fade only when this tile no longer has focus."""
         if self.hasFocus():
             return
         self._animate_focus(False)
@@ -597,18 +543,13 @@ class LauncherWindow(QMainWindow):
             return
         columns = self._column_count()
         self._controller.set_columns(columns)
-        slot_width, slot_height = tile_slot_size(self._theme.tile.width, self._theme.tile.height)
         for index, application in enumerate(applications):
-            slot = QWidget(self._grid_container)
-            slot.setObjectName("launcher_tile_slot")
-            slot.setFixedSize(slot_width, slot_height)
-            slot.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             tile = LauncherTile(
                 application,
                 self._theme,
                 self._asset_root,
                 self._theme.icons.get(_preferred_input_icon_key(application.preferred_input)),
-                slot,
+                self._grid_container,
                 self._language,
             )
             tile.set_running(application.identifier == self._running_identifier)
@@ -616,19 +557,18 @@ class LauncherWindow(QMainWindow):
             tile.navigation_requested.connect(self._handle_tile_navigation)
             tile.focused.connect(lambda tile_index=index: self._controller.select(tile_index))
             self._tiles.append(tile)
-            self._grid_layout.addWidget(slot, index // columns, index % columns)
+            self._grid_layout.addWidget(tile, index // columns, index % columns)
         self._focus_current_tile()
 
     def _column_count(self) -> int:
         """Calculate balanced tile columns from count and available geometry."""
         available_width, available_height = self._available_grid_size()
-        slot_width, slot_height = tile_slot_size(self._theme.tile.width, self._theme.tile.height)
         return calculate_tile_columns(
             len(self._controller.state.applications),
             available_width,
             available_height,
-            slot_width,
-            slot_height,
+            self._theme.tile.width,
+            self._theme.tile.height,
             self._theme.tile.gap,
         )
 

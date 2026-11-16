@@ -16,11 +16,7 @@ from pideck.application.launcher import LauncherController
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
-from pideck.presentation.qt.launcher_window import (
-    LauncherWindow,
-    calculate_tile_columns,
-    tile_slot_size,
-)
+from pideck.presentation.qt.launcher_window import LauncherWindow, calculate_tile_columns
 from pideck.presentation.qt.power_dialog import ConfirmationDialog, PowerDialog
 from pideck.presentation.qt.spinner import BusySpinner
 from tests.test_configuration import configuration_document
@@ -57,24 +53,19 @@ def launcher_window(application: QApplication) -> LauncherWindow:
 
 
 def _finish_tile_focus_animation(tile) -> None:
-    """Jump the tile's sequential focus grow/fade to its end state."""
-    tile._focus_sequence.setCurrentTime(tile._focus_sequence.duration())
+    """Jump the tile's description fade to its end state."""
+    animation = tile.property("description_fade_animation")
+    animation.setCurrentTime(animation.duration())
 
 
 def test_launcher_renders_tiles_and_focuses_first(application: QApplication) -> None:
     """The first application tile receives focus when the window is shown."""
     window = launcher_window(application)
-    slot_width, slot_height = tile_slot_size(DEFAULT_THEME.tile.width, DEFAULT_THEME.tile.height)
-    _finish_tile_focus_animation(window._tiles[0])
 
     assert len(window.findChildren(type(window._tiles[0]))) == 3
     assert window._tiles[0].hasFocus()
-    assert window._tiles[0].width() == slot_width
-    assert window._tiles[0].height() == slot_height
-    assert all(
-        tile.width() == DEFAULT_THEME.tile.width and tile.height() == DEFAULT_THEME.tile.height
-        for tile in window._tiles[1:]
-    )
+    assert all(tile.height() == DEFAULT_THEME.tile.height for tile in window._tiles)
+    assert all(tile.width() == DEFAULT_THEME.tile.width for tile in window._tiles)
 
     window.close()
 
@@ -171,30 +162,13 @@ def test_focus_animation_always_uses_reduced_motion_timing(application: QApplica
     window.close()
 
 
-def test_focus_grows_tile_and_restores_resting_size(application: QApplication) -> None:
-    """Focus enlarges the tile; losing focus restores the resting theme size."""
+def test_description_fade_uses_theme_duration(application: QApplication) -> None:
+    """Description fade timing follows the theme's normal animation duration."""
     window = launcher_window(application)
-    slot_width, slot_height = tile_slot_size(DEFAULT_THEME.tile.width, DEFAULT_THEME.tile.height)
-    first, second = window._tiles[0], window._tiles[1]
-    grow = first.property("focus_grow_animation")
-    fade = first.property("description_fade_animation")
+    fade = window._tiles[0].property("description_fade_animation")
 
-    assert grow.duration() == DEFAULT_THEME.animation.duration_ms
     assert fade.duration() == DEFAULT_THEME.animation.duration_ms
-
-    _finish_tile_focus_animation(first)
-    assert first.width() == slot_width
-    assert first.height() == slot_height
-
-    second.setFocus()
-    application.processEvents()
-    _finish_tile_focus_animation(first)
-    _finish_tile_focus_animation(second)
-
-    assert first.width() == DEFAULT_THEME.tile.width
-    assert first.height() == DEFAULT_THEME.tile.height
-    assert second.width() == slot_width
-    assert second.height() == slot_height
+    assert all(tile.size() == window._tiles[0].size() for tile in window._tiles)
 
     window.close()
 
@@ -232,7 +206,7 @@ def test_focused_tile_fades_in_catalog_description(application: QApplication) ->
     _finish_tile_focus_animation(kodi)
     assert kodi.description_opacity == pytest.approx(1.0)
 
-    # Grow geometry + deferred focus-out must not clear a still-focused tile.
+    # Deferred focus-out must not clear a still-focused tile.
     application.processEvents()
     QTest.qWait(30)
     application.processEvents()
@@ -250,43 +224,20 @@ def test_focused_tile_fades_in_catalog_description(application: QApplication) ->
     window.close()
 
 
-def test_description_fades_in_after_grow_completes(application: QApplication) -> None:
-    """Description stays hidden until the grow finishes, then fades in at focused size."""
-    window = catalog_launcher_window(application)
-    kodi, custom = window._tiles
-    slot_width, _slot_height = tile_slot_size(DEFAULT_THEME.tile.width, DEFAULT_THEME.tile.height)
-
-    custom.setFocus()
-    application.processEvents()
-    _finish_tile_focus_animation(custom)
-    _finish_tile_focus_animation(kodi)
-    assert kodi.description_opacity == pytest.approx(0.0)
-
-    kodi.setFocus()
-    application.processEvents()
-    grow_ms = kodi.property("focus_grow_animation").duration()
-    kodi._focus_sequence.setCurrentTime(grow_ms)
-    application.processEvents()
-
-    assert kodi.width() == slot_width
-    assert kodi.description_opacity == pytest.approx(0.0)
-
-    _finish_tile_focus_animation(kodi)
-    assert kodi.description_opacity == pytest.approx(1.0)
-
-    window.close()
-
-
-def test_tile_places_name_beside_icon(application: QApplication) -> None:
-    """The application name sits to the right of the icon, not stacked under it."""
+def test_tile_places_name_under_icon_and_description_to_the_right(
+    application: QApplication,
+) -> None:
+    """Name sits under the icon; description uses the open column to the right."""
     window = catalog_launcher_window(application)
     tile = window._tiles[0]
     icon = tile.findChild(QLabel, "tile_icon")
     name = tile.findChild(QLabel, "tile_name")
+    description = tile.findChild(QLabel, "tile_description")
 
-    assert icon is not None and name is not None
-    assert name.x() >= icon.x() + icon.width()
-    assert name.y() < icon.y() + icon.height()
+    assert icon is not None and name is not None and description is not None
+    assert name.y() >= icon.y() + icon.height()
+    assert name.x() < icon.x() + icon.width()
+    assert description.x() >= icon.x() + icon.width()
 
     window.close()
 
