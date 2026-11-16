@@ -129,6 +129,35 @@ def test_power_confirmation_uses_themed_legible_text(application: QApplication) 
     parent.close()
 
 
+def test_update_restart_confirmation_wraps_long_german_title(application: QApplication) -> None:
+    """The restart-to-apply title must wrap instead of clipping mid-word."""
+    from pideck.presentation.qt.localization import tr
+    from pideck.presentation.qt.power_dialog import ConfirmationDialog
+
+    parent = QWidget()
+    title = tr("de", "update_restart_title")
+    dialog = ConfirmationDialog(
+        title,
+        tr("de", "update_restart_message", version="0.6.17"),
+        tr("de", "restart"),
+        tr("de", "later"),
+        DEFAULT_THEME,
+        parent,
+    )
+    dialog.show()
+    application.processEvents()
+    heading = next(
+        label for label in dialog.findChildren(QLabel)
+        if label.objectName() == "settings_heading"
+    )
+    assert heading.wordWrap()
+    assert heading.text() == title
+    assert "abzuschließen" in heading.text()
+    assert heading.heightForWidth(heading.width()) <= heading.height() + 2
+    dialog.close()
+    parent.close()
+
+
 def test_long_dropdown_is_bounded_with_native_menu_style(application: QApplication) -> None:
     """Long lists remain scrollable without covering the entire TV screen."""
     class MenuPopupStyle(QProxyStyle):

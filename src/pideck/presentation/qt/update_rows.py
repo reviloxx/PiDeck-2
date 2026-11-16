@@ -224,6 +224,12 @@ class PiDeckUpdateRow(UpdateRow):
         self._apply_image_build_date()
 
     def _apply_image_build_date(self) -> None:
+        # Match app rows: when an update is available, the second line is the new version.
+        if (
+            self._pideck_info.status is PiDeckUpdateStatus.AVAILABLE
+            and self._pideck_info.available_version
+        ):
+            return
         if self._image_build_date:
             self.build_label.setText(tr(
                 self._language, "build_date",
@@ -255,24 +261,21 @@ class PiDeckUpdateRow(UpdateRow):
             self.status_label.hide()
         else:
             self.status_label.show()
-        if info.status is PiDeckUpdateStatus.AVAILABLE and info.available_version:
-            # Keep the available release on the status line for the About card.
-            self.status_label.setText(
-                tr(self._language, "update_available_version", version=info.available_version)
-            )
         if info.status is PiDeckUpdateStatus.AVAILABLE and info.message:
             self.status_label.setText(f"{self.status_label.text()} - {info.message}")
         if info.status is PiDeckUpdateStatus.FAILED:
             self.action.setText(tr(self._language, "retry"))
             self.action.setEnabled(True)
             self.action.setVisible(True)
+        # Only offer a manual check when there is no primary Update/Restart action.
         checkable = info.status in (
             PiDeckUpdateStatus.UP_TO_DATE,
-            PiDeckUpdateStatus.AVAILABLE,
             PiDeckUpdateStatus.FAILED,
         )
         self.check_button.setVisible(checkable)
         self.check_button.setText(tr(self._language, "check_for_updates"))
+        busy = info.status in (PiDeckUpdateStatus.CHECKING, PiDeckUpdateStatus.PREPARING)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus if busy else Qt.FocusPolicy.NoFocus)
         self._apply_image_build_date()
 
     def set_language(self, language: str) -> None:

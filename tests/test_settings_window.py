@@ -496,16 +496,18 @@ def test_pideck_update_row_supports_controller_and_localization(application: QAp
     window._select_page(2)
     row = window._pideck_row
     assert row is not None
-    assert window._pideck_check_button.hasFocus()
+    action = window._pideck_action_button
+    assert action.hasFocus()
+    assert window._pideck_check_button.isHidden()
     assert not row.hasFocus()
     assert "1.0.0" in row.version_label.text()
-    assert "1.1.0" in row.status_label.text()
-    action = window._pideck_action_button
-    action.setFocus()
+    assert row.status_label.text() == "Update available"
+    assert "1.1.0" in row.build_label.text()
     QTest.keyClick(action, Qt.Key.Key_Return)
     assert requests == [True]
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.PREPARING, "1.0.0", "1.1.0"))
     assert not row.action.isVisible()
+    assert row.hasFocus()
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.PENDING, "1.0.0", "1.1.0"))
     window.apply_language("de")
     assert "neu starten" in row.status_label.text()
@@ -536,8 +538,9 @@ def test_pideck_manual_check_is_guarded(application: QApplication, status: PiDec
     window.show()
     window._select_page(2)
     application.processEvents()
-    enabled = status in (PiDeckUpdateStatus.UP_TO_DATE, PiDeckUpdateStatus.AVAILABLE, PiDeckUpdateStatus.FAILED)
+    enabled = status in (PiDeckUpdateStatus.UP_TO_DATE, PiDeckUpdateStatus.FAILED)
     assert window._pideck_check_button.isEnabled() is enabled
+    assert window._pideck_check_button.isHidden() is not enabled
     window._pideck_check_button.click()
     window._request_pideck_check()
     assert len(checks) == (2 if enabled else 0)
@@ -575,8 +578,8 @@ def test_pideck_manual_check_navigation_and_language(application: QApplication) 
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.CHECKING, "1.0.0"))
     assert not button.isEnabled()
     assert button.isHidden()
-    assert not row.hasFocus()
-    assert window._nav_buttons[2].hasFocus()
+    assert row.hasFocus()
+    assert not window._nav_buttons[2].hasFocus()
     assert not window._nav_buttons[0].hasFocus()
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.0.0"))
     window._focus_first_page_control()
@@ -613,7 +616,9 @@ def test_about_nav_highlight_stays_on_rail_until_right(application: QApplication
     assert not window._nav_buttons[0].hasFocus()
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.CHECKING, "1.0.0"))
     application.processEvents()
-    assert window._nav_buttons[about].hasFocus()
+    assert window._pideck_row is not None
+    assert window._pideck_row.hasFocus()
+    assert not window._nav_buttons[about].hasFocus()
     assert window._nav_buttons[about].property("active") is True
     assert window._nav_buttons[0].property("active") is False
     assert not window._nav_buttons[0].hasFocus()
@@ -621,7 +626,7 @@ def test_about_nav_highlight_stays_on_rail_until_right(application: QApplication
 
 
 def test_about_update_button_focuses_only_when_navigated(application: QApplication) -> None:
-    """Aktualisieren is visible when available but highlighted only after navigating to it."""
+    """When an update is available, Update is the only CTA and receives content focus."""
     configuration = YamlConfigurationParser().parse(configuration_document())
     window = SettingsWindow(
         configuration, DEFAULT_THEME, Path.cwd(),
@@ -636,17 +641,16 @@ def test_about_update_button_focuses_only_when_navigated(application: QApplicati
     action = window._pideck_action_button
     assert action.isVisible() and action.isEnabled()
     assert action.objectName() == "update_action"
+    assert window._pideck_check_button.isHidden()
+    assert action.hasFocus()
     window._focus_nav(about)
     application.processEvents()
     assert window._nav_buttons[about].hasFocus()
     assert not action.hasFocus()
     QTest.keyClick(window._nav_buttons[about], Qt.Key.Key_Right)
     application.processEvents()
-    assert window._pideck_check_button.hasFocus()
-    assert not action.hasFocus()
-    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
-    application.processEvents()
     assert action.hasFocus()
+    assert window._pideck_check_button.isHidden()
     window.close()
 
 
@@ -845,10 +849,11 @@ def test_settings_are_responsive_and_controls_reachable(
         assert window.size().toTuple() == (width, height)
 
     window._select_page(2)
-    window._pideck_check_button.setFocus()
+    window._pideck_action_button.setFocus()
     application.processEvents()
     viewport = window._pideck_scroll.viewport()
-    button = window._pideck_check_button
+    button = window._pideck_action_button
+    assert button.isVisible()
     assert viewport.rect().contains(button.mapTo(viewport, QPoint(button.width() - 1, button.height() - 1)))
 
     window._select_page(0)
@@ -1204,12 +1209,9 @@ def test_about_page_shows_scrollable_release_notes(application: QApplication) ->
     assert notes.isVisible() and window._release_notes_title.text() == "What's new in PiDeck 1.2.0"
     text = notes.toPlainText()
     assert text.index("PiDeck 1.2.0") < text.index("PiDeck 1.1.0") and "Bold" in text and "**" not in text
-    assert window._pideck_check_button.hasFocus()
-    assert not window._pideck_check_button.isDefault()
-    window.handle_input(InputEvent(InputAction.RIGHT, "gamepad"))
     assert window._pideck_action_button.hasFocus()
-    window.handle_input(InputEvent(InputAction.LEFT, "gamepad"))
-    assert window._pideck_check_button.hasFocus()
+    assert window._pideck_check_button.isHidden()
+    assert not window._pideck_action_button.isDefault()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
     assert notes.hasFocus()
     window.handle_input(InputEvent(InputAction.DOWN, "gamepad"))
@@ -1217,8 +1219,6 @@ def test_about_page_shows_scrollable_release_notes(application: QApplication) ->
     notes.verticalScrollBar().setValue(0)
     window.handle_input(InputEvent(InputAction.UP, "gamepad"))
     assert window._pideck_action_button.hasFocus()
-    window.handle_input(InputEvent(InputAction.LEFT, "gamepad"))
-    assert window._pideck_check_button.hasFocus()
     window.handle_input(InputEvent(InputAction.LEFT, "gamepad"))
     about_nav = window._nav_buttons[window._pideck_page]
     assert about_nav.hasFocus()

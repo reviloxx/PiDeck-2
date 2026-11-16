@@ -4,6 +4,17 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.18
+
+- Fixed: The restart-to-finish-update title wraps on a TV instead of cutting
+  off mid-word in German.
+- Fixed: Checking for a PiDeck update keeps focus on About instead of jumping
+  back to the left menu.
+- Changed: About shows a short “Update available” status with the new version
+  on its own line, matching application update rows.
+- Changed: When an update is available, About shows only Update (no second
+  Check for updates button).
+
 ## v0.6.17
 
 - Fixed: After the TV powers on late, Display settings list HDMI modes again

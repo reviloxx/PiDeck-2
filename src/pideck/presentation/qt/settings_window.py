@@ -426,6 +426,8 @@ class SettingsWindow(QDialog):
         layout = self._page_layout(page)
         self._pideck_row = PiDeckUpdateRow(self._pideck_info, page)
         self._pideck_row.activation_requested.connect(self._activate_pideck_update)
+        self._pideck_row.navigation_requested.connect(self._handle_update_navigation)
+        self._pideck_row.installEventFilter(self)
         self._pideck_row.set_image_build_date(self._build_date)
         layout.addWidget(self._pideck_row)
         self._pideck_check_button = self._pideck_row.check_button
@@ -798,6 +800,9 @@ class SettingsWindow(QDialog):
 
     def _focus_first_page_control(self) -> None:
         """Focus the first usable control on the selected page, or the active nav."""
+        if self._pideck_page is not None and self._current_page == self._pideck_page:
+            self._focus_pideck_page_control()
+            return
         controls = [
             control for control in self._page_controls.get(self._current_page, [])
             if control.isEnabled() and not control.isHidden()
@@ -808,7 +813,7 @@ class SettingsWindow(QDialog):
         self._focus_selected_nav()
 
     def _focus_pideck_page_control(self) -> None:
-        """Focus the first visible About button or release notes after a status change."""
+        """Focus About content after a status change; stay off the nav while busy."""
         if self._pideck_page is None:
             return
         controls = [
@@ -817,6 +822,17 @@ class SettingsWindow(QDialog):
         ]
         if controls:
             controls[0].setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        # Checking/preparing hide the buttons; keep focus on the version row.
+        if (
+            self._pideck_row is not None
+            and self._pideck_info is not None
+            and self._pideck_info.status in (
+                PiDeckUpdateStatus.CHECKING, PiDeckUpdateStatus.PREPARING,
+            )
+        ):
+            self._pideck_row.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self._pideck_row.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         self._focus_selected_nav()
 
@@ -1151,10 +1167,9 @@ class SettingsWindow(QDialog):
         ))
 
     def _set_pideck_check_enabled(self, info: PiDeckUpdateInfo) -> None:
-        """Enable manual checks only when a release can safely be rechecked."""
+        """Enable manual checks only when there is no primary Update action."""
         enabled = info.status in (
             PiDeckUpdateStatus.UP_TO_DATE,
-            PiDeckUpdateStatus.AVAILABLE,
             PiDeckUpdateStatus.FAILED,
         )
         check_had_focus = self._pideck_check_button.hasFocus()
@@ -1206,11 +1221,19 @@ class SettingsWindow(QDialog):
 
     def _handle_update_navigation(self, key: int) -> None:
         """Move through update rows; Left returns to the active settings category."""
+        current = self.focusWidget()
+        if self._current_page == self._pideck_page and current is self._pideck_row:
+            if key == Qt.Key.Key_Left:
+                self._focus_selected_nav()
+            elif key == Qt.Key.Key_Down:
+                notes = self._release_notes
+                if notes.isEnabled() and not notes.isHidden():
+                    notes.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
         rows = [
             row for row in self._page_controls.get(self._current_page, [])
             if row.isEnabled() and not row.isHidden()
         ]
-        current = self.focusWidget()
         if current not in rows:
             return
         index = rows.index(current)
@@ -1230,7 +1253,9 @@ class SettingsWindow(QDialog):
             if key == Qt.Key.Key_Left and current is self._pideck_action_button and check_usable:
                 self._pideck_check_button.setFocus(Qt.FocusReason.OtherFocusReason)
                 return
-            if key == Qt.Key.Key_Left and current is self._pideck_check_button:
+            if key == Qt.Key.Key_Left and current in (
+                self._pideck_check_button, self._pideck_action_button,
+            ):
                 self._focus_selected_nav()
                 return
             if key == Qt.Key.Key_Down:
@@ -1243,6 +1268,13 @@ class SettingsWindow(QDialog):
         if key == Qt.Key.Key_Up:
             if index > 0:
                 rows[index - 1].setFocus(Qt.FocusReason.OtherFocusReason)
+            elif (
+                self._current_page == self._pideck_page
+                and current is self._release_notes
+                and self._pideck_row is not None
+                and self._pideck_row.focusPolicy() is not Qt.FocusPolicy.NoFocus
+            ):
+                self._pideck_row.setFocus(Qt.FocusReason.OtherFocusReason)
         elif key == Qt.Key.Key_Down and index < len(rows) - 1:
             rows[index + 1].setFocus(Qt.FocusReason.OtherFocusReason)
         elif key == Qt.Key.Key_Left:
