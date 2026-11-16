@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.21
+
+- Changed: The System → Audio row uses a shorter description so the list stays
+  even on a TV.
+- Changed: The Network Ethernet status card is tighter so less empty space sits
+  under the link details.
+
 ## v0.6.20
 
 - Fixed: Remote support status shows a clear SSH line (no angle brackets) and

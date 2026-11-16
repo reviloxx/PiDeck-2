@@ -491,7 +491,7 @@ class SettingsWindow(QDialog):
         self._timezone_labels = timezone_row.findChildren(QLabel)
         layout.addWidget(timezone_row)
         row = self._action_row(
-            page, tr(self._language, "audio"), tr(self._language, "audio_description"),
+            page, tr(self._language, "audio"), tr(self._language, "audio_system_description"),
         )
         self._audio_row = row
         self._audio_labels = row.findChildren(QLabel)
@@ -1083,7 +1083,7 @@ class SettingsWindow(QDialog):
             self._timezone_labels[0].setText(tr(self._language, "timezone"))
             self._timezone_labels[1].setText(tr(self._language, "timezone_description"))
             self._audio_labels[0].setText(tr(self._language, "audio"))
-            self._audio_labels[1].setText(tr(self._language, "audio_description"))
+            self._audio_labels[1].setText(tr(self._language, "audio_system_description"))
             self._bluetooth_labels[0].setText(tr(self._language, "bluetooth"))
             self._bluetooth_labels[1].setText(tr(self._language, "bluetooth_description"))
             self._drives_labels[0].setText(tr(self._language, "drives"))
