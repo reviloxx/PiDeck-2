@@ -6,9 +6,9 @@ from pathlib import Path
 from PySide6.QtCore import (
     Property,
     QEasingCurve,
-    QParallelAnimationGroup,
     QPropertyAnimation,
     QRect,
+    QSequentialAnimationGroup,
     QSize,
     Qt,
     QTimer,
@@ -191,9 +191,7 @@ class LauncherTile(QPushButton):
         self._opacity_animation = QPropertyAnimation(self, b"description_opacity", self)
         self._opacity_animation.setDuration(duration_ms)
         self._opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._focus_group = QParallelAnimationGroup(self)
-        self._focus_group.addAnimation(self._geometry_animation)
-        self._focus_group.addAnimation(self._opacity_animation)
+        self._focus_sequence = QSequentialAnimationGroup(self)
         self.setProperty("focus_grow_animation", self._geometry_animation)
         self.setProperty("description_fade_animation", self._opacity_animation)
 
@@ -222,17 +220,32 @@ class LauncherTile(QPushButton):
         """Place the tile at its resting size without animating."""
         self.setGeometry(self._resting_rect())
 
+    def _clear_focus_sequence(self) -> None:
+        """Stop the focus sequence and detach child animations for reordering."""
+        self._focus_sequence.stop()
+        while self._focus_sequence.animationCount():
+            self._focus_sequence.takeAnimation(0)
+
     def _animate_focus(self, focused: bool) -> None:
-        """Grow or shrink the tile and fade the description with the theme timing."""
+        """Grow first, then fade the description in; reverse order on focus out."""
         if focused:
             self.raise_()
-        self._focus_group.stop()
+        self._clear_focus_sequence()
         self._geometry_animation.setStartValue(self.geometry())
         self._geometry_animation.setEndValue(self._focused_rect() if focused else self._resting_rect())
         target_opacity = 1.0 if focused and self._has_description else 0.0
         self._opacity_animation.setStartValue(self.description_opacity)
         self._opacity_animation.setEndValue(target_opacity)
-        self._focus_group.start()
+        fade_needed = self.description_opacity != target_opacity
+        if focused:
+            self._focus_sequence.addAnimation(self._geometry_animation)
+            if fade_needed:
+                self._focus_sequence.addAnimation(self._opacity_animation)
+        else:
+            if fade_needed:
+                self._focus_sequence.addAnimation(self._opacity_animation)
+            self._focus_sequence.addAnimation(self._geometry_animation)
+        self._focus_sequence.start()
 
     def set_language(self, language: str) -> None:
         """Refresh the localized description and input accessibility label."""

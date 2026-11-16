@@ -57,8 +57,8 @@ def launcher_window(application: QApplication) -> LauncherWindow:
 
 
 def _finish_tile_focus_animation(tile) -> None:
-    """Jump the tile's focus grow/fade group to its end state."""
-    tile._focus_group.setCurrentTime(tile._focus_group.duration())
+    """Jump the tile's sequential focus grow/fade to its end state."""
+    tile._focus_sequence.setCurrentTime(tile._focus_sequence.duration())
 
 
 def test_launcher_renders_tiles_and_focuses_first(application: QApplication) -> None:
@@ -246,6 +246,33 @@ def test_focused_tile_fades_in_catalog_description(application: QApplication) ->
 
     assert kodi.description_opacity == pytest.approx(0.0)
     assert custom.description_opacity == pytest.approx(0.0)
+
+    window.close()
+
+
+def test_description_fades_in_after_grow_completes(application: QApplication) -> None:
+    """Description stays hidden until the grow finishes, then fades in at focused size."""
+    window = catalog_launcher_window(application)
+    kodi, custom = window._tiles
+    slot_width, _slot_height = tile_slot_size(DEFAULT_THEME.tile.width, DEFAULT_THEME.tile.height)
+
+    custom.setFocus()
+    application.processEvents()
+    _finish_tile_focus_animation(custom)
+    _finish_tile_focus_animation(kodi)
+    assert kodi.description_opacity == pytest.approx(0.0)
+
+    kodi.setFocus()
+    application.processEvents()
+    grow_ms = kodi.property("focus_grow_animation").duration()
+    kodi._focus_sequence.setCurrentTime(grow_ms)
+    application.processEvents()
+
+    assert kodi.width() == slot_width
+    assert kodi.description_opacity == pytest.approx(0.0)
+
+    _finish_tile_focus_animation(kodi)
+    assert kodi.description_opacity == pytest.approx(1.0)
 
     window.close()
 
