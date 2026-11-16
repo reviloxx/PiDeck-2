@@ -4,6 +4,12 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.11
+
+- Fixed: Booting or connecting HDMI-CEC no longer turns the TV on when
+  **Turn on TV** / **TV einschalten** is off (Active Source is skipped unless
+  the TV is already known on). New appliances default that setting off.
+
 ## v0.6.10
 
 - Changed: Settings → Applications installs Moonlight (Sunshine / GameStream

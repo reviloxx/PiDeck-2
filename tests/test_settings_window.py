@@ -66,7 +66,7 @@ def test_input_settings_are_accessible_and_immediate(application: QApplication) 
     assert changes[-1].hdmi_port == 2
     window._input_rows["cec_wake"].setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
-    assert changes[-1].wake_tv is False
+    assert changes[-1].wake_tv is True
     window._input_rows["cec_connect"].setFocus()
     window.handle_input(InputEvent(InputAction.ACTIVATE, "gamepad"))
     assert requests == [True]

@@ -11,7 +11,7 @@ class CecSettings:
     auto_connect: bool = True
     hdmi_port: int | None = None
     switch_input: bool = True
-    wake_tv: bool = True
+    wake_tv: bool = False
 
     def __post_init__(self) -> None:
         """Reject invalid settings rather than passing them to an adapter."""

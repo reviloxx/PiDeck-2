@@ -26,7 +26,7 @@ def test_legacy_preferences_default_wake_tv(tmp_path: Path) -> None:
         "version: 1\nenabled: true\nauto_connect: true\nhdmi_port: null\nswitch_input: true\n",
         encoding="utf-8",
     )
-    assert InputPreferences(path).load() == CecSettings()
+    assert InputPreferences(path).load() == CecSettings(wake_tv=True)
 
 
 @pytest.mark.parametrize("port", [0, 16, -1, True, "2"])

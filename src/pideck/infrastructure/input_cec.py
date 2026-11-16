@@ -274,15 +274,22 @@ class CecClientAdapter:
         return True
 
     def _note_tv_power(self, previous: str, current: str) -> None:
-        """Update whether the TV is powered on from a libCEC power-status line."""
+        """Update whether the TV is powered on from a libCEC power-status line.
+
+        Ignore startup ``unknown → on``: libCEC often logs that while the set is
+        still in standby, and treating it as on would wake the TV via Active Source.
+        """
         target = current.lower()
+        previous_lower = previous.lower()
         with self._condition:
+            if previous_lower == "unknown":
+                if target.startswith("standby") or "to standby" in target:
+                    self._tv_on = False
+                return
             if target.startswith("on") or "standby to on" in target:
                 self._tv_on = True
             elif target.startswith("standby") or "to standby" in target:
                 self._tv_on = False
-            elif previous.lower() == "unknown" and "on" in target:
-                self._tv_on = True
 
     def _cancel_claim_retries(self) -> None:
         """Cancel pending Active Source retries and the verify watchdog."""
@@ -376,7 +383,7 @@ class CecClientAdapter:
         """Extra Active Source while waiting for the first mapped remote key."""
         if not self._session_active(process, generation):
             return
-        # Not on_connect: reclaim even when wake_tv is off and TV power was unknown.
+        # Same wake gate as connect: never wake a standby set when wake_tv is off.
         self._claim_active_source(process)
 
     def _delayed_verify_restart(
@@ -400,8 +407,10 @@ class CecClientAdapter:
         if settings is None or not settings.switch_input or process.stdin is None:
             return
         known_on = self._tv_on if tv_on is None else tv_on
-        # wake_tv gates waking a standby set; an already-on TV still needs reclaim.
-        if on_connect and not settings.wake_tv and not known_on:
+        # on_connect is retained for call sites; wake gate applies to every claim.
+        _ = on_connect
+        # wake_tv may wake standby; without it only reclaim a TV already known on.
+        if not settings.wake_tv and not known_on:
             return
         try:
             process.stdin.write("as\n")

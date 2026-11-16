@@ -295,7 +295,8 @@ def test_cec_claims_active_source_on_tv_wake_without_restart(
     )
     assert stopped == []
     assert adapter.generation == generation
-    assert process.stdin.write.call_count == 1
+    # wake_tv defaults off: connect must not send Active Source.
+    process.stdin.write.assert_not_called()
     assert power_on == []
     process.stdin.write.reset_mock()
     adapter._read_output(
@@ -309,7 +310,7 @@ def test_cec_claims_active_source_on_tv_wake_without_restart(
     )
     assert stopped == []
     assert adapter.generation == generation
-    assert [call.args[0] for call in process.stdin.write.call_args_list] == ["as\n", "as\n"]
+    assert [call.args[0] for call in process.stdin.write.call_args_list] == ["as\n"]
     assert [event.action for event in sink.events] == [InputAction.ACTIVATE]
     assert power_on == ["tv"]
 
@@ -391,14 +392,16 @@ def test_cec_tv_power_on_handler_can_be_replaced(monkeypatch: pytest.MonkeyPatch
     assert second == ["b"]
 
 
-def test_cec_claims_active_source_when_tv_already_on_without_wake(
+def test_cec_startup_unknown_on_does_not_wake_when_wake_tv_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Already-on TV at boot reclaims Anynet even when wake_tv is off."""
+    """libCEC's startup unknown→on must not send Active Source when wake is off."""
     stopped: list[object] = []
     adapter = CecClientAdapter(
         settings=CecSettings(switch_input=True, wake_tv=False),
         claim_retry_delays=(),
+        verify_reclaim_delays=(),
+        verify_restart_delay=0,
     )
     process = MagicMock(spec=subprocess.Popen)
     process.stdin = MagicMock()
@@ -416,16 +419,18 @@ def test_cec_claims_active_source_when_tv_already_on_without_wake(
     )
     assert stopped == []
     assert adapter.status == "Connected"
-    assert [call.args[0] for call in process.stdin.write.call_args_list] == ["as\n"]
+    process.stdin.write.assert_not_called()
 
 
-def test_cec_retries_active_source_when_tv_already_on(
+def test_cec_wake_tv_sends_active_source_on_connect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Delayed Active Source retries fire for the same generation only."""
+    """Turn on TV may send Active Source at connect without a known-on signal."""
     adapter = CecClientAdapter(
-        settings=CecSettings(switch_input=True, wake_tv=False),
-        claim_retry_delays=(0.02, 0.04),
+        settings=CecSettings(switch_input=True, wake_tv=True),
+        claim_retry_delays=(),
+        verify_reclaim_delays=(),
+        verify_restart_delay=0,
     )
     process = MagicMock(spec=subprocess.Popen)
     process.stdin = MagicMock()
@@ -433,15 +438,29 @@ def test_cec_retries_active_source_when_tv_already_on(
     adapter._suspended = False
     adapter._process = process
     monkeypatch.setattr(adapter, "_stop_async", lambda *_: None)
-    generation = adapter.generation
-    adapter._read_output(
-        io.StringIO(
-            "DEBUG: [1] TV (0): power status changed from 'unknown' to 'on'\n"
-            "waiting for input\n"
-        ),
-        process,
-        generation,
+    adapter._read_output(io.StringIO("waiting for input\n"), process, adapter.generation)
+    assert [call.args[0] for call in process.stdin.write.call_args_list] == ["as\n"]
+
+
+def test_cec_retries_active_source_when_tv_known_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Delayed Active Source retries fire for the same generation only."""
+    adapter = CecClientAdapter(
+        settings=CecSettings(switch_input=True, wake_tv=False),
+        claim_retry_delays=(0.02, 0.04),
+        verify_reclaim_delays=(),
+        verify_restart_delay=0,
     )
+    process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
+    adapter._sink = RecordingSink()
+    adapter._suspended = False
+    adapter._process = process
+    adapter._tv_on = True
+    monkeypatch.setattr(adapter, "_stop_async", lambda *_: None)
+    generation = adapter.generation
+    adapter._read_output(io.StringIO("waiting for input\n"), process, generation)
     deadline = threading.Event()
     assert not deadline.wait(0.15)
     assert [call.args[0] for call in process.stdin.write.call_args_list] == [
@@ -531,10 +550,10 @@ def test_cec_remote_verified_clears_on_reconnect(
     assert [event.action for event in sink.events] == [InputAction.LEFT]
 
 
-def test_cec_verify_watchdog_reclaims_then_restarts(
+def test_cec_verify_watchdog_skips_as_when_wake_off_then_restarts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Connected without keys sends extra Active Source, then restarts the client."""
+    """Without wake_tv or known-on, verify reclaim sends no as but still restarts."""
     stopped: list[object] = []
     adapter = CecClientAdapter(
         settings=CecSettings(switch_input=True, wake_tv=False),
@@ -551,6 +570,34 @@ def test_cec_verify_watchdog_reclaims_then_restarts(
     adapter._read_output(io.StringIO("waiting for input\n"), process, adapter.generation)
     assert adapter.status == "Connected"
     assert adapter.remote_verified is False
+    process.stdin.write.reset_mock()
+    deadline = threading.Event()
+    assert not deadline.wait(0.12)
+    process.stdin.write.assert_not_called()
+    assert stopped == [process]
+    assert adapter.status == "Reconnecting"
+    adapter._cancel_claim_retries()
+
+
+def test_cec_verify_watchdog_reclaims_when_tv_known_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Connected without keys reclaims Active Source when the TV is known on."""
+    stopped: list[object] = []
+    adapter = CecClientAdapter(
+        settings=CecSettings(switch_input=True, wake_tv=False),
+        claim_retry_delays=(),
+        verify_reclaim_delays=(0.02, 0.04),
+        verify_restart_delay=0.08,
+    )
+    process = MagicMock(spec=subprocess.Popen)
+    process.stdin = MagicMock()
+    adapter._sink = RecordingSink()
+    adapter._suspended = False
+    adapter._process = process
+    adapter._tv_on = True
+    monkeypatch.setattr(adapter, "_stop_async", stopped.append)
+    adapter._read_output(io.StringIO("waiting for input\n"), process, adapter.generation)
     process.stdin.write.reset_mock()
     deadline = threading.Event()
     assert not deadline.wait(0.12)
@@ -624,7 +671,7 @@ def test_cec_hdmi_link_up_reclaims_when_connected(
 ) -> None:
     """HDMI recovery reclaims Active Source while the client stays Connected."""
     adapter = CecClientAdapter(
-        settings=CecSettings(switch_input=True),
+        settings=CecSettings(switch_input=True, wake_tv=False),
         claim_retry_delays=(),
         verify_reclaim_delays=(),
         verify_restart_delay=0,
@@ -634,6 +681,7 @@ def test_cec_hdmi_link_up_reclaims_when_connected(
     adapter._sink = RecordingSink()
     adapter._suspended = False
     adapter._process = process
+    adapter._tv_on = True
     monkeypatch.setattr(adapter, "_stop_async", lambda *_: None)
     adapter._read_output(io.StringIO("waiting for input\n"), process, adapter.generation)
     process.stdin.write.reset_mock()
@@ -776,7 +824,12 @@ def test_kernel_client_applies_address_before_connect_and_switches_only_when_req
 
     sink = RecordingSink()
     adapter = CecClientAdapter(
-        settings=CecSettings(hdmi_port=2, switch_input=switch_input), status_changed=status,
+        settings=CecSettings(
+            hdmi_port=2, switch_input=switch_input, wake_tv=switch_input,
+        ),
+        status_changed=status,
+        verify_reclaim_delays=(),
+        verify_restart_delay=0,
     )
     adapter.start(sink)
     try:
