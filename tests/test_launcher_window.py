@@ -9,14 +9,18 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from PySide6.QtGui import QColor
 
 from pideck.application.launcher import LauncherController
 from pideck.application.ports.input import InputAction, InputEvent
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.infrastructure.config.defaults import DEFAULT_THEME
-from pideck.presentation.qt.launcher_window import LauncherWindow, calculate_tile_columns
+from pideck.presentation.qt.launcher_window import (
+    LauncherWindow,
+    calculate_tile_columns,
+    tile_slot_size,
+)
 from pideck.presentation.qt.power_dialog import ConfirmationDialog, PowerDialog
 from pideck.presentation.qt.spinner import BusySpinner
 from tests.test_configuration import configuration_document
@@ -52,13 +56,25 @@ def launcher_window(application: QApplication) -> LauncherWindow:
     return window
 
 
+def _finish_tile_focus_animation(tile) -> None:
+    """Jump the tile's focus grow/fade group to its end state."""
+    tile._focus_group.setCurrentTime(tile._focus_group.duration())
+
+
 def test_launcher_renders_tiles_and_focuses_first(application: QApplication) -> None:
     """The first application tile receives focus when the window is shown."""
     window = launcher_window(application)
+    slot_width, slot_height = tile_slot_size(DEFAULT_THEME.tile.width, DEFAULT_THEME.tile.height)
+    _finish_tile_focus_animation(window._tiles[0])
 
     assert len(window.findChildren(type(window._tiles[0]))) == 3
     assert window._tiles[0].hasFocus()
-    assert all(tile.height() == DEFAULT_THEME.tile.height for tile in window._tiles)
+    assert window._tiles[0].width() == slot_width
+    assert window._tiles[0].height() == slot_height
+    assert all(
+        tile.width() == DEFAULT_THEME.tile.width and tile.height() == DEFAULT_THEME.tile.height
+        for tile in window._tiles[1:]
+    )
 
     window.close()
 
@@ -152,6 +168,90 @@ def test_focus_animation_always_uses_reduced_motion_timing(application: QApplica
     window = launcher_window(application)
     animation = window._tiles[0].property("focus_animation")
     assert animation.duration() == DEFAULT_THEME.animation.reduced_motion_duration_ms
+    window.close()
+
+
+def test_focus_grows_tile_and_restores_resting_size(application: QApplication) -> None:
+    """Focus enlarges the tile; losing focus restores the resting theme size."""
+    window = launcher_window(application)
+    slot_width, slot_height = tile_slot_size(DEFAULT_THEME.tile.width, DEFAULT_THEME.tile.height)
+    first, second = window._tiles[0], window._tiles[1]
+    grow = first.property("focus_grow_animation")
+    fade = first.property("description_fade_animation")
+
+    assert grow.duration() == DEFAULT_THEME.animation.duration_ms
+    assert fade.duration() == DEFAULT_THEME.animation.duration_ms
+
+    _finish_tile_focus_animation(first)
+    assert first.width() == slot_width
+    assert first.height() == slot_height
+
+    second.setFocus()
+    application.processEvents()
+    _finish_tile_focus_animation(first)
+    _finish_tile_focus_animation(second)
+
+    assert first.width() == DEFAULT_THEME.tile.width
+    assert first.height() == DEFAULT_THEME.tile.height
+    assert second.width() == slot_width
+    assert second.height() == slot_height
+
+    window.close()
+
+
+def catalog_launcher_window(application: QApplication) -> LauncherWindow:
+    """Build a launcher with catalog apps that have localized descriptions."""
+    document = configuration_document()
+    document["applications"] = [
+        {"id": "kodi", "name": "Kodi", "executable": "kodi"},
+        {"id": "custom-app", "name": "Custom", "executable": "custom"},
+    ]
+    document["home"]["visible_applications"] = []
+    window = LauncherWindow(
+        LauncherController(YamlConfigurationParser().parse(document)),
+        DEFAULT_THEME,
+        Path.cwd(),
+    )
+    window.resize(800, 600)
+    window.show()
+    application.processEvents()
+    return window
+
+
+def test_focused_tile_fades_in_catalog_description(application: QApplication) -> None:
+    """Catalog apps fade their short description in on focus; unknown apps stay hidden."""
+    window = catalog_launcher_window(application)
+    kodi, custom = window._tiles
+    kodi_description = kodi.findChild(QLabel, "tile_description")
+    custom_description = custom.findChild(QLabel, "tile_description")
+
+    assert kodi_description is not None
+    assert kodi_description.text() == "Play movies, TV shows, and music"
+    assert custom_description.text() == ""
+
+    _finish_tile_focus_animation(kodi)
+    assert kodi._opacity_effect.opacity() == pytest.approx(1.0)
+
+    custom.setFocus()
+    application.processEvents()
+    _finish_tile_focus_animation(kodi)
+    _finish_tile_focus_animation(custom)
+
+    assert kodi._opacity_effect.opacity() == pytest.approx(0.0)
+    assert custom._opacity_effect.opacity() == pytest.approx(0.0)
+
+    window.close()
+
+
+def test_set_language_updates_tile_description(application: QApplication) -> None:
+    """Changing language refreshes the focused tile's short description text."""
+    window = catalog_launcher_window(application)
+    description = window._tiles[0].findChild(QLabel, "tile_description")
+
+    window.set_language("de")
+
+    assert description.text() == "Filme, Serien und Musik abspielen"
+
     window.close()
 
 

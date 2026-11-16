@@ -182,6 +182,11 @@ def apply_theme(
             font-size: %(body_size)spx;
             font-weight: 700;
         }
+        QLabel#tile_description {
+            color: %(muted_text)s;
+            font-size: %(description_size)spx;
+            background: transparent;
+        }
         QLabel#tile_input, QLabel#tile_icon {
             background: transparent;
         }
@@ -506,7 +511,8 @@ def apply_theme(
             border: 2px solid %(focus)s;
             padding: 0;
         }
-        QLabel#tile_name, QLabel#launcher_title, QLabel#launcher_clock, QLabel#launcher_subtitle {
+        QLabel#tile_name, QLabel#tile_description, QLabel#launcher_title, QLabel#launcher_clock,
+        QLabel#launcher_subtitle {
             background: transparent;
         }
         """
@@ -527,6 +533,7 @@ def apply_theme(
             "scroll_handle": _blend(colors["surface"], colors["text"], 0.30),
             "heading_size": theme.fonts.heading_size,
             "body_size": theme.fonts.body_size,
+            "description_size": max(1, theme.fonts.body_size - 2),
             "settings_body_size": theme.fonts.settings_body_size,
             "settings_heading_size": theme.fonts.settings_heading_size,
             "focus_surface": _blend(colors["surface"], colors["focus"], 0.16),
