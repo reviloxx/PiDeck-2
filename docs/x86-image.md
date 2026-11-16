@@ -25,23 +25,19 @@ for the NVIDIA driver and Red's KDE Flatpak runtime; later builds may vary.
 ## Applications and language
 
 Images from v0.5.0 preinstall only Kodi (Debian package) and Red as YouTube
-(system Flatpak). Steam Link, Chromium, Chrome, Brave, Firefox ESR, NoMachine
-Player and RetroArch are installed and removed from **Settings > Applications**
+(system Flatpak). Steam Link, Chromium, Chrome, Brave, Firefox ESR, Moonlight
+and RetroArch are installed and removed from **Settings > Applications**
 through the restricted update service; see [Settings](../README.md#settings).
 Everything those applications need from the image is included:
 
 - Flatpak with the system Flathub remote and the NVIDIA GL extension; Steam
-  Link's controller rules (`steam-devices`).
+  Link's controller rules (`steam-devices`). Moonlight on x86 is the Flathub
+  Flatpak `com.moonlight_stream.Moonlight` (Sunshine / GameStream client).
 - The Google Chrome and Brave apt repositories with their signing keys in
   `/usr/share/pideck/keyrings`, and `/etc/default/google-chrome`, which stops
   Chrome from adding a duplicate repository.
 - The VA-API settings for Firefox ESR and Chromium described below; Chrome and
   Brave receive the same decoder flags as launch arguments.
-- A masked `nxserver.service`, so installing NoMachine Player never starts a
-  remote-desktop server. The player is downloaded from NoMachine on the device
-  (the service accepts no other download host) and must match the SHA-256
-  pinned in the catalog; when NoMachine withdraws
-  that version, a PiDeck release with an updated pin is needed.
 
 The system locale is `de_DE.UTF-8` and the time zone Europe/Berlin. Flatpak
 installs German translations (`languages de;en`), Firefox ESR gets the
@@ -226,7 +222,7 @@ sudo python3 image/x86/build.py --work-dir "$PWD/image-output/x86"
 ```
 
 This preinstalls Kodi and Red; all other applications are installed later
-from Settings. The build no longer accepts a NoMachine package.
+from Settings.
 The builder needs root for disk, mount and installation operations. When
 invoked with `sudo` or `pkexec`, it gives the completed output directory and
 its top-level files to the invoking user, retaining private directory
@@ -342,7 +338,7 @@ power-off because sleep paths froze the NVIDIA session.
 The launcher wallpaper fills the window while preserving its aspect ratio;
 edges are cropped on screens with a different shape. The image's default
 window policies are in `/usr/share/pideck/config/window-modes.yaml`.
-Chromium, Firefox and RetroArch are set to `maximized`; NoMachine is set to
+Chromium, Firefox and RetroArch are set to `maximized`; Moonlight is set to
 `fullscreen`. Windows that already open fullscreen remain fullscreen. To override a policy without editing system files,
 create `~/.config/pideck/window-modes.yaml` with, for example,
 `firefox: normal`. Policies apply to detected main windows launched by PiDeck,
@@ -418,8 +414,7 @@ firmware errors; support for a particular GPU is not guaranteed.
 
 The appliance account is UID 1000 and logs in automatically on the first
 console. It has no configured login password or passwordless sudo. SSH is not
-installed or enabled, and NoMachine's server is masked in case NoMachine Player
-is installed. Anyone with physical access can operate the appliance and initiate
+installed or enabled. Anyone with physical access can operate the appliance and initiate
 the restricted package updater; this is not an authenticated multi-user setup.
 Use trusted physical and network environments. Recovery requires external
 rescue media; there is no password-based administrative login.
@@ -431,7 +426,7 @@ mouse or controller-operated on-screen keyboard. Keys are masked and sent to
 NetworkManager via standard input, not command-line arguments. NetworkManager
 persists connection credentials. Hidden networks and enterprise authentication
 are not provided by this interface. A Wi-Fi network key,
-Steam pairing, NoMachine host credentials and website logins are not system
+Steam pairing, Sunshine / Moonlight host credentials and website logins are not system
 passwords and may still be required.
 
 Common non-free firmware is included for hardware compatibility, but no
@@ -443,11 +438,9 @@ authorized active session. See [Settings](../README.md#settings) for backend
 limitations and behavior.
 Network setup is authorized only for the active local appliance account.
 Third-party app updates use the existing apt/Flatpak integration when
-available; NoMachine Player has no update repository and is reported as
-unsupported. Signed PiDeck application updates
+available. Signed PiDeck application updates
 do not upgrade the underlying OS or the image's boot components.
-NoMachine Player installation warns that printer forwarding requires CUPS
-configuration; printing is not included in this minimal image.
+Printing is not included in this minimal image.
 
 ## Acceptance checks
 

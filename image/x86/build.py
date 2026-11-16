@@ -384,8 +384,6 @@ def _configure(root: Path, loop: str, tag: str | None) -> None:
     runtimes = chroot("flatpak", "list", "--system", "--runtime", "--columns=application", capture=True)
     if f"org.freedesktop.Platform.GL.{gl_driver}" not in runtimes.split():
         raise RuntimeError(f"Flathub did not provide the {gl_driver} GL extension")
-    # A NoMachine Player installed later from Settings must never start a server.
-    _run("systemctl", "--root", str(root), "mask", "nxserver.service")
     # No x86 splash (modeset is too late without GPU-in-initrd); do not stall on "network online".
     _run(
         "systemctl",

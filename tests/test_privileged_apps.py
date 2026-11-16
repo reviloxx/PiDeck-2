@@ -67,14 +67,38 @@ def test_flatpak_plans_use_system_scope_and_keep_data() -> None:
     assert all("--delete-data" not in command for command in remove if command)
 
 
-def test_deb_plan_installs_verified_download() -> None:
+def test_moonlight_uses_flatpak_on_amd64_and_apt_on_arm64() -> None:
+    """Moonlight follows Steam Link's packaging split without a vendor .deb."""
+    amd64 = plans("amd64").install("moonlight")
+    assert amd64[1].command == (
+        "/usr/bin/flatpak", "install", "--system", "--noninteractive", "--assumeyes",
+        "flathub", "com.moonlight_stream.Moonlight",
+    )
+    assert plans("amd64").remove("moonlight")[0].command[-1] == "com.moonlight_stream.Moonlight"
+    arm64 = plans("arm64").install("moonlight")
+    assert arm64[-1].command == (
+        "/usr/bin/apt-get", "install", "-y", "--no-install-recommends", "--", "moonlight-qt",
+    )
+    assert plans("arm64").remove("moonlight")[1].command[-1] == "moonlight-qt"
+
+
+def test_deb_plan_installs_verified_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Vendor packages are installed from the checksum-verified local copy."""
-    steps = plans("amd64", download=Path("/var/cache/test")).install("nomachine")
+    monkeypatch.setattr(privileged_apps, "DEB_HOSTS", ("vendor.example",))
+    digest = "0" * 64
+    catalog = tmp_path / "applications.yaml"
+    catalog.write_text(
+        "applications:\n  - id: vendor\n    install:\n      amd64:\n"
+        "        method: deb\n        packages: [vendor-player]\n"
+        f"        url: https://download.vendor.example/vendor-player.deb\n        sha256: '{digest}'\n",
+        encoding="utf-8",
+    )
+    steps = plans("amd64", catalog=catalog, download=Path("/var/cache/test")).install("vendor")
     assert [step.stage for step in steps] == ["preparing", "downloading", "installing", "finishing"]
     assert steps[2].command == (
-        "/usr/bin/apt-get", "install", "-y", "--no-install-recommends", "--", "/var/cache/test/nomachine-player.deb",
+        "/usr/bin/apt-get", "install", "-y", "--no-install-recommends", "--", "/var/cache/test/vendor-player.deb",
     )
-    assert plans().remove("nomachine")[1].command[-1] == "nomachine-player"
+    assert plans(catalog=catalog).remove("vendor")[1].command[-1] == "vendor-player"
 
 
 @pytest.mark.parametrize(("identifier", "architecture", "message"), [
@@ -96,7 +120,7 @@ def test_plans_reject_unknown_requests(identifier: str, architecture: str, messa
     "{method: deb, packages: [x], url: http://example.org/x.deb, sha256: " + "0" * 64 + "}",
     "{method: deb, packages: [x], url: https://example.org/x.deb, sha256: abc}",
     "{method: deb, packages: [x], url: https://example.org/x.deb, sha256: " + "0" * 64 + "}",
-    "{method: deb, packages: [x], url: https://nomachine.com.example.org/x.deb, sha256: " + "0" * 64 + "}",
+    "{method: deb, packages: [x], url: https://vendor.example.org/x.deb, sha256: " + "0" * 64 + "}",
     "{method: shell, packages: [x]}",
 ])
 def test_plans_validate_catalog_values(tmp_path: Path, spec: str) -> None:
@@ -118,16 +142,18 @@ def test_plans_ignore_keys_added_by_later_releases(tmp_path: Path) -> None:
     assert plans(catalog=catalog).install("app")[-1].command[-1] == "app"
 
 
-def test_download_rejects_redirects_to_untrusted_hosts(tmp_path: Path) -> None:
+def test_download_rejects_redirects_to_untrusted_hosts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Root never keeps a package served from outside the allowed vendor hosts."""
+    monkeypatch.setattr(privileged_apps, "DEB_HOSTS", ("vendor.example",))
     source = tmp_path / "package.deb"
     source.write_bytes(b"package")
     target = tmp_path / "downloads/player.deb"
     with pytest.raises(OperationFailed, match="untrusted host"):
         privileged_apps._download(source.as_uri(), hashlib.sha256(b"package").hexdigest(), target, Progress())
     assert not target.exists()
-    assert privileged_apps._trusted_download("https://web9001.nomachine.com/download/x.deb")
-    assert not privileged_apps._trusted_download("http://download.nomachine.com/x.deb")
+    assert privileged_apps._trusted_download("https://cdn.vendor.example/download/x.deb")
+    assert not privileged_apps._trusted_download("http://download.vendor.example/x.deb")
+    assert not privileged_apps._trusted_download("https://evil.example/x.deb")
 
 
 def test_removal_check_refuses_collateral_removals(monkeypatch: pytest.MonkeyPatch) -> None:

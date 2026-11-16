@@ -60,8 +60,10 @@ install -m 644 files/pideck-updater.service files/pideck-activate.service \
 
 # Image-level prerequisites of applications installed later from Settings.
 install -m 644 files/keyrings/google-chrome.gpg files/keyrings/brave-browser.gpg \
+    files/keyrings/moonlight-qt.gpg \
     "${ROOTFS_DIR}/usr/share/pideck/keyrings/"
 install -m 644 files/google-chrome.sources files/brave-browser.sources \
+    files/moonlight-qt.sources \
     "${ROOTFS_DIR}/etc/apt/sources.list.d/"
 install -m 644 files/google-chrome.default "${ROOTFS_DIR}/etc/default/google-chrome"
 install -m 644 files/firefox-policies.json "${ROOTFS_DIR}/etc/firefox/policies/policies.json"
@@ -101,8 +103,6 @@ systemctl enable bluetooth.service
 systemctl enable smbd.service
 systemctl enable nmbd.service
 systemctl enable pideck-updater.service
-# A NoMachine Player install must never start a remote-desktop server.
-systemctl mask nxserver.service
 # Red (YouTube) is preinstalled system-wide; German runtime translations are included.
 flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 flatpak config --system --set languages "de;en"

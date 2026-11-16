@@ -124,23 +124,20 @@ applications:
     install:
       amd64: {method: apt, packages: [firefox-esr, firefox-esr-l10n-de], dependencies: [libavcodec61]}
       arm64: {method: apt, packages: [firefox-esr, firefox-esr-l10n-de], dependencies: [libavcodec61]}
-  - id: nomachine
-    name: NoMachine
-    executable: /usr/NX/bin/nxplayer
-    icon: ../assets/icons/nomachine.svg
+  - id: moonlight
+    name: Moonlight
+    executable: flatpak
+    arguments: [run, com.moonlight_stream.Moonlight]
+    icon: ../assets/icons/moonlight.svg
     preferred_input: mouse
     window: fullscreen
     install:
-      amd64:
-        method: deb
-        packages: [nomachine-player]
-        url: https://download.nomachine.com/download/10.2/Linux/nomachine-player_10.2.3_1_amd64.deb
-        sha256: 5c78e76af53acc0ad975c57dcfce9fd31e49ccbf942edc9601574dc50c5301ff
+      amd64: {method: flatpak, flatpak: com.moonlight_stream.Moonlight}
       arm64:
-        method: deb
-        packages: [nomachine-player]
-        url: https://download.nomachine.com/download/10.2/Raspberry/nomachine-player_10.2.3_1_arm64.deb
-        sha256: ef8b79d21128a52c7b3094f4fd6ce143a715d7b12045cebe8016e774b3548464
+        method: apt
+        packages: [moonlight-qt]
+        executable: moonlight-qt
+        arguments: []
   - id: retroarch
     name: RetroArch
     executable: retroarch

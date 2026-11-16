@@ -28,12 +28,12 @@ applications:
   profiles: []
   icon: ../assets/icons/firefox.svg
   preferred_input: mouse
-- id: nomachine
-  name: NoMachine
-  executable: nxplayer
+- id: moonlight
+  name: Moonlight
+  executable: moonlight-qt
   arguments: []
   profiles: []
-  icon: ../assets/icons/nomachine.svg
+  icon: ../assets/icons/moonlight.svg
   preferred_input: mouse
 - id: retroarch
   name: RetroArch

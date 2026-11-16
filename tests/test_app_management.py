@@ -23,7 +23,7 @@ from tests.test_configuration import configuration_document
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "assets/catalog/applications.yaml"
-SUPPORTED = ["kodi", "youtube", "steam-link", "chromium", "chrome", "brave", "firefox", "nomachine", "retroarch"]
+SUPPORTED = ["kodi", "youtube", "steam-link", "chromium", "chrome", "brave", "firefox", "moonlight", "retroarch"]
 
 
 def catalog() -> tuple[CatalogEntry, ...]:
@@ -34,9 +34,13 @@ def catalog() -> tuple[CatalogEntry, ...]:
 def test_catalog_lists_every_supported_application_for_both_images() -> None:
     """All supported apps are installable on x86 and the Raspberry Pi, with existing icons."""
     entries = catalog()
-    assert [entry.identifier for entry in entries] == SUPPORTED
+    visible = [entry for entry in entries if entry.identifier != "remote-support"]
+    assert [entry.identifier for entry in visible] == SUPPORTED
+    assert any(entry.identifier == "remote-support" for entry in entries)
     for entry in entries:
         assert set(entry.install) == {"amd64", "arm64"}, entry.identifier
+        if entry.identifier == "remote-support":
+            continue
         assert entry.application.icon is not None
         assert (ROOT / "config" / entry.application.icon).resolve().is_file()
         for source in (default.source for default in entry.user_defaults):
@@ -44,7 +48,7 @@ def test_catalog_lists_every_supported_application_for_both_images() -> None:
 
 
 def test_catalog_architecture_overrides() -> None:
-    """Steam Link uses Valve's Raspberry Pi package and the Flatpak on x86."""
+    """Steam Link and Moonlight use Flatpak on x86 and native packages on the Pi."""
     steam = next(entry for entry in catalog() if entry.identifier == "steam-link")
     assert steam.definition_for("amd64").arguments == ("run", "com.valvesoftware.SteamLink")
     pi = steam.definition_for("arm64")
@@ -52,6 +56,11 @@ def test_catalog_architecture_overrides() -> None:
     assert steam.spec_for("arm64").dependencies
     assert steam.spec_for("riscv64") is None
     assert steam.definition_for("riscv64") == steam.application
+    moonlight = next(entry for entry in catalog() if entry.identifier == "moonlight")
+    assert moonlight.definition_for("amd64").arguments == ("run", "com.moonlight_stream.Moonlight")
+    assert (moonlight.definition_for("arm64").executable, moonlight.definition_for("arm64").arguments) == (
+        "moonlight-qt", (),
+    )
 
 
 def test_kodi_defaults_to_german() -> None:

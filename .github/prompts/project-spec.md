@@ -88,7 +88,7 @@ Power On → Automatic Login → Launcher → Application → Launcher
 - Chrome
 - Brave
 - Firefox
-- NoMachine
+- Moonlight
 - RetroArch
 
 ### Installation model
@@ -184,7 +184,7 @@ Example tiles:
 | Red | TV remote |
 | Steam Link | Gamepad |
 | Browser | Mouse |
-| NoMachine | Mouse |
+| Moonlight | Mouse |
 | RetroArch | Gamepad |
 
 Fixed buttons (not application tiles):

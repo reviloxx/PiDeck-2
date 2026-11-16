@@ -37,7 +37,8 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 _URL = re.compile(r"https://[A-Za-z0-9.-]+/[A-Za-z0-9._~/%+-]+\.deb")
 # Release bundles are not publisher-authenticated, so the image itself limits
 # where root may download vendor packages from, including after redirects.
-DEB_HOSTS = ("nomachine.com",)
+# Empty until a catalog entry uses method: deb again; HTTPS hosts must be listed here.
+DEB_HOSTS: tuple[str, ...] = ()
 _ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C", "DEBIAN_FRONTEND": "noninteractive"}
 _APT = "/usr/bin/apt-get"
 _FLATPAK = "/usr/bin/flatpak"

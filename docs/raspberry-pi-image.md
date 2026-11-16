@@ -47,7 +47,7 @@ necessary.
 Wallpaper scales proportionally to fill the window, cropping edges when
 necessary. The default policies in `/usr/share/pideck/config/window-modes.yaml`
 request maximized main windows for Chromium, Chrome, Brave, Firefox and RetroArch,
-and fullscreen for NoMachine; the application catalog declares the same defaults for releases
+and fullscreen for Moonlight; the application catalog declares the same defaults for releases
 that know newer applications. Existing fullscreen windows stay fullscreen. User overrides can
 be placed in `~/.config/pideck/window-modes.yaml`, for example `firefox: normal`.
 Dialogs are not maximized, and the separate policy file keeps the existing
@@ -263,10 +263,11 @@ Images from v0.5.0 preinstall only Kodi (Raspberry Pi OS package) and Red as
 YouTube (system Flatpak from Flathub). Everything else is installed and removed
 from **Settings > Applications**; see [Settings](../README.md#settings). The
 image contains what those applications need: Flatpak with the system Flathub
-remote, the Google Chrome and Brave apt repositories with signing keys in
-`/usr/share/pideck/keyrings`, Steam Link's udev rule
+remote, the Google Chrome, Brave and Moonlight apt repositories with signing
+keys in `/usr/share/pideck/keyrings`, Steam Link's udev rule
 (`/usr/lib/udev/rules.d/56-steamlink.rules`) and `uinput` module so its launcher
-never asks for `sudo`, and a masked `nxserver.service`.
+never asks for `sudo`. Moonlight on the Pi is the official `moonlight-qt`
+package (Sunshine / GameStream client); prefer 1080p60 HEVC over Ethernet.
 
 The pi-gen build sets the locale to `de_DE.UTF-8` and the time zone to
 Europe/Berlin; a time zone chosen in Raspberry Pi Imager still applies. Flatpak
@@ -288,7 +289,7 @@ with PiDeck on a Raspberry Pi 5:
 | Brave | Brave's arm64 `brave-browser`. | Verify launch behavior and video playback. |
 | Firefox | Debian `firefox-esr` and `firefox-esr-l10n-de`. | Verify launch behavior. |
 | RetroArch | Debian `retroarch` and `libretro-mgba`. | Verify graphics, controllers and core loading. Users must supply any legally obtained games and system files. |
-| NoMachine | NoMachine Player arm64 `.deb`, downloaded from NoMachine on the device and checked against the catalog's SHA-256. The image does not redistribute it. | Verify the client and its window lifecycle. |
+| Moonlight | Official `moonlight-qt` from the Moonlight Cloudsmith apt repository shipped in the image. Requires a Sunshine (or GameStream) host on the PC. | Verify pairing, 1080p60 HEVC streaming and window lifecycle. |
 
 ## Hardware acceptance checklist
 

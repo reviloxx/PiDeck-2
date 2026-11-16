@@ -179,7 +179,7 @@ def test_apt_resolves_executable_owner_for_check_and_update(monkeypatch) -> None
         if command[0] == "flatpak":
             raise FileNotFoundError("flatpak")
         if command[0] == "dpkg-query":
-            return SimpleNamespace(returncode=0, stdout="nomachine-player: /usr/NX/bin/nxplayer\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="vendor-player: /usr/vendor/bin/player\n", stderr="")
         if command[0] == "apt-cache":
             return SimpleNamespace(returncode=0, stdout="  Installed: 8.0\n  Candidate: (none)\n", stderr="")
         raise AssertionError(command)
@@ -194,18 +194,18 @@ def test_apt_resolves_executable_owner_for_check_and_update(monkeypatch) -> None
         def start(self):
             pass
 
-    monkeypatch.setattr("pideck.infrastructure.platform_updates.shutil.which", lambda _: "/usr/NX/bin/nxplayer")
+    monkeypatch.setattr("pideck.infrastructure.platform_updates.shutil.which", lambda _: "/usr/vendor/bin/player")
     monkeypatch.setattr("pideck.infrastructure.platform_updates.subprocess.run", run)
     monkeypatch.setattr("pideck.infrastructure.platform_updates.subprocess.Popen", lambda command, **_: commands.append(command) or Process())
     monkeypatch.setattr("pideck.infrastructure.platform_updates.threading.Thread", Thread)
-    app = ApplicationDefinition("nomachine", "NoMachine", "/usr/NX/bin/nxplayer")
+    app = ApplicationDefinition("vendor", "Vendor", "/usr/vendor/bin/player")
     gateway = NativeUpdateGateway(image_mode=True)
     info = gateway.check(app)
     assert info.current_version == "8.0"
     assert info.status is UpdateStatus.UNSUPPORTED
     gateway.start(app, None, lambda _: None)
-    assert ["apt-cache", "policy", "nomachine-player"] in commands
-    assert [sys.executable, "-m", "pideck.infrastructure.image_update_client", "apt", "nomachine-player"] in commands
+    assert ["apt-cache", "policy", "vendor-player"] in commands
+    assert [sys.executable, "-m", "pideck.infrastructure.image_update_client", "apt", "vendor-player"] in commands
 
 
 def test_apt_rejects_ambiguous_executable_owners(monkeypatch) -> None:

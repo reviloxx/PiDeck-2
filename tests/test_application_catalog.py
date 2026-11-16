@@ -114,7 +114,7 @@ def test_catalog_declares_window_defaults() -> None:
     assert modes["chrome"].value == "maximized"
     assert modes["brave"].value == "maximized"
     assert modes["youtube"].value == "maximized"
-    assert modes["nomachine"].value == "fullscreen"
+    assert modes["moonlight"].value == "fullscreen"
 
 
 @pytest.mark.parametrize("installed", [False, True])

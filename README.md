@@ -20,7 +20,7 @@ them.
 ### Apps you choose
 
 Install and update applications from Settings — including Kodi, YouTube,
-Steam Link, Chrome, Brave, Firefox, Chromium, RetroArch and NoMachine.
+Steam Link, Chrome, Brave, Firefox, Chromium, RetroArch and Moonlight.
 Show only what you want on the home screen and reorder the tiles.
 
 ![Applications settings](docs/screenshots/applications.png)

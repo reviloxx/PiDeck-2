@@ -1,0 +1,5 @@
+Types: deb
+URIs: https://dl.cloudsmith.io/public/moonlight-game-streaming/moonlight-qt/deb/raspbian
+Suites: bookworm
+Components: main
+Signed-By: /usr/share/pideck/keyrings/moonlight-qt.gpg

@@ -4,6 +4,14 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.10
+
+- Changed: Settings → Applications installs Moonlight (Sunshine / GameStream
+  client) instead of proprietary NoMachine Player. On x86 it is a Flatpak; on
+  Raspberry Pi it uses the Moonlight apt repository. Pair a Sunshine host on
+  the PC. An older NoMachine Player left on a device is unused and can be
+  removed manually.
+
 ## v0.6.9
 
 - Fixed: The bottom-left TV-remote icon appears only after a mapped remote key
