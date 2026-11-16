@@ -4,9 +4,24 @@ from pathlib import Path
 
 import pytest
 
-from pideck.infrastructure.session.picom import apply_release_picom, select_picom_config
+from pideck.infrastructure.session.picom import (
+    POST_MAP_REFRESH_DELAYS_MS,
+    apply_release_picom,
+    post_map_refresh_followup_delay_ms,
+    select_picom_config,
+)
 
 _SESSION = Path(__file__).resolve().parents[1] / "src/pideck/infrastructure/session"
+
+
+def test_post_map_picom_refresh_schedule_spans_fifteen_seconds() -> None:
+    """Boot recovery retries at 0.5s, 2s, 5s, and 15s after the launcher maps."""
+    assert POST_MAP_REFRESH_DELAYS_MS == (500, 2000, 5000, 15000)
+    assert post_map_refresh_followup_delay_ms(0) == 1500
+    assert post_map_refresh_followup_delay_ms(1) == 3000
+    assert post_map_refresh_followup_delay_ms(2) == 10000
+    assert post_map_refresh_followup_delay_ms(3) is None
+    assert post_map_refresh_followup_delay_ms(-1) is None
 
 
 def test_select_picom_config_uses_nvidia_profile() -> None:

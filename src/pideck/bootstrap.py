@@ -1618,25 +1618,31 @@ def main(arguments: Sequence[str] | None = None) -> int:
     # Openbox may have just restarted for the release rc; re-assert fullscreen.
     window.schedule_fullscreen_reassert(100)
 
-    picom_refresh_attempts = {"remaining": 2}
-
-    def refresh_session_picom() -> None:
+    def refresh_session_picom(attempt: int = 0) -> None:
         """Replace a cold-start compositor that can composite black on NVIDIA.
 
         xsession starts picom before bootstrap; when that instance races GLX,
         matching config alone leaves a black screen with only the X cursor.
-        Bounce after the launcher has mapped, then re-assert fullscreen. At most
-        one delayed retry covers xsession zombies that exit after the first stop.
+        Bounce after the launcher has mapped, then re-assert fullscreen. Retry
+        over a longer window so OTA reboots that are slow to bring up GLX still
+        get a live compositor.
         """
-        from pideck.infrastructure.session.picom import live_picom_running
+        from pideck.infrastructure.session.picom import (
+            live_picom_running,
+            post_map_refresh_followup_delay_ms,
+        )
 
         apply_release_picom(force=True)
         window.schedule_fullscreen_reassert(100)
-        picom_refresh_attempts["remaining"] -= 1
-        if picom_refresh_attempts["remaining"] > 0 and not live_picom_running():
-            QTimer.singleShot(1000, refresh_session_picom)
+        if live_picom_running():
+            return
+        delay = post_map_refresh_followup_delay_ms(attempt)
+        if delay is not None:
+            QTimer.singleShot(delay, lambda: refresh_session_picom(attempt + 1))
 
-    QTimer.singleShot(500, refresh_session_picom)
+    from pideck.infrastructure.session.picom import POST_MAP_REFRESH_DELAYS_MS
+
+    QTimer.singleShot(POST_MAP_REFRESH_DELAYS_MS[0], lambda: refresh_session_picom(0))
     QTimer.singleShot(0, pideck_update_service.check_async)
     if network_gateway is not None and network_setup_enabled:
         threading.Thread(target=check_initial_network, name="pideck-network-check", daemon=True).start()

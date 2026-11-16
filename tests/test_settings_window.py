@@ -582,8 +582,10 @@ def test_pideck_manual_check_navigation_and_language(application: QApplication) 
     assert not window._nav_buttons[2].hasFocus()
     assert not window._nav_buttons[0].hasFocus()
     window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.0.0"))
-    window._focus_first_page_control()
+    application.processEvents()
     assert button.hasFocus()
+    assert not row.hasFocus()
+    assert row.focusPolicy() == Qt.FocusPolicy.NoFocus
     window.handle_input(InputEvent(InputAction.UP, "gamepad"))
     assert button.hasFocus()
     window.close()
@@ -622,6 +624,11 @@ def test_about_nav_highlight_stays_on_rail_until_right(application: QApplication
     assert window._nav_buttons[about].property("active") is True
     assert window._nav_buttons[0].property("active") is False
     assert not window._nav_buttons[0].hasFocus()
+    window.set_pideck_update_info(PiDeckUpdateInfo(PiDeckUpdateStatus.UP_TO_DATE, "1.0.0"))
+    application.processEvents()
+    assert window._pideck_check_button.hasFocus()
+    assert not window._pideck_row.hasFocus()
+    assert window._nav_buttons[about].property("active") is True
     window.close()
 
 

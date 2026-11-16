@@ -15,6 +15,16 @@ _LOGGER = logging.getLogger(__name__)
 _SESSION_DIR = Path(__file__).resolve().parent
 _NVIDIA_VERSION = Path("/proc/driver/nvidia/version")
 
+# Absolute delays from launcher map for forced post-boot picom recovery.
+POST_MAP_REFRESH_DELAYS_MS = (500, 2000, 5000, 15000)
+
+
+def post_map_refresh_followup_delay_ms(attempt: int) -> int | None:
+    """Return ms until the next post-map refresh after *attempt*, if any remain."""
+    if attempt < 0 or attempt + 1 >= len(POST_MAP_REFRESH_DELAYS_MS):
+        return None
+    return POST_MAP_REFRESH_DELAYS_MS[attempt + 1] - POST_MAP_REFRESH_DELAYS_MS[attempt]
+
 
 def select_picom_config(
     *,

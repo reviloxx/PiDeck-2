@@ -1138,10 +1138,13 @@ class SettingsWindow(QDialog):
 
     def set_pideck_update_info(self, info: PiDeckUpdateInfo) -> None:
         """Display the latest application-independent PiDeck update state."""
+        previous_status = self._pideck_info.status if self._pideck_info is not None else None
         self._pideck_info = info
         if self._pideck_row is not None:
+            busy = {PiDeckUpdateStatus.CHECKING, PiDeckUpdateStatus.PREPARING}
             check_had_focus = self._pideck_check_button.hasFocus()
             action_had_focus = self._pideck_action_button.hasFocus()
+            row_had_focus = self._pideck_row.hasFocus()
             self._pideck_row.set_pideck_info(info)
             self._set_pideck_check_enabled(info)
             if check_had_focus and (
@@ -1153,6 +1156,12 @@ class SettingsWindow(QDialog):
                 self._pideck_action_button.isHidden()
                 or not self._pideck_action_button.isEnabled()
             ):
+                self._focus_pideck_page_control()
+            elif self._current_page == self._pideck_page and (
+                row_had_focus
+                or (previous_status in busy and info.status not in busy)
+            ):
+                # Leave the busy version card and land on Check / Update again.
                 self._focus_pideck_page_control()
             self._show_release_notes(info)
 

@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.19
+
+- Fixed: After boot or an OTA restart, the compositor is retried for longer so
+  soft focus glow and tear-free video come back even when GLX is slow.
+- Fixed: After checking for PiDeck updates, focus returns to Check for updates
+  instead of leaving a ring on the version card.
+
 ## v0.6.18
 
 - Fixed: The restart-to-finish-update title wraps on a TV instead of cutting
