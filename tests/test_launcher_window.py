@@ -230,15 +230,36 @@ def test_focused_tile_fades_in_catalog_description(application: QApplication) ->
     assert custom_description.text() == ""
 
     _finish_tile_focus_animation(kodi)
-    assert kodi._opacity_effect.opacity() == pytest.approx(1.0)
+    assert kodi.description_opacity == pytest.approx(1.0)
+
+    # Grow geometry + deferred focus-out must not clear a still-focused tile.
+    application.processEvents()
+    QTest.qWait(30)
+    application.processEvents()
+    assert kodi.hasFocus()
+    assert kodi.description_opacity == pytest.approx(1.0)
 
     custom.setFocus()
     application.processEvents()
     _finish_tile_focus_animation(kodi)
     _finish_tile_focus_animation(custom)
 
-    assert kodi._opacity_effect.opacity() == pytest.approx(0.0)
-    assert custom._opacity_effect.opacity() == pytest.approx(0.0)
+    assert kodi.description_opacity == pytest.approx(0.0)
+    assert custom.description_opacity == pytest.approx(0.0)
+
+    window.close()
+
+
+def test_tile_places_name_beside_icon(application: QApplication) -> None:
+    """The application name sits to the right of the icon, not stacked under it."""
+    window = catalog_launcher_window(application)
+    tile = window._tiles[0]
+    icon = tile.findChild(QLabel, "tile_icon")
+    name = tile.findChild(QLabel, "tile_name")
+
+    assert icon is not None and name is not None
+    assert name.x() >= icon.x() + icon.width()
+    assert name.y() < icon.y() + icon.height()
 
     window.close()
 

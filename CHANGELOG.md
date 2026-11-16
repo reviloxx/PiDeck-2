@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.13
+
+- Fixed: Home-tile app names sit beside the icon instead of clipping into it,
+  and the short description stays visible while the tile is focused.
+
 ## v0.6.12
 
 - Changed: Highlighted home-screen tiles grow smoothly and fade in the app’s

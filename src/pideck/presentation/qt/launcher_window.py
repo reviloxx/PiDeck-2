@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 
 from PySide6.QtCore import (
+    Property,
     QEasingCurve,
     QParallelAnimationGroup,
     QPropertyAnimation,
@@ -13,13 +14,12 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import (
     QDialog,
     QGridLayout,
     QHBoxLayout,
     QApplication,
-    QGraphicsOpacityEffect,
     QLabel,
     QMainWindow,
     QPushButton,
@@ -76,6 +76,8 @@ class LauncherTile(QPushButton):
         self.application = application
         self._language = language if language in {"en", "de"} else "en"
         self._resting_size = QSize(theme.tile.width, theme.tile.height)
+        self._muted_text = theme.colors["muted_text"]
+        self._description_opacity_value = 0.0
         self.setObjectName("launcher_tile")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -90,6 +92,17 @@ class LauncherTile(QPushButton):
         self._setup_focus_animations(theme.animation.duration_ms)
         self._apply_resting_geometry()
         self._spinner.move(self.width() - 32, 8)
+
+    def _get_description_opacity(self) -> float:
+        """Return the current description fade value for animation."""
+        return self._description_opacity_value
+
+    def _set_description_opacity(self, value: float) -> None:
+        """Drive description visibility via text alpha (avoids nested graphics effects)."""
+        self._description_opacity_value = max(0.0, min(1.0, float(value)))
+        self._apply_description_opacity()
+
+    description_opacity = Property(float, _get_description_opacity, _set_description_opacity)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Forward directional keys to the launcher's grid controller."""
@@ -112,22 +125,28 @@ class LauncherTile(QPushButton):
         asset_root: Path,
         input_icon: Path | None,
     ) -> None:
-        """Build the compact icon, title, description, and input-indicator content."""
+        """Build icon-left content with name and description stacked on the right."""
         content = QVBoxLayout(self)
         content.setContentsMargins(12, 10, 12, 10)
         content.setSpacing(6)
+
+        header = QHBoxLayout()
+        header.setSpacing(12)
         application_icon = QLabel(self)
         application_icon.setObjectName("tile_icon")
         application_icon.setFixedSize(_TILE_ICON_SIZE, _TILE_ICON_SIZE)
         application_icon.setPixmap(
             icon_for_path(_resolve_asset(application.icon, asset_root)).pixmap(_TILE_ICON_SIZE, _TILE_ICON_SIZE)
         )
-        content.addWidget(application_icon)
+        header.addWidget(application_icon, 0, Qt.AlignmentFlag.AlignTop)
 
+        text_column = QVBoxLayout()
+        text_column.setSpacing(4)
         name = QLabel(application.name, self)
         name.setObjectName("tile_name")
         name.setWordWrap(True)
-        content.addWidget(name)
+        name.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        text_column.addWidget(name)
 
         description_text = app_description(self._language, application.identifier)
         self._has_description = bool(description_text)
@@ -135,11 +154,11 @@ class LauncherTile(QPushButton):
         self._description_label.setObjectName("tile_description")
         self._description_label.setWordWrap(True)
         self._description_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._opacity_effect = QGraphicsOpacityEffect(self._description_label)
-        self._opacity_effect.setOpacity(0.0)
-        self._description_label.setGraphicsEffect(self._opacity_effect)
-        content.addWidget(self._description_label)
-        content.addStretch()
+        self._apply_description_opacity()
+        text_column.addWidget(self._description_label)
+        text_column.addStretch(1)
+        header.addLayout(text_column, 1)
+        content.addLayout(header, 1)
 
         self._input_indicator = QLabel(self)
         self._input_indicator.setObjectName("tile_input")
@@ -151,14 +170,25 @@ class LauncherTile(QPushButton):
             self._input_indicator.setPixmap(
                 icon_for_path(input_icon).pixmap(_TILE_INPUT_ICON_SIZE, _TILE_INPUT_ICON_SIZE)
             )
-        content.addWidget(self._input_indicator)
+        content.addWidget(self._input_indicator, 0, Qt.AlignmentFlag.AlignRight)
+
+    def _apply_description_opacity(self) -> None:
+        """Paint the description with the current fade alpha."""
+        color = QColor(self._muted_text)
+        alpha = self._description_opacity_value if self._has_description else 0.0
+        self._description_label.setStyleSheet(
+            "QLabel#tile_description {"
+            f" color: rgba({color.red()}, {color.green()}, {color.blue()}, {alpha:.3f});"
+            " background: transparent;"
+            "}"
+        )
 
     def _setup_focus_animations(self, duration_ms: int) -> None:
         """Create interruptible grow and description-fade animations for focus."""
         self._geometry_animation = QPropertyAnimation(self, b"geometry", self)
         self._geometry_animation.setDuration(duration_ms)
         self._geometry_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._opacity_animation = QPropertyAnimation(self._opacity_effect, b"opacity", self)
+        self._opacity_animation = QPropertyAnimation(self, b"description_opacity", self)
         self._opacity_animation.setDuration(duration_ms)
         self._opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._focus_group = QParallelAnimationGroup(self)
@@ -200,7 +230,7 @@ class LauncherTile(QPushButton):
         self._geometry_animation.setStartValue(self.geometry())
         self._geometry_animation.setEndValue(self._focused_rect() if focused else self._resting_rect())
         target_opacity = 1.0 if focused and self._has_description else 0.0
-        self._opacity_animation.setStartValue(self._opacity_effect.opacity())
+        self._opacity_animation.setStartValue(self.description_opacity)
         self._opacity_animation.setEndValue(target_opacity)
         self._focus_group.start()
 
@@ -214,9 +244,11 @@ class LauncherTile(QPushButton):
             tr(self._language, _preferred_input_key(self.application.preferred_input))
         )
         if not self._has_description:
-            self._opacity_effect.setOpacity(0.0)
+            self.description_opacity = 0.0
         elif self.hasFocus():
-            self._opacity_effect.setOpacity(1.0)
+            self.description_opacity = 1.0
+        else:
+            self._apply_description_opacity()
 
     def resizeEvent(self, event: object) -> None:
         """Keep the spinner anchored to the tile's top-right corner."""
@@ -230,8 +262,14 @@ class LauncherTile(QPushButton):
         self._animate_focus(True)
 
     def focusOutEvent(self, event: object) -> None:
-        """Shrink the tile and fade the description out when focus leaves."""
+        """Shrink after focus truly leaves (ignore brief geometry-animation flickers)."""
         super().focusOutEvent(event)
+        QTimer.singleShot(0, self._finish_focus_out)
+
+    def _finish_focus_out(self) -> None:
+        """Apply the unfocused animation only when this tile no longer has focus."""
+        if self.hasFocus():
+            return
         self._animate_focus(False)
 
     def set_running(self, running: bool) -> None:
