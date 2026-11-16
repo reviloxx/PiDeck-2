@@ -18,6 +18,7 @@ from pideck.domain.configuration import ApplicationDefinition
 
 _LOGGER = logging.getLogger(__name__)
 _PACKAGE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+_.:@/-]*$")
+_CHECK_TIMEOUT_SECONDS = 30.0
 
 
 @dataclass(slots=True)
@@ -40,11 +41,19 @@ class NativeUpdateGateway(UpdateGateway):
 
     def check(self, application: ApplicationDefinition) -> UpdateInfo:
         """Check one configured application using its detected package manager."""
-        executable, arguments = _command_parts(application)
-        flatpak_id = _flatpak_target(application, executable, arguments)
-        if flatpak_id is not None:
-            return self._check_flatpak(application, executable, arguments, flatpak_id)
-        return self._check_apt(application, executable)
+        try:
+            executable, arguments = _command_parts(application)
+            flatpak_id = _flatpak_target(application, executable, arguments)
+            if flatpak_id is not None:
+                return self._check_flatpak(application, executable, arguments, flatpak_id)
+            return self._check_apt(application, executable)
+        except (TimeoutError, subprocess.TimeoutExpired):
+            _LOGGER.warning("Update check timed out id=%s", application.identifier)
+            return UpdateInfo(
+                application.identifier,
+                application.name,
+                UpdateStatus.FAILED,
+            )
 
     def start(
         self,
@@ -190,13 +199,17 @@ class NativeUpdateGateway(UpdateGateway):
     def _check_apt(self, application, executable) -> UpdateInfo:
         """Compare installed and candidate apt package versions."""
         package = _apt_package(executable)
-        result = subprocess.run(
-            ["apt-cache", "policy", package],
-            capture_output=True,
-            text=True,
-            check=False,
-            env={**os.environ, "LANG": "C", "LC_ALL": "C"},
-        )
+        try:
+            result = subprocess.run(
+                ["apt-cache", "policy", package],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_CHECK_TIMEOUT_SECONDS,
+                env={**os.environ, "LANG": "C", "LC_ALL": "C"},
+            )
+        except subprocess.TimeoutExpired as error:
+            raise TimeoutError(f"apt-cache policy timed out for {package}") from error
         installed = _policy_value(result.stdout, "Installed")
         candidate = _policy_value(result.stdout, "Candidate")
         current_version = installed if installed and installed != "(none)" else None
@@ -205,10 +218,14 @@ class NativeUpdateGateway(UpdateGateway):
                 application.identifier, application.name, UpdateStatus.UNSUPPORTED, current_version,
                 message=f"No apt package metadata for {package}",
             )
-        comparison = subprocess.run(
-            ["dpkg", "--compare-versions", candidate, "gt", installed],
-            capture_output=True, text=True, check=False,
-        )
+        try:
+            comparison = subprocess.run(
+                ["dpkg", "--compare-versions", candidate, "gt", installed],
+                capture_output=True, text=True, check=False,
+                timeout=_CHECK_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise TimeoutError(f"dpkg compare-versions timed out for {package}") from error
         if comparison.returncode not in (0, 1):
             return UpdateInfo(
                 application.identifier, application.name, UpdateStatus.FAILED, installed,
@@ -294,14 +311,18 @@ def _flatpak_uses_user_scope(executable: str, arguments: tuple[str, ...], applic
         if "--user" in launcher_arguments:
             return True
     arch, branch = _flatpak_launcher_ref_options(executable, arguments, application_id)
-    result = subprocess.run(
-        ["flatpak", "info", "--user", *([f"--arch={arch}"] if arch else []),
-         "--show-ref", application_id, *([branch] if branch else [])],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={**os.environ, "LANG": "C", "LC_ALL": "C"},
-    )
+    try:
+        result = subprocess.run(
+            ["flatpak", "info", "--user", *([f"--arch={arch}"] if arch else []),
+             "--show-ref", application_id, *([branch] if branch else [])],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_CHECK_TIMEOUT_SECONDS,
+            env={**os.environ, "LANG": "C", "LC_ALL": "C"},
+        )
+    except subprocess.TimeoutExpired as error:
+        raise TimeoutError("flatpak info --user timed out") from error
     return result.returncode == 0
 
 
@@ -371,8 +392,18 @@ def _apt_package(executable: str) -> str:
     return package
 
 
-def _run_lines(command: list[str]) -> list[str] | None:
-    result = subprocess.run(command, capture_output=True, text=True, check=False, env={**os.environ, "LANG": "C", "LC_ALL": "C"})
+def _run_lines(command: list[str], *, timeout: float = _CHECK_TIMEOUT_SECONDS) -> list[str] | None:
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+            env={**os.environ, "LANG": "C", "LC_ALL": "C"},
+        )
+    except subprocess.TimeoutExpired as error:
+        raise TimeoutError(f"Command timed out: {' '.join(command)}") from error
     if result.returncode != 0:
         _LOGGER.warning("Command %s failed: %s", command, result.stderr.strip() or f"exit {result.returncode}")
         return None

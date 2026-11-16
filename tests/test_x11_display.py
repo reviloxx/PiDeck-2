@@ -213,15 +213,32 @@ def test_legacy_display_preferences_without_brightness_default_to_full(tmp_path:
     assert preferences.load_brightness() == 100
 
 
-def test_restore_failure_is_reported_to_settings(display) -> None:
-    """Startup restoration failures are shown once and allow a later refresh."""
+def test_restore_failure_clears_when_outputs_are_active(display) -> None:
+    """After a failed boot restore, inspect returns live outputs instead of the sticky error."""
     gateway, preferences, _ = display
     preferences.save("DP-1", DisplayMode("1920x1080", "60.00"))
     gateway.restore_saved_async()
     assert gateway._startup_ready.wait(3)
-    with pytest.raises(DisplayError, match="DP-1"):
-        gateway.inspect()
+    assert gateway._restore_error is not None
     assert gateway.inspect()[0].name == "HDMI-1"
+    assert gateway._restore_error is None
+
+
+def test_restore_failure_surfaces_when_still_no_outputs(display, monkeypatch) -> None:
+    """If nothing is active yet, inspect reports the restore failure with a stable code."""
+    gateway, preferences, _ = display
+    preferences.save("HDMI-1", DisplayMode("1920x1080", "60.00"))
+    monkeypatch.setenv(
+        "XRANDR_QUERY",
+        "Screen 0: minimum 320 x 200, current 640 x 480, maximum 8192 x 8192\n"
+        "HDMI-1 disconnected\n",
+    )
+    gateway.restore_saved_async()
+    assert gateway._startup_ready.wait(3)
+    with pytest.raises(DisplayError) as raised:
+        gateway.inspect()
+    assert raised.value.code == "restore_failed"
+    assert "No configurable" in str(raised.value) or "HDMI" in str(raised.value)
 
 
 def test_failed_apply_restores_previous_mode(display, monkeypatch) -> None:
@@ -423,3 +440,44 @@ def test_display_hotplug_monitor_recovers_inactive_connected(display, monkeypatc
     monitor.close()
     assert after == ["done"]
     assert "--output HDMI-0 --mode 1920x1080 --rate 60.00 --primary" in log.read_text()
+
+
+PRIMARY_MISPLACED_QUERY = """\
+Screen 0: minimum 320 x 200, current 1920 x 1080, maximum 8192 x 8192
+DP-0 disconnected primary
+HDMI-1 connected 1920x1080+0+0
+   1920x1080     60.00*+  59.94
+   1280x720      60.00
+"""
+
+
+def test_primary_name_reads_disconnected_primary(display, monkeypatch) -> None:
+    """primary_name reports whichever output carries the RandR primary flag."""
+    gateway, _, _ = display
+    monkeypatch.setenv("XRANDR_QUERY", PRIMARY_MISPLACED_QUERY)
+    assert gateway.primary_name() == "DP-0"
+
+
+def test_display_hotplug_monitor_recovers_misplaced_primary(display, monkeypatch) -> None:
+    """Primary stuck on a disconnected DP must reassert onto the active HDMI."""
+    from pideck.infrastructure.x11_display import DisplayHotplugMonitor
+
+    gateway, preferences, log = display
+    preferences.save("HDMI-1", DisplayMode("1920x1080", "60.00"))
+    after: list[str] = []
+    monkeypatch.setenv("XRANDR_QUERY", PRIMARY_MISPLACED_QUERY)
+    monkeypatch.setattr(
+        gateway,
+        "connection_state",
+        lambda: (frozenset({"HDMI-1"}), frozenset({"HDMI-1"})),
+    )
+    monitor = DisplayHotplugMonitor(
+        gateway, after=lambda: after.append("done"), interval=0.05, debounce=0.05,
+    )
+    monitor.start()
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and not after:
+        time.sleep(0.02)
+    monitor.close()
+    assert after == ["done"]
+    assert "--output HDMI-1 --mode 1920x1080 --rate 60.00 --primary" in log.read_text()

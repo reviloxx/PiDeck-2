@@ -9,8 +9,10 @@ def test_german_clock_uses_german_date_form() -> None:
     """German dates include the German punctuation and localized names."""
     value = datetime(2026, 8, 1, 14, 30)
 
-    assert "." in clock_text("de", value)
-    assert clock_text("de", value).endswith("14:30")
+    german = clock_text("de", value)
+    assert "." in german
+    assert ".," not in german
+    assert german.endswith("14:30")
     assert clock_text("en", value).endswith("14:30")
 
 

@@ -168,6 +168,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "display_reverted": "The previous display mode was restored.",
         "display_unavailable": "Display settings are unavailable.",
         "display_error": "Display error: {message}",
+        "display_error_no_outputs": "No active display was found. Turn on the TV, then refresh.",
+        "display_error_restore_failed": "Saved display settings could not be restored. Refresh after the TV is on.",
+        "display_error_still_restoring": "Display settings are still being restored.",
+        "display_error_x11_required": "Display settings require an X11 session.",
+        "display_error_xrandr_unavailable": "Display control is unavailable or timed out.",
+        "display_error_xrandr_rejected": "The display rejected the requested mode.",
         "timezone": "Timezone",
         "timezone_description": "Choose the system timezone used for the clock and other apps.",
         "timezone_region": "Region",
@@ -278,6 +284,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "up_to_date": "Up to date",
         "update_available": "Update available",
         "update_available_version": "Update available: {version}",
+        "available_version_label": "Available: {version}",
         "update": "Update",
         "updating": "Updating...",
         "preparing_update": "Preparing update...",
@@ -536,6 +543,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "display_reverted": "Der vorherige Anzeigemodus wurde wiederhergestellt.",
         "display_unavailable": "Anzeigeeinstellungen sind nicht verfügbar.",
         "display_error": "Anzeigefehler: {message}",
+        "display_error_no_outputs": "Kein aktiver Bildschirm gefunden. Fernseher einschalten und aktualisieren.",
+        "display_error_restore_failed": "Gespeicherte Anzeigeeinstellungen konnten nicht wiederhergestellt werden. Nach dem Einschalten des Fernsehers aktualisieren.",
+        "display_error_still_restoring": "Anzeigeeinstellungen werden noch wiederhergestellt.",
+        "display_error_x11_required": "Anzeigeeinstellungen benötigen eine X11-Sitzung.",
+        "display_error_xrandr_unavailable": "Anzeigesteuerung ist nicht verfügbar oder hat das Zeitlimit überschritten.",
+        "display_error_xrandr_rejected": "Der Bildschirm hat den gewünschten Modus abgelehnt.",
         "timezone": "Zeitzone",
         "timezone_description": "Die Systemzeitzone für die Uhr und andere Apps auswählen.",
         "timezone_region": "Region",
@@ -603,6 +616,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "up_to_date": "Aktuell",
         "update_available": "Aktualisierung verfügbar",
         "update_available_version": "Aktualisierung verfügbar: {version}",
+        "available_version_label": "Verfügbar: {version}",
         "update": "Aktualisieren",
         "updating": "Wird aktualisiert...",
         "preparing_update": "Aktualisierung wird vorbereitet...",
@@ -697,10 +711,14 @@ def format_timestamp(language: str, value: str) -> str:
 
 
 def clock_text(language: str, value: datetime | None = None) -> str:
-    """Format the current date and time according to the selected language."""
+    """Format the current date and time according to the selected language.
+
+    German QLocale day abbreviations already end with a period (``Mo.``), so the
+    pattern omits the comma after ``ddd`` to avoid ``Mo.,``.
+    """
     now = value or datetime.now()
     locale = QLocale(QLocale.Language.German if language == "de" else QLocale.Language.English)
-    pattern = "ddd, dd. MMM yyyy  HH:mm" if language == "de" else "ddd, dd MMM yyyy  HH:mm"
+    pattern = "ddd dd. MMM yyyy  HH:mm" if language == "de" else "ddd, dd MMM yyyy  HH:mm"
     qt_value = QDateTime(
         QDate(now.year, now.month, now.day),
         QTime(now.hour, now.minute, now.second),

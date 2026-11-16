@@ -604,8 +604,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
 
     def snapshot_connected_inputs() -> ConnectedInputs:
         """Collect live CEC / gamepad / keyboard presence for the footer strip."""
+        cec_available = cec_adapter is not None and (
+            cec_adapter.remote_verified or cec_adapter.status == "Connected"
+        )
         return ConnectedInputs(
-            cec=cec_adapter is not None and cec_adapter.remote_verified,
+            cec=cec_available,
             gamepad=gamepad_adapter.connected_gamepad_count() > 0,
             keyboard=gamepad_adapter.connected_keyboard_count() > 0,
         )
@@ -1615,15 +1618,23 @@ def main(arguments: Sequence[str] | None = None) -> int:
     # Openbox may have just restarted for the release rc; re-assert fullscreen.
     window.schedule_fullscreen_reassert(100)
 
+    picom_refresh_attempts = {"remaining": 2}
+
     def refresh_session_picom() -> None:
         """Replace a cold-start compositor that can composite black on NVIDIA.
 
         xsession starts picom before bootstrap; when that instance races GLX,
         matching config alone leaves a black screen with only the X cursor.
-        Bounce once after the launcher has mapped, then re-assert fullscreen.
+        Bounce after the launcher has mapped, then re-assert fullscreen. At most
+        one delayed retry covers xsession zombies that exit after the first stop.
         """
+        from pideck.infrastructure.session.picom import live_picom_running
+
         apply_release_picom(force=True)
         window.schedule_fullscreen_reassert(100)
+        picom_refresh_attempts["remaining"] -= 1
+        if picom_refresh_attempts["remaining"] > 0 and not live_picom_running():
+            QTimer.singleShot(1000, refresh_session_picom)
 
     QTimer.singleShot(500, refresh_session_picom)
     QTimer.singleShot(0, pideck_update_service.check_async)

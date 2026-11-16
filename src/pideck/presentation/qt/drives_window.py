@@ -374,9 +374,10 @@ class DrivesWindow(WallpaperDialog):
 
     def _show_drives(self, drives: tuple[Drive, ...]) -> None:
         previous = self.selected()
+        ordered = sorted(drives, key=lambda drive: (drive.label.casefold(), drive.device))
         with QSignalBlocker(self.drives):
             self.drives.clear()
-            for drive in drives:
+            for drive in ordered:
                 text = f"{drive.label} · {format_size(drive.size)} · {drive.filesystem}"
                 shared = drive.mounted and self._shares.is_shared(drive.uuid)
                 mounted_label = (

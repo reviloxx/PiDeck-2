@@ -1015,7 +1015,8 @@ def test_application_rows_render_update_status(application: QApplication) -> Non
 
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE, available_version="21.3-Omega"))
     assert row.action.isHidden()
-    assert row.status_label.text() == "Update available: 21.3-Omega"
+    assert row.status_label.text() == "Update available"
+    assert "Available: 21.3-Omega" in row.build_label.text()
     assert not row.detail_label.isVisible()
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.UPDATING))
     assert row.spinner.isVisible()
@@ -1153,6 +1154,9 @@ def test_completed_update_refreshes_installed_version(application: QApplication)
     window.show()
     row = window._apps._rows["browser"]
     row.set_info(UpdateInfo("browser", "Browser", UpdateStatus.AVAILABLE, "1.0", "2.0"))
+    assert row.status_label.text() == "Update available"
+    assert "Available: 2.0" in row.build_label.text()
+    assert "1.0" in row.version_label.text()
     window._apps._handle_update_status(UpdateInfo("browser", "Browser", UpdateStatus.UPDATED))
     assert "1.0" not in row.version_label.text()
     assert len(service.checks) == 2

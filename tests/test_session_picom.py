@@ -57,28 +57,33 @@ def test_apply_release_picom_stops_and_restarts(monkeypatch: pytest.MonkeyPatch,
     binary.chmod(0o755)
     calls: list[object] = []
     killed: list[tuple[int, int]] = []
+    live = {"pids": [4242]}
 
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.setattr("pideck.infrastructure.session.picom.shutil.which", lambda _: str(binary))
 
     def fake_run(args, **kwargs):
         if args[:1] == ["pgrep"] and "-ax" in args:
-            return type("Result", (), {"returncode": 0, "stdout": f"1111 picom --config /other.conf\n"})()
-        return type("Result", (), {"returncode": 0, "stdout": "4242\n"})()
+            return type("Result", (), {"returncode": 0, "stdout": "1111 picom --config /other.conf\n"})()
+        if live["pids"]:
+            return type("Result", (), {"returncode": 0, "stdout": "\n".join(str(p) for p in live["pids"]) + "\n"})()
+        return type("Result", (), {"returncode": 1, "stdout": ""})()
 
     monkeypatch.setattr("pideck.infrastructure.session.picom.subprocess.run", fake_run)
     monkeypatch.setattr(
         "pideck.infrastructure.session.picom._pid_is_alive",
-        lambda pid: pid == 4242 and not killed,
+        lambda pid: pid in live["pids"],
     )
     monkeypatch.setattr(
         "pideck.infrastructure.session.picom.os.kill",
-        lambda pid, sig: killed.append((pid, sig)),
+        lambda pid, sig: (killed.append((pid, sig)), live["pids"].clear()),
     )
-    monkeypatch.setattr(
-        "pideck.infrastructure.session.picom.subprocess.Popen",
-        lambda *args, **kwargs: calls.append((args, kwargs)),
-    )
+
+    def fake_popen(*args, **kwargs):
+        calls.append((args, kwargs))
+        live["pids"] = [9001]
+
+    monkeypatch.setattr("pideck.infrastructure.session.picom.subprocess.Popen", fake_popen)
 
     apply_release_picom(config=conf)
 
@@ -128,6 +133,7 @@ def test_apply_release_picom_force_restarts_when_config_matches(
     binary.chmod(0o755)
     calls: list[object] = []
     killed: list[tuple[int, int]] = []
+    live = {"pids": [1111]}
 
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.setattr("pideck.infrastructure.session.picom.shutil.which", lambda _: str(binary))
@@ -137,27 +143,80 @@ def test_apply_release_picom_force_restarts_when_config_matches(
             return type(
                 "Result", (), {"returncode": 0, "stdout": f"1111 picom --config {conf}\n"}
             )()
-        return type("Result", (), {"returncode": 0, "stdout": "1111\n"})()
+        if live["pids"]:
+            return type("Result", (), {"returncode": 0, "stdout": "\n".join(str(p) for p in live["pids"]) + "\n"})()
+        return type("Result", (), {"returncode": 1, "stdout": ""})()
 
     monkeypatch.setattr("pideck.infrastructure.session.picom.subprocess.run", fake_run)
     monkeypatch.setattr(
         "pideck.infrastructure.session.picom._pid_is_alive",
-        lambda pid: pid == 1111 and not killed,
+        lambda pid: pid in live["pids"],
     )
     monkeypatch.setattr(
         "pideck.infrastructure.session.picom.os.kill",
-        lambda pid, sig: killed.append((pid, sig)),
+        lambda pid, sig: (killed.append((pid, sig)), live["pids"].clear()),
     )
-    monkeypatch.setattr(
-        "pideck.infrastructure.session.picom.subprocess.Popen",
-        lambda *args, **kwargs: calls.append((args, kwargs)),
-    )
+
+    def fake_popen(*args, **kwargs):
+        calls.append((args, kwargs))
+        live["pids"] = [9001]
+
+    monkeypatch.setattr("pideck.infrastructure.session.picom.subprocess.Popen", fake_popen)
 
     apply_release_picom(config=conf, force=True)
 
     assert killed and killed[0][0] == 1111
     assert len(calls) == 1
     assert calls[0][0][0] == [str(binary), "--config", str(conf)]
+
+
+def test_apply_release_picom_retries_when_first_start_exits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A zombie-only session gets a second start attempt after the first exits."""
+    conf = tmp_path / "picom-nvidia.conf"
+    conf.write_text('backend = "glx"\n', encoding="utf-8")
+    binary = tmp_path / "picom"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    calls: list[object] = []
+    live = {"pids": []}
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr("pideck.infrastructure.session.picom.shutil.which", lambda _: str(binary))
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom.subprocess.run",
+        lambda *args, **kwargs: (
+            type("Result", (), {"returncode": 0, "stdout": "\n".join(str(p) for p in live["pids"]) + "\n"})()
+            if live["pids"]
+            else type("Result", (), {"returncode": 1, "stdout": ""})()
+        ),
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom._pid_is_alive",
+        lambda pid: pid in live["pids"],
+    )
+
+    def fake_popen(*args, **kwargs):
+        calls.append((args, kwargs))
+        if len(calls) == 1:
+            return
+        live["pids"] = [9002]
+
+    monkeypatch.setattr("pideck.infrastructure.session.picom.subprocess.Popen", fake_popen)
+    clock = {"t": 0.0}
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom.time.monotonic",
+        lambda: clock["t"],
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom.time.sleep",
+        lambda seconds: clock.__setitem__("t", clock["t"] + seconds),
+    )
+
+    apply_release_picom(config=conf, force=True)
+
+    assert len(calls) == 2
 
 
 def test_apply_release_picom_noop_without_binary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

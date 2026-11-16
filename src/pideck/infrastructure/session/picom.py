@@ -64,10 +64,24 @@ def apply_release_picom(
     if not force and _picom_already_uses(conf):
         _LOGGER.info("picom already using %s", conf)
         return
+    if not _start_picom(binary, conf, restarted=force):
+        _LOGGER.warning("Retrying picom start after reap")
+        _reap_child_zombies()
+        time.sleep(0.1)
+        _start_picom(binary, conf, restarted=True)
+
+
+def live_picom_running() -> bool:
+    """Return whether a non-zombie picom process exists for this user."""
+    return bool(_live_picom_pids())
+
+
+def _start_picom(binary: str, conf: Path, *, restarted: bool) -> bool:
+    """Stop any live picom, start a new one, and confirm it stayed alive briefly."""
     try:
         if not _stop_picom():
             _LOGGER.warning("Leaving existing picom running; new config not applied")
-            return
+            return live_picom_running()
         subprocess.Popen(  # noqa: S603 — fixed binary from PATH, fixed config path
             [binary, "--config", str(conf)],
             stdin=subprocess.DEVNULL,
@@ -77,8 +91,37 @@ def apply_release_picom(
         )
     except OSError as error:
         _LOGGER.warning("Unable to start picom with %s: %s", conf, error)
-        return
-    _LOGGER.info("%s picom with %s", "Restarted" if force else "Started", conf)
+        return False
+    deadline = time.monotonic() + 0.4
+    while time.monotonic() < deadline:
+        _reap_child_zombies()
+        if live_picom_running():
+            _LOGGER.info("%s picom with %s", "Restarted" if restarted else "Started", conf)
+            return True
+        time.sleep(0.05)
+    _LOGGER.warning("picom exited immediately after start with %s", conf)
+    return False
+
+
+def _live_picom_pids() -> list[int]:
+    """Return live (non-zombie) picom PIDs for this user."""
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["pgrep", "-u", str(os.getuid()), "-x", "picom"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+    return [
+        int(line)
+        for line in result.stdout.splitlines()
+        if line.strip().isdigit() and _pid_is_alive(int(line))
+    ]
 
 
 def _reap_child_zombies() -> None:
@@ -174,20 +217,7 @@ def _stop_picom() -> bool:
     process is still alive after the wait so a second compositor is not started.
     Zombie leftovers from the xsession ``exec`` hand-off count as stopped.
     """
-    try:
-        result = subprocess.run(  # noqa: S603
-            ["pgrep", "-u", str(os.getuid()), "-x", "picom"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return True
-    if result.returncode != 0:
-        return True
-    pids = [int(line) for line in result.stdout.splitlines() if line.strip().isdigit()]
-    pids = [pid for pid in pids if _pid_is_alive(pid)]
+    pids = _live_picom_pids()
     if not pids:
         _reap_child_zombies()
         return True

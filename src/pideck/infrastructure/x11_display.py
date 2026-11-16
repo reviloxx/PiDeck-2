@@ -101,6 +101,19 @@ def _connected_names(text: str) -> frozenset[str]:
     return frozenset(names)
 
 
+def _primary_name(text: str) -> str | None:
+    """Return the XRandR output currently marked primary, if any."""
+    for line in text.splitlines():
+        if not line or line[0].isspace():
+            continue
+        fields = line.split()
+        if not fields or not _OUTPUT.fullmatch(fields[0]):
+            continue
+        if "primary" in fields[1:]:
+            return fields[0]
+    return None
+
+
 class DisplayPreferences:
     """Persist confirmed output modes and software brightness per user."""
 
@@ -220,7 +233,7 @@ class X11DisplayGateway:
             or (session != "x11" and os.environ.get("WAYLAND_DISPLAY"))
             or not os.environ.get("DISPLAY")
         ):
-            raise DisplayError("Display settings require an X11 session")
+            raise DisplayError("Display settings require an X11 session", code="x11_required")
         try:
             result = subprocess.run(
                 ["xrandr", *arguments], stdin=subprocess.DEVNULL,
@@ -228,25 +241,43 @@ class X11DisplayGateway:
                 env={**os.environ, "LC_ALL": "C"},
             )
         except (OSError, subprocess.SubprocessError) as error:
-            raise DisplayError("XRandR is unavailable or timed out") from error
+            raise DisplayError("XRandR is unavailable or timed out", code="xrandr_unavailable") from error
         if result.returncode:
-            raise DisplayError(result.stderr.strip() or "XRandR rejected the request")
+            raise DisplayError(
+                result.stderr.strip() or "XRandR rejected the request",
+                code="xrandr_rejected",
+            )
         return result.stdout
 
     def inspect(self) -> tuple[DisplayOutput, ...]:
-        """List active outputs and their supported mode/rate combinations."""
+        """List active outputs and their supported mode/rate combinations.
+
+        A failed startup restore is cleared on first inspect. When HDMI (or
+        another output) is active now, return those modes instead of surfacing
+        the stale boot error. Only raise the restore failure when nothing is
+        configurable yet.
+        """
         if not self._startup_ready.wait(timeout=30):
-            raise DisplayError("Display settings are still being restored")
-        if self._restore_error is not None:
-            error = self._restore_error
-            self._restore_error = None
-            raise DisplayError(error)
-        return self._inspect()
+            raise DisplayError(
+                "Display settings are still being restored",
+                code="still_restoring",
+            )
+        restore_error = self._restore_error
+        self._restore_error = None
+        try:
+            return self._inspect()
+        except DisplayError:
+            if restore_error is not None:
+                raise DisplayError(restore_error, code="restore_failed") from None
+            raise
 
     def _inspect(self) -> tuple[DisplayOutput, ...]:
         outputs = _parse_outputs(self._run("--query"))
         if not outputs:
-            raise DisplayError("No configurable active X11 displays were found")
+            raise DisplayError(
+                "No configurable active X11 displays were found",
+                code="no_outputs",
+            )
         return outputs
 
     def _apply(self, output: str, mode: DisplayMode, *, primary: bool = False) -> None:
@@ -274,6 +305,10 @@ class X11DisplayGateway:
     def connected_names(self) -> frozenset[str]:
         """Return connected XRandR output names (including inactive CRTCs)."""
         return self.connection_state()[0]
+
+    def primary_name(self) -> str | None:
+        """Return the current RandR primary output name, if XRandR reports one."""
+        return _primary_name(self._run("--query"))
 
     def _apply_brightness(self, percent: int, output_names: tuple[str, ...] | None = None) -> None:
         """Apply clamped software brightness to one or every connected output."""
@@ -383,14 +418,20 @@ class X11DisplayGateway:
             _LOGGER.info("Skipping display reassert while a mode change is in progress")
             return
         if not self._startup_ready.wait(timeout=30):
-            raise DisplayError("Display settings are still being restored")
+            raise DisplayError(
+                "Display settings are still being restored",
+                code="still_restoring",
+            )
         preferences = self._preferences.load()
         brightness = self._preferences.load_brightness()
         text = self._run("--query")
         active_names = {output.name for output in _parse_outputs(text)}
         outputs = _parse_outputs(text, require_active=False)
         if not outputs:
-            raise DisplayError("No configurable active X11 displays were found")
+            raise DisplayError(
+                "No configurable active X11 displays were found",
+                code="no_outputs",
+            )
         primary_name: str | None = None
         for name in preferences:
             if any(output.name == name for output in outputs):
@@ -408,6 +449,7 @@ class X11DisplayGateway:
             elif is_primary:
                 self._run("--output", output.name, "--primary")
         self._apply_brightness(brightness, tuple(output.name for output in outputs))
+        self._restore_error = None
 
     def restore_saved_async(self) -> None:
         """Restore saved modes off the UI thread before allowing new changes."""
@@ -418,9 +460,10 @@ class X11DisplayGateway:
         def restore() -> None:
             try:
                 self.restore_saved()
+                self._restore_error = None
             except DisplayError as error:
                 _LOGGER.warning("Unable to restore display settings: %s", error)
-                self._restore_error = f"Unable to restore display settings: {error}"
+                self._restore_error = str(error)
             finally:
                 self._startup_ready.set()
 
@@ -504,6 +547,7 @@ class DisplayHotplugMonitor:
                 _LOGGER.debug("Display hotplug poll failed", exc_info=True)
                 continue
             inactive = connected - active
+            primary_misplaced = self._primary_needs_reassert(active)
             with self._condition:
                 previous_connected = self._known
                 self._known = connected
@@ -513,6 +557,11 @@ class DisplayHotplugMonitor:
                     _LOGGER.info(
                         "Connected outputs without a mode at startup %s; scheduling reassert",
                         sorted(inactive),
+                    )
+                    self.request()
+                elif primary_misplaced:
+                    _LOGGER.info(
+                        "RandR primary is not on an active output at startup; scheduling reassert",
                     )
                     self.request()
                 continue
@@ -530,6 +579,22 @@ class DisplayHotplugMonitor:
                     sorted(inactive),
                 )
                 self.request()
+            elif primary_misplaced:
+                _LOGGER.info(
+                    "RandR primary is not on an active output; scheduling reassert",
+                )
+                self.request()
+
+    def _primary_needs_reassert(self, active: frozenset[str]) -> bool:
+        """True when a live CRTC exists but RandR primary is missing or disconnected."""
+        if not active:
+            return False
+        try:
+            primary = self._gateway.primary_name()
+        except DisplayError:
+            _LOGGER.debug("Unable to read RandR primary", exc_info=True)
+            return False
+        return primary is None or primary not in active
 
     def _emit_link_changed(self, connected: bool) -> None:
         """Notify listeners when any HDMI/output link appears or disappears."""

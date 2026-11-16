@@ -4,6 +4,22 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.17
+
+- Fixed: After the TV powers on late, Display settings list HDMI modes again
+  instead of a stuck English error with empty dropdowns.
+- Fixed: German clock no longer shows awkward punctuation like ``Mo.,``.
+- Fixed: The compositor is restarted after boot so focus glow and tear-free
+  video keep working (no stuck zombie picom).
+- Fixed: The bottom-left TV-remote icon shows when HDMI-CEC is connected.
+- Fixed: The active screen stays the RandR primary (HDMI), not a disconnected
+  DisplayPort output.
+- Fixed: Application update checks time out instead of staying on “Checking…”
+  forever (for example Moonlight).
+- Changed: “Update available” is a short status; the new version sits on its
+  own line for easier reading on a TV.
+- Changed: Drives are listed alphabetically by name.
+
 ## v0.6.16
 
 - Fixed: Home-tile descriptions always use the space beside the icon, while

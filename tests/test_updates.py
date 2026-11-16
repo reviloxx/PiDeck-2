@@ -1,6 +1,7 @@
 """Tests for native application update detection."""
 
 from pathlib import Path
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -43,6 +44,23 @@ def test_flatpak_update_check_reports_available_update(monkeypatch) -> None:
     assert info.status is UpdateStatus.AVAILABLE
     assert info.current_version == "21.3"
     assert info.available_version == "21.4 Beta"
+
+
+def test_flatpak_update_check_timeout_becomes_failed(monkeypatch) -> None:
+    """A hung Flatpak probe leaves CHECKING via a terminal FAILED status."""
+    def fake_run(command, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=command, timeout=kwargs.get("timeout", 30))
+
+    monkeypatch.setattr("pideck.infrastructure.platform_updates.subprocess.run", fake_run)
+    application = ApplicationDefinition(
+        identifier="moonlight",
+        name="Moonlight",
+        executable="flatpak",
+        arguments=("run", "com.moonlight_stream.Moonlight"),
+    )
+    info = NativeUpdateGateway().check(application)
+    assert info.status is UpdateStatus.FAILED
+    assert info.message is None
 
 
 @pytest.mark.parametrize(

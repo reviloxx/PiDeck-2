@@ -132,6 +132,16 @@ class DisplayWindow(WallpaperDialog):
 
         future.add_done_callback(finish)
 
+    def _format_display_error(self, error: DisplayError) -> str:
+        """Localize known display error codes; fall back to a generic message."""
+        code = getattr(error, "code", None)
+        if code:
+            key = f"display_error_{code}"
+            localized = tr(self._language, key)
+            if localized != key:
+                return tr(self._language, "display_error", message=localized)
+        return tr(self._language, "display_error", message=tr(self._language, "display_unavailable"))
+
     def _refresh(self) -> None:
         self._brightness_timer.stop()
         self._submit("inspect", self._gateway.inspect)
@@ -166,7 +176,7 @@ class DisplayWindow(WallpaperDialog):
         try:
             result = future.result()
         except DisplayError as error:
-            set_status(self.status, tr(self._language, "display_error", message=str(error)), error=True)
+            set_status(self.status, self._format_display_error(error), error=True)
             self.brightness.setEnabled(True)
             self.refresh.setFocus(Qt.FocusReason.OtherFocusReason)
             return

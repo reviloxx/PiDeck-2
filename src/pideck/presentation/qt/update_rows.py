@@ -141,11 +141,7 @@ class UpdateRow(QFrame):
         labels = {
             UpdateStatus.CHECKING: tr(self._language, "checking"),
             UpdateStatus.UP_TO_DATE: tr(self._language, "up_to_date"),
-            UpdateStatus.AVAILABLE: (
-                tr(self._language, "update_available_version", version=info.available_version)
-                if info.available_version
-                else tr(self._language, "update_available")
-            ),
+            UpdateStatus.AVAILABLE: tr(self._language, "update_available"),
             UpdateStatus.UPDATING: tr(self._language, "updating"),
             UpdateStatus.PREPARING: tr(self._language, "preparing_update"),
             UpdateStatus.RESTART_REQUIRED: tr(self._language, "restart_required"),
@@ -165,11 +161,17 @@ class UpdateRow(QFrame):
                 self._language, "installed_version",
                 version=self._current_version or tr(self._language, "unknown"),
             ))
-        self.build_label.setVisible(bool(self._current_build_date))
-        self.build_label.setText(
-            tr(self._language, "build_date", date=self._current_build_date)
-            if self._current_build_date else ""
-        )
+        if info.status is UpdateStatus.AVAILABLE and info.available_version:
+            self.build_label.setVisible(True)
+            self.build_label.setText(
+                tr(self._language, "available_version_label", version=info.available_version)
+            )
+        else:
+            self.build_label.setVisible(bool(self._current_build_date))
+            self.build_label.setText(
+                tr(self._language, "build_date", date=self._current_build_date)
+                if self._current_build_date else ""
+            )
         updating = info.status is UpdateStatus.UPDATING
         busy = updating or info.status is UpdateStatus.PREPARING
         self.spinner.set_running(busy)
@@ -253,6 +255,11 @@ class PiDeckUpdateRow(UpdateRow):
             self.status_label.hide()
         else:
             self.status_label.show()
+        if info.status is PiDeckUpdateStatus.AVAILABLE and info.available_version:
+            # Keep the available release on the status line for the About card.
+            self.status_label.setText(
+                tr(self._language, "update_available_version", version=info.available_version)
+            )
         if info.status is PiDeckUpdateStatus.AVAILABLE and info.message:
             self.status_label.setText(f"{self.status_label.text()} - {info.message}")
         if info.status is PiDeckUpdateStatus.FAILED:

@@ -160,15 +160,15 @@ def test_timeout_and_closing_revert_pending_changes(application: QApplication) -
 
 
 def test_display_unavailable_is_visible(application: QApplication) -> None:
-    """Unsupported display sessions show an error and offer refresh."""
+    """Unsupported display sessions show a localized error and offer refresh."""
     class Unsupported(Display):
         def inspect(self) -> tuple[DisplayOutput, ...]:
-            raise DisplayError("X11 is unavailable")
+            raise DisplayError("X11 is unavailable", code="x11_required")
 
     parent = QWidget()
     window = DisplayWindow(Unsupported(), DEFAULT_THEME, "en", parent)
     window.show()
-    _wait(application, lambda: "X11 is unavailable" in window.status.text())
+    _wait(application, lambda: "X11 session" in window.status.text())
     assert window.refresh.isEnabled()
     window.close()
     parent.close()

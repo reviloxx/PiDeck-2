@@ -8,7 +8,7 @@ import subprocess
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import QEvent
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -661,6 +661,32 @@ def test_drives_window_mounts_and_unmounts_with_controller(application: QApplica
     parent.close()
 
 
+def test_drives_window_sorts_rows_by_label(application: QApplication) -> None:
+    """Drive rows appear alphabetically by label regardless of discovery order."""
+    parent = QWidget()
+    storage = Storage(drives={
+        "/dev/sdd1": Drive(
+            "/dev/sdd1", "Volume3", "ntfs", 1, None, False, "/dev/sdd", "UUID-3", "Volume3",
+        ),
+        "/dev/sde1": Drive(
+            "/dev/sde1", "Volume1", "ntfs", 1, None, False, "/dev/sde", "UUID-1", "Volume1",
+        ),
+        "/dev/sdf1": Drive(
+            "/dev/sdf1", "Volume2", "ntfs", 1, None, False, "/dev/sdf", "UUID-2", "Volume2",
+        ),
+    })
+    window = DrivesWindow(storage, DEFAULT_THEME, "en", parent, shares=Shares())
+    window.show()
+    _wait(application, lambda: window.drives.count() == 3 and window.drives.isEnabled())
+    labels = [
+        window.drives.item(row).data(Qt.ItemDataRole.UserRole).label
+        for row in range(window.drives.count())
+    ]
+    assert labels == ["Volume1", "Volume2", "Volume3"]
+    window.close()
+    parent.close()
+
+
 def test_drives_window_share_details_live_in_dialog(application: QApplication) -> None:
     from pideck.application.drive_items import DriveAction
 
@@ -680,7 +706,12 @@ def test_drives_window_share_details_live_in_dialog(application: QApplication) -
     window = DrivesWindow(storage, DEFAULT_THEME, "en", parent, shares=shares)
     window.show()
     _wait(application, lambda: window.drives.count() == 2 and window.drives.isEnabled())
-    window.drives.setCurrentRow(0)
+    media_row = next(
+        row for row in range(window.drives.count())
+        if window.drives.item(row).data(Qt.ItemDataRole.UserRole).uuid == MEDIA_UUID
+    )
+    other_row = 1 - media_row
+    window.drives.setCurrentRow(media_row)
     window.activate_selected()
     application.processEvents()
     dialog = window.dialog
@@ -689,13 +720,13 @@ def test_drives_window_share_details_live_in_dialog(application: QApplication) -
     _wait(application, lambda: MEDIA_UUID in shares.shared and window.drives.isEnabled())
     assert window.dialog is dialog and dialog.isVisible()
     assert "smb://" not in window.status.text()
-    assert _row_widget(window, 0).shared_icon.isVisible()
-    assert not _row_widget(window, 1).shared_icon.isVisible()
+    assert _row_widget(window, media_row).shared_icon.isVisible()
+    assert not _row_widget(window, other_row).shared_icon.isVisible()
     assert "shared as MEDIA" in dialog.share_state.text()
     assert "smb://" in dialog.share_url_label.text()
     dialog.reject()
     application.processEvents()
-    window.drives.setCurrentRow(1)
+    window.drives.setCurrentRow(other_row)
     window.activate_selected()
     application.processEvents()
     assert window.dialog is not None
@@ -703,7 +734,7 @@ def test_drives_window_share_details_live_in_dialog(application: QApplication) -
     assert not window.dialog.share_url_label.isVisible()
     window.dialog.reject()
     application.processEvents()
-    window.drives.setCurrentRow(0)
+    window.drives.setCurrentRow(media_row)
     window.activate_selected()
     application.processEvents()
     assert window.dialog is not None
