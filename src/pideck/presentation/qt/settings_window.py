@@ -47,6 +47,9 @@ from .toggle_switch import ToggleSwitch
 
 _ControlT = TypeVar("_ControlT", bound=QWidget)
 
+# Keep focused settings rows fully inside the scroll viewport on a TV.
+_SETTINGS_SCROLL_Y_MARGIN = 48
+
 
 class SettingsRow(QFrame):
     """Focusable settings row that exposes console-style directional input."""
@@ -500,7 +503,7 @@ class SettingsWindow(QDialog):
         self._bluetooth_labels = bluetooth_row.findChildren(QLabel)
         layout.addWidget(bluetooth_row)
         drives_row = self._action_row(
-            page, tr(self._language, "drives"), tr(self._language, "drives_description"),
+            page, tr(self._language, "drives"), tr(self._language, "drives_system_description"),
         )
         self._drives_row = drives_row
         self._drives_labels = drives_row.findChildren(QLabel)
@@ -1084,7 +1087,7 @@ class SettingsWindow(QDialog):
             self._bluetooth_labels[0].setText(tr(self._language, "bluetooth"))
             self._bluetooth_labels[1].setText(tr(self._language, "bluetooth_description"))
             self._drives_labels[0].setText(tr(self._language, "drives"))
-            self._drives_labels[1].setText(tr(self._language, "drives_description"))
+            self._drives_labels[1].setText(tr(self._language, "drives_system_description"))
             self._system_info_labels[0].setText(tr(self._language, "system_info"))
             self._system_info_labels[1].setText(tr(self._language, "system_info_description"))
             self._refresh_remote_support_labels()
@@ -1323,27 +1326,27 @@ class SettingsWindow(QDialog):
             and isinstance(watched, QWidget)
             and watched in self._page_controls.get(self._system_page, [])
         ):
-            self._system_scroll.ensureWidgetVisible(watched)
+            self._system_scroll.ensureWidgetVisible(watched, 12, _SETTINGS_SCROLL_Y_MARGIN)
         if (
             event.type() == QEvent.Type.FocusIn
             and self._input_page is not None
             and isinstance(watched, QWidget)
             and watched in self._page_controls.get(self._input_page, [])
         ):
-            self._input_scroll.ensureWidgetVisible(watched)
+            self._input_scroll.ensureWidgetVisible(watched, 12, _SETTINGS_SCROLL_Y_MARGIN)
         if (
             event.type() == QEvent.Type.FocusIn
             and isinstance(watched, QWidget)
             and watched in self._page_controls.get(0, [])
         ):
-            self._appearance_scroll.ensureWidgetVisible(watched)
+            self._appearance_scroll.ensureWidgetVisible(watched, 12, _SETTINGS_SCROLL_Y_MARGIN)
         if (
             event.type() == QEvent.Type.FocusIn
             and self._pideck_page is not None
             and isinstance(watched, QWidget)
             and watched in self._page_controls.get(self._pideck_page, [])
         ):
-            self._pideck_scroll.ensureWidgetVisible(watched)
+            self._pideck_scroll.ensureWidgetVisible(watched, 12, _SETTINGS_SCROLL_Y_MARGIN)
         if event.type() != QEvent.Type.KeyPress:
             return super().eventFilter(watched, event)
         key_event = event

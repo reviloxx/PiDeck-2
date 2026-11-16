@@ -4,6 +4,15 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.20
+
+- Fixed: Remote support status shows a clear SSH line (no angle brackets) and
+  follows the Settings language.
+- Changed: The System → Drives row uses a shorter description so the list stays
+  even on a TV.
+- Fixed: Focused settings rows keep padding when you scroll System, Input,
+  Appearance, or About.
+
 ## v0.6.19
 
 - Fixed: After boot or an OTA restart, the compositor is retried for longer so

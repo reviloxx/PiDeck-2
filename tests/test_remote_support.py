@@ -8,12 +8,15 @@ from pideck.domain.configuration import ApplicationDefinition
 from pideck.infrastructure.config.defaults import default_configuration
 from pideck.infrastructure.remote_support import (
     SUPPORT_APP_ID,
+    RemoteSupportService,
+    RemoteSupportSnapshot,
     clear_authorized_keys,
     clock_looks_wrong,
     is_enabled,
     support_public_keys,
     write_authorized_keys,
 )
+from pideck.presentation.qt.localization import format_remote_support_status
 
 
 def test_support_public_keys_are_loaded_from_assets(tmp_path: Path) -> None:
@@ -43,6 +46,39 @@ def test_clock_looks_wrong_detects_epoch() -> None:
     """TLS-breaking clocks before 2024 are rejected."""
     assert clock_looks_wrong(floor_epoch=10**12) is True
     assert clock_looks_wrong(floor_epoch=0) is False
+
+
+def test_status_snapshot_and_localized_line_omit_angle_brackets(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Settings shows ssh user@ip without placeholder brackets, in the UI language."""
+    monkeypatch.setattr(
+        "pideck.infrastructure.remote_support.is_enabled", lambda: True,
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.remote_support.ssh_listening", lambda: True,
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.remote_support.local_ipv4_addresses",
+        lambda: ("192.168.0.11",),
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.remote_support._uid_name", lambda: "pideck",
+    )
+    monkeypatch.setattr(
+        "pwd.getpwuid",
+        lambda uid: type("Pw", (), {"pw_name": "pideck"})(),
+    )
+    service = RemoteSupportService(
+        packages=type("P", (), {})(),  # type: ignore[arg-type]
+        asset_root=Path("."),
+    )
+    snap = service.status_snapshot()
+    assert snap == RemoteSupportSnapshot("on", "pideck", "192.168.0.11")
+    english = format_remote_support_status("en", snap.kind, snap.user, snap.addresses)
+    german = format_remote_support_status("de", snap.kind, snap.user, snap.addresses)
+    assert english == "on · ssh pideck@192.168.0.11"
+    assert german == "an · ssh pideck@192.168.0.11"
+    assert "<" not in english and ">" not in english
+    assert "<" not in german and ">" not in german
 
 
 def test_remote_support_is_hidden_from_application_statuses() -> None:

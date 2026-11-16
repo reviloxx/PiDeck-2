@@ -1147,22 +1147,35 @@ def main(arguments: Sequence[str] | None = None) -> int:
                     remote_support.enable(on_progress)
                 else:
                     remote_support.disable(on_progress)
-                remote_support_bridge.finished.emit(None, remote_support.status_message())
+                remote_support_bridge.finished.emit(None, None)
             except PackageOperationError as error:
-                remote_support_bridge.finished.emit(str(error), remote_support.status_message())
+                remote_support_bridge.finished.emit(str(error), None)
             except Exception as error:  # noqa: BLE001 — surface unexpected broker failures
                 dependencies.logger.exception("Remote support toggle failed")
-                remote_support_bridge.finished.emit(str(error), remote_support.status_message())
+                remote_support_bridge.finished.emit(str(error), None)
 
         threading.Thread(target=worker, name="pideck-remote-support", daemon=True).start()
 
+    def _remote_support_row_status() -> str:
+        """Localize the live Remote support status for the System settings row."""
+        from pideck.presentation.qt.localization import format_remote_support_status
+
+        snap = remote_support.status_snapshot()
+        return format_remote_support_status(
+            current_configuration.settings.language,
+            snap.kind,
+            snap.user,
+            snap.addresses,
+        )
+
     def finish_remote_support(error: object, status: object) -> None:
         """Update Settings after enable/disable completes."""
+        del status
         nonlocal remote_support_busy
         remote_support_busy = False
         if settings_window is None:
             return
-        settings_window.set_remote_support_status(str(status))
+        settings_window.set_remote_support_status(_remote_support_row_status())
         if error is not None:
             settings_window.show_error(str(error))
 
@@ -1192,7 +1205,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             keyboard_layout=keyboard_layout,
         )
         settings_window.set_cec_status(input_settings_error or cec_adapter.status)
-        settings_window.set_remote_support_status(remote_support.status_message())
+        settings_window.set_remote_support_status(_remote_support_row_status())
 
         def handle_input_settings_changed(settings: CecSettings) -> None:
             nonlocal input_settings, input_settings_error

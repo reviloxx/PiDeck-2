@@ -777,4 +777,7 @@ def test_system_page_offers_drives(application: QApplication) -> None:
     assert window._drives_row in window._page_controls[window._system_page]
     window.apply_language("de")
     assert window._drives_labels[0].text() == "Laufwerke"
+    assert window._drives_labels[1].text() == (
+        "USB-Laufwerke einhängen und im lokalen Netzwerk freigeben."
+    )
     window.close()

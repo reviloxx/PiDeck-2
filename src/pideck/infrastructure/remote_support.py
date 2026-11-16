@@ -15,13 +15,21 @@ import pwd
 import socket
 import subprocess
 import time
-from typing import Callable
+from typing import Callable, Literal, NamedTuple
 
 from pideck.application.ports.installation import InstallProgressCallback
 from pideck.application.ports.packages import PackageOperationError
 from pideck.infrastructure.packages.manager import SystemPackageManager
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class RemoteSupportSnapshot(NamedTuple):
+    """Machine-readable remote-support state for Settings to localize."""
+
+    kind: Literal["on", "off", "key_only"]
+    user: str
+    addresses: str
 
 SUPPORT_APP_ID = "remote-support"
 _SUPPORT_MARKER = "# pideck-remote-support"
@@ -183,17 +191,19 @@ class RemoteSupportService:
         self._asset_root = asset_root
         self._repair_clock = repair_clock
 
-    def status_message(self) -> str:
-        """Short status for the Settings row."""
+    def status_snapshot(self) -> RemoteSupportSnapshot:
+        """Return enablement state and LAN details for the Settings row."""
         enabled = is_enabled()
         listening = ssh_listening()
-        addresses = ", ".join(local_ipv4_addresses()) or "unknown"
+        addresses = ", ".join(local_ipv4_addresses())
         user = pwd.getpwuid(1000).pw_name if _uid_name() else "pideck"
         if enabled and listening:
-            return f"on · ssh {user}@<{addresses}>"
-        if enabled:
-            return f"key installed · ssh not listening · {addresses}"
-        return "off"
+            kind: Literal["on", "off", "key_only"] = "on"
+        elif enabled:
+            kind = "key_only"
+        else:
+            kind = "off"
+        return RemoteSupportSnapshot(kind, user, addresses)
 
     def enable(self, on_progress: InstallProgressCallback) -> None:
         """Install OpenSSH if needed and authorize the support key."""

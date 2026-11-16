@@ -122,6 +122,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "remote_support_working": "Working…",
         "remote_support_enabled": "Remote support is on. From your PC: ssh -i ~/.ssh/pideck-tv-support {user}@{address}",
         "remote_support_disabled": "Remote support is off.",
+        "remote_support_status_on": "on · ssh {user}@{address}",
+        "remote_support_status_key_only": "key installed · ssh not listening · {address}",
+        "remote_support_status_off": "off",
+        "drives_system_description": "Mount USB drives and share them on the local network.",
         "system_info": "System information",
         "system_info_description": "Hardware, drivers and software versions of this device.",
         "system_info_refresh": "Refresh",
@@ -454,6 +458,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "andere Anwendungen sie nutzen können. Ein Laufwerk auswählen, um Optionen zu öffnen, "
             "einschließlich der Freigabe im lokalen Netzwerk."
         ),
+        "drives_system_description": "USB-Laufwerke einhängen und im lokalen Netzwerk freigeben.",
         "drives_mount": "Einhängen",
         "drives_unmount": "Aushängen",
         "drives_refresh": "Laufwerke aktualisieren",
@@ -497,6 +502,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "remote_support_working": "Bitte warten…",
         "remote_support_enabled": "Fernwartung ist an. Vom PC: ssh -i ~/.ssh/pideck-tv-support {user}@{address}",
         "remote_support_disabled": "Fernwartung ist aus.",
+        "remote_support_status_on": "an · ssh {user}@{address}",
+        "remote_support_status_key_only": "Schlüssel installiert · ssh horcht nicht · {address}",
+        "remote_support_status_off": "aus",
         "system_info": "Systeminformationen",
         "system_info_description": "Hardware, Treiber und Softwareversionen dieses Geräts.",
         "system_info_refresh": "Aktualisieren",
@@ -683,6 +691,21 @@ def tr(language: str, key: str, **values: object) -> str:
             _LOGGER.warning("Missing translation key: %s", key)
             text = key
     return text.format(**values)
+
+
+def format_remote_support_status(
+    language: str,
+    kind: str,
+    user: str,
+    addresses: str,
+) -> str:
+    """Localize the short Remote support status shown on the System row."""
+    address = addresses or tr(language, "unknown")
+    if kind == "on":
+        return tr(language, "remote_support_status_on", user=user, address=address)
+    if kind == "key_only":
+        return tr(language, "remote_support_status_key_only", address=address)
+    return tr(language, "remote_support_status_off")
 
 
 def app_description(language: str, app_id: str) -> str:
