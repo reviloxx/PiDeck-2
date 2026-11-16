@@ -48,7 +48,7 @@ from .toggle_switch import ToggleSwitch
 _ControlT = TypeVar("_ControlT", bound=QWidget)
 
 # Keep focused settings rows fully inside the scroll viewport on a TV.
-_SETTINGS_SCROLL_Y_MARGIN = 48
+_SETTINGS_SCROLL_Y_MARGIN = 76
 
 
 class SettingsRow(QFrame):

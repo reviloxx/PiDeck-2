@@ -237,7 +237,9 @@ def test_ethernet_hides_wifi_list_and_shows_summary(application: QApplication) -
     assert window.link_summary.detail.isVisible()
     assert not window.networks.isVisible()
     assert window.networks.count() == 0
-    assert not window.status.isVisible()
+    assert window.status.isVisible()
+    assert window.status.text() == tr("en", "network_wifi_blocked_by_lan")
+    assert window.back.hasFocus()
     assert gateway.calls == []
     window.close()
     parent.close()

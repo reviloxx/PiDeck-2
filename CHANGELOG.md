@@ -4,6 +4,15 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.22
+
+- Fixed: With Ethernet connected, Network explains that Wi‑Fi setup is unavailable
+  and leaves focus on Back instead of Scan again.
+- Fixed: Focused settings rows keep their titles visible when you scroll System,
+  Input, Appearance, or About.
+- Changed: The Network Ethernet status card uses a smaller icon and less empty
+  height.
+
 ## v0.6.21
 
 - Changed: The System → Audio row uses a shorter description so the list stays

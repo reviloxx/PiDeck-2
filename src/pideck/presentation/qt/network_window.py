@@ -25,7 +25,7 @@ from .wallpaper import WallpaperDialog
 
 
 _LOGGER = logging.getLogger(__name__)
-_SUMMARY_ICON_SIZE = 64
+_SUMMARY_ICON_SIZE = 48
 _ROW_MARK_SIZE = 22
 _LINK_POLL_MS = 1000
 
@@ -396,7 +396,8 @@ class NetworkWindow(WallpaperDialog):
             self.networks.hide()
             self.networks.setEnabled(False)
             self.networks.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            self.rescan.setFocus(Qt.FocusReason.OtherFocusReason)
+            set_status(self.status, tr(self._language, "network_wifi_blocked_by_lan"))
+            self.back.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         self.networks.show()
         self.networks.setEnabled(True)

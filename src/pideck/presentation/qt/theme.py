@@ -459,7 +459,7 @@ def apply_theme(
             background-color: %(surface)s;
             border: 1px solid %(border)s;
             border-radius: 10px;
-            min-height: 72px;
+            min-height: 56px;
         }
         QLabel#network_card_title {
             color: %(text)s;
