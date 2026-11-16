@@ -224,10 +224,10 @@ def test_focused_tile_fades_in_catalog_description(application: QApplication) ->
     window.close()
 
 
-def test_tile_places_name_under_icon_and_description_to_the_right(
+def test_tile_places_name_under_icon_row_and_description_beside_icon(
     application: QApplication,
 ) -> None:
-    """Name sits under the icon; description uses the open column to the right."""
+    """Description sits beside the icon; name uses the full width under that row."""
     window = catalog_launcher_window(application)
     tile = window._tiles[0]
     icon = tile.findChild(QLabel, "tile_icon")
@@ -235,9 +235,37 @@ def test_tile_places_name_under_icon_and_description_to_the_right(
     description = tile.findChild(QLabel, "tile_description")
 
     assert icon is not None and name is not None and description is not None
-    assert name.y() >= icon.y() + icon.height()
-    assert name.x() < icon.x() + icon.width()
     assert description.x() >= icon.x() + icon.width()
+    assert name.y() >= icon.y() + icon.height()
+    assert name.width() > description.width()
+
+    window.close()
+
+
+def test_description_width_does_not_depend_on_app_name_length(
+    application: QApplication,
+) -> None:
+    """Short and long names keep the same description column beside the icon."""
+    document = configuration_document()
+    document["applications"] = [
+        {"id": "kodi", "name": "Kodi", "executable": "kodi"},
+        {"id": "steam-link", "name": "Steam Link", "executable": "steamlink"},
+    ]
+    document["home"]["visible_applications"] = []
+    window = LauncherWindow(
+        LauncherController(YamlConfigurationParser().parse(document)),
+        DEFAULT_THEME,
+        Path.cwd(),
+    )
+    window.resize(800, 600)
+    window.show()
+    application.processEvents()
+
+    kodi_desc = window._tiles[0].findChild(QLabel, "tile_description")
+    steam_desc = window._tiles[1].findChild(QLabel, "tile_description")
+    assert kodi_desc is not None and steam_desc is not None
+    assert kodi_desc.width() == steam_desc.width()
+    assert kodi_desc.x() == steam_desc.x()
 
     window.close()
 

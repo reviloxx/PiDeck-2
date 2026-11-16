@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.16
+
+- Fixed: Home-tile descriptions always use the space beside the icon, while
+  the app name sits on a full-width row underneath (no narrow name wrapping).
+
 ## v0.6.15
 
 - Changed: Home tiles no longer zoom on focus. The app name stays under the

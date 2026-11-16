@@ -116,31 +116,21 @@ class LauncherTile(QPushButton):
         asset_root: Path,
         input_icon: Path | None,
     ) -> None:
-        """Build icon+name on the left and a fading description on the right."""
+        """Build icon with description beside it; name uses the full width below."""
         content = QVBoxLayout(self)
         content.setContentsMargins(12, 10, 12, 10)
         content.setSpacing(6)
 
-        body = QHBoxLayout()
-        body.setSpacing(12)
-
-        brand = QVBoxLayout()
-        brand.setSpacing(6)
+        # Icon | description: description always gets the remaining width.
+        top = QHBoxLayout()
+        top.setSpacing(12)
         application_icon = QLabel(self)
         application_icon.setObjectName("tile_icon")
         application_icon.setFixedSize(_TILE_ICON_SIZE, _TILE_ICON_SIZE)
         application_icon.setPixmap(
             icon_for_path(_resolve_asset(application.icon, asset_root)).pixmap(_TILE_ICON_SIZE, _TILE_ICON_SIZE)
         )
-        brand.addWidget(application_icon, 0, Qt.AlignmentFlag.AlignLeft)
-
-        name = QLabel(application.name, self)
-        name.setObjectName("tile_name")
-        name.setWordWrap(True)
-        name.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        brand.addWidget(name)
-        brand.addStretch(1)
-        body.addLayout(brand, 0)
+        top.addWidget(application_icon, 0, Qt.AlignmentFlag.AlignTop)
 
         description_text = app_description(self._language, application.identifier)
         self._has_description = bool(description_text)
@@ -150,8 +140,15 @@ class LauncherTile(QPushButton):
         self._description_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self._description_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._apply_description_opacity()
-        body.addWidget(self._description_label, 1)
-        content.addLayout(body, 1)
+        top.addWidget(self._description_label, 1)
+        content.addLayout(top, 0)
+
+        name = QLabel(application.name, self)
+        name.setObjectName("tile_name")
+        name.setWordWrap(True)
+        name.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        content.addWidget(name, 0)
+        content.addStretch(1)
 
         self._input_indicator = QLabel(self)
         self._input_indicator.setObjectName("tile_input")
