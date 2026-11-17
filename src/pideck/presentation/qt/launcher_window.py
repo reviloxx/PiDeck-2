@@ -78,7 +78,7 @@ class LauncherTile(QPushButton):
         self._build_content(application, asset_root, input_icon)
         self._spinner = BusySpinner(_TILE_SPINNER_SIZE, self)
         self._spinner.setObjectName("tile_spinner")
-        self._spinner.move(self.width() - 32, 8)
+        self._spinner.move(8, self.height() - _TILE_SPINNER_SIZE - 8)
         self._spinner.set_running(False)
         self.clicked.connect(lambda: self.activated.emit(application))
         FocusGlow(self, theme, reduced_motion=True)
@@ -181,9 +181,12 @@ class LauncherTile(QPushButton):
         self.setProperty("description_fade_animation", self._opacity_animation)
 
     def _animate_focus(self, focused: bool) -> None:
-        """Fade the short description in or out with the theme timing."""
-        target_opacity = 1.0 if focused and self._has_description else 0.0
+        """Fade the short description in on focus; hide it immediately on leave."""
         self._opacity_animation.stop()
+        if not focused:
+            self.description_opacity = 0.0
+            return
+        target_opacity = 1.0 if self._has_description else 0.0
         self._opacity_animation.setStartValue(self.description_opacity)
         self._opacity_animation.setEndValue(target_opacity)
         if self.description_opacity == target_opacity:
@@ -207,9 +210,9 @@ class LauncherTile(QPushButton):
             self._apply_description_opacity()
 
     def resizeEvent(self, event: object) -> None:
-        """Keep the spinner anchored to the tile's top-right corner."""
+        """Keep the spinner anchored to the tile's bottom-left corner."""
         super().resizeEvent(event)
-        self._spinner.move(self.width() - 32, 8)
+        self._spinner.move(8, self.height() - _TILE_SPINNER_SIZE - 8)
 
     def focusInEvent(self, event: object) -> None:
         """Report keyboard focus and fade the description in."""

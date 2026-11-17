@@ -215,7 +215,6 @@ def test_focused_tile_fades_in_catalog_description(application: QApplication) ->
 
     custom.setFocus()
     application.processEvents()
-    _finish_tile_focus_animation(kodi)
     _finish_tile_focus_animation(custom)
 
     assert kodi.description_opacity == pytest.approx(0.0)
@@ -331,8 +330,8 @@ def test_launcher_waits_for_visibility_before_hiding(application: QApplication) 
     assert window.isVisible()
     spinner = window._tiles[0].findChild(BusySpinner, "tile_spinner")
     assert spinner.isVisible()
-    assert spinner.geometry().left() == window._tiles[0].width() - 32
-    assert spinner.geometry().top() == 8
+    assert spinner.geometry().left() == 8
+    assert spinner.geometry().top() == window._tiles[0].height() - 20 - 8
 
     window.notify_session_visible(target)
     application.processEvents()

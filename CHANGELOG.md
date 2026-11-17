@@ -4,6 +4,13 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.23
+
+- Fixed: The launch spinner sits in the tile’s bottom-left corner so it no longer
+  covers the description.
+- Fixed: Leaving a focused home tile hides its description immediately instead of
+  fading it out.
+
 ## v0.6.22
 
 - Fixed: With Ethernet connected, Network explains that Wi‑Fi setup is unavailable
