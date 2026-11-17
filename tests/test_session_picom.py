@@ -1,13 +1,16 @@
 """Verify release picom config is selected and applied without blocking the session."""
 
 from pathlib import Path
+import signal
 
 import pytest
 
 from pideck.infrastructure.session.picom import (
     POST_MAP_REFRESH_DELAYS_MS,
     apply_release_picom,
+    pause_picom_for_client,
     post_map_refresh_followup_delay_ms,
+    resume_picom_after_client,
     select_picom_config,
 )
 
@@ -259,3 +262,56 @@ def test_apply_release_picom_noop_without_display(monkeypatch: pytest.MonkeyPatc
     )
 
     apply_release_picom(config=conf)
+
+
+def test_pause_picom_for_client_stops_running_compositor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Streaming clients need picom stopped so the window is not redirected."""
+    live = {"pids": [4242]}
+    killed: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom.subprocess.run",
+        lambda *args, **kwargs: (
+            type("Result", (), {"returncode": 0, "stdout": "4242\n"})()
+            if live["pids"]
+            else type("Result", (), {"returncode": 1, "stdout": ""})()
+        ),
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom._pid_is_alive",
+        lambda pid: pid in live["pids"],
+    )
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom.os.kill",
+        lambda pid, sig: (killed.append((pid, sig)), live["pids"].clear()),
+    )
+
+    pause_picom_for_client()
+
+    assert killed == [(4242, signal.SIGTERM)]
+    assert not live["pids"]
+
+
+def test_pause_picom_for_client_noop_when_already_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Do not signal anything when picom is already down."""
+    monkeypatch.setattr("pideck.infrastructure.session.picom.live_picom_running", lambda: False)
+    monkeypatch.setattr(
+        "pideck.infrastructure.session.picom.os.kill",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("should not kill")),
+    )
+
+    pause_picom_for_client()
+
+
+def test_resume_picom_after_client_force_restarts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leaving Steam Link must bring release picom back even if it was stopped."""
+    calls: list[object] = []
+
+    def fake_apply(*, force: bool = False, **_kwargs) -> None:
+        calls.append(force)
+
+    monkeypatch.setattr("pideck.infrastructure.session.picom.apply_release_picom", fake_apply)
+
+    resume_picom_after_client()
+
+    assert calls == [True]

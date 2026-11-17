@@ -99,8 +99,23 @@ class SessionInputResource(Protocol):
         ...
 
 
+class SessionCompositorResource(Protocol):
+    """Session compositor paused while a fullscreen streaming client runs."""
+
+    def suspend(self) -> None:
+        """Stop compositing before the streaming client starts."""
+        ...
+
+    def resume(self) -> None:
+        """Restore compositing when the launcher becomes idle again."""
+        ...
+
+
 InputHandoffPolicy = Callable[[ApplicationDefinition], bool]
 """Return whether an application must own the exclusive input resource."""
+
+CompositorPausePolicy = Callable[[ApplicationDefinition], bool]
+"""Return whether an application needs the session compositor paused."""
 
 
 class ApplicationSessionService:
@@ -113,11 +128,15 @@ class ApplicationSessionService:
         visibility_detector: ProcessVisibilityDetector | None = None,
         input_resource: SessionInputResource | None = None,
         releases_input: InputHandoffPolicy | None = None,
+        compositor_resource: SessionCompositorResource | None = None,
+        pauses_compositor: CompositorPausePolicy | None = None,
     ) -> None:
         """Create a session service with injected process and presentation ports.
 
         ``releases_input`` decides per application whether the exclusive input
         resource is handed over; by default every application receives it.
+        ``pauses_compositor`` decides whether picom (or similar) is stopped for
+        the launch; by default nothing is paused.
         """
         self._supervisor = supervisor
         self._observer = observer
@@ -125,6 +144,9 @@ class ApplicationSessionService:
         self._input_resource = input_resource
         self._releases_input = releases_input or (lambda _: True)
         self._input_suspended = False
+        self._compositor_resource = compositor_resource
+        self._pauses_compositor = pauses_compositor or (lambda _: False)
+        self._compositor_paused = False
         self._closed = False
         self._lifecycle_lock = threading.RLock()
         self._snapshot = SessionSnapshot(state=SessionState.IDLE)
@@ -231,6 +253,7 @@ class ApplicationSessionService:
                 if self._closed:
                     raise ProcessError("Application session is closed")
                 self._hand_over_input(self._releases_input(application))
+                self._hand_over_compositor(self._pauses_compositor(application))
                 handle = self._supervisor.start(
                     self._command_for(application, profile),
                     token,
@@ -249,6 +272,7 @@ class ApplicationSessionService:
             with self._lifecycle_lock:
                 if not self._closed:
                     self._hand_over_input(False)
+                    self._hand_over_compositor(False)
             message = str(error)
             self._observer.failed(application, message)
             return LaunchResult(LaunchStatus.FAILED, application, message=message)
@@ -362,6 +386,7 @@ class ApplicationSessionService:
         with self._lifecycle_lock:
             if not self._closed:
                 self._hand_over_input(False)
+                self._hand_over_compositor(False)
         self._observer.finished(application, event.return_code)
 
     def _hand_over_input(self, release: bool) -> None:
@@ -376,6 +401,18 @@ class ApplicationSessionService:
         elif self._input_suspended:
             self._input_suspended = False
             self._input_resource.resume()
+
+    def _hand_over_compositor(self, pause: bool) -> None:
+        """Pause the compositor for streaming clients, or restore it afterward."""
+        if self._compositor_resource is None:
+            return
+        if pause:
+            # Record first so a failed suspend still resumes on the failure path.
+            self._compositor_paused = True
+            self._compositor_resource.suspend()
+        elif self._compositor_paused:
+            self._compositor_paused = False
+            self._compositor_resource.resume()
 
 
 _PROFILE_REQUIRED = object()

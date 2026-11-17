@@ -50,7 +50,11 @@ from pideck.infrastructure.kodi_cec import disable_kodi_cec
 from pideck.infrastructure.kodi_keymap import configure_kodi_keymap
 from pideck.application.ports.audio import AudioError, HdmiAudioMode
 from pideck.infrastructure.session.openbox import apply_release_openbox
-from pideck.infrastructure.session.picom import apply_release_picom
+from pideck.infrastructure.session.picom import (
+    apply_release_picom,
+    pause_picom_for_client,
+    resume_picom_after_client,
+)
 from pideck.infrastructure.user_defaults import UserDefaultsInstaller
 from pideck.infrastructure.config.window_modes import load_window_modes
 from pideck.infrastructure.logging import configure_logging
@@ -97,6 +101,18 @@ if TYPE_CHECKING:
     from pideck.presentation.qt.drives_window import DrivesWindow
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _PicomSessionResource:
+    """Pause picom around Steam Link so the stream is not GLX-composited."""
+
+    def suspend(self) -> None:
+        """Stop picom before Steam Link starts."""
+        pause_picom_for_client()
+
+    def resume(self) -> None:
+        """Restore release picom after Steam Link exits."""
+        resume_picom_after_client()
 
 
 class _QtSessionObserver:
@@ -660,6 +676,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         visibility_detector,
         cec_adapter,
         releases_input=lambda _app: False,
+        compositor_resource=_PicomSessionResource(),
+        pauses_compositor=lambda app: app.identifier == "steam-link",
     )
     key_injector = X11KeyInjector()
     input_forwarding = InputForwardingService(key_injector)

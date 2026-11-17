@@ -86,6 +86,25 @@ def live_picom_running() -> bool:
     return bool(_live_picom_pids())
 
 
+def pause_picom_for_client() -> None:
+    """Stop picom so a fullscreen streaming client is not GLX-composited.
+
+    Steam Link (and similar) drop frames when picom keeps the window redirected
+    with ``unredir-if-possible = false``. Failures are logged and never raised.
+    """
+    if not live_picom_running():
+        return
+    if _stop_picom():
+        _LOGGER.info("Paused picom for fullscreen streaming client")
+    else:
+        _LOGGER.warning("Unable to pause picom for fullscreen streaming client")
+
+
+def resume_picom_after_client() -> None:
+    """Restart release picom after a fullscreen streaming client exits."""
+    apply_release_picom(force=True)
+
+
 def _start_picom(binary: str, conf: Path, *, restarted: bool) -> bool:
     """Stop any live picom, start a new one, and confirm it stayed alive briefly."""
     try:

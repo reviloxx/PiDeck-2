@@ -427,3 +427,94 @@ def test_input_resource_is_kept_for_every_application_when_releases_input_is_fal
     assert events == []
     service.close()
 
+
+def test_compositor_pauses_only_for_steam_link() -> None:
+    """Steam Link drops frames under picom; other apps keep the compositor."""
+    events: list[str] = []
+
+    class CompositorResource:
+        def suspend(self) -> None:
+            events.append("suspend")
+
+        def resume(self) -> None:
+            events.append("resume")
+
+    supervisor = FakeSupervisor()
+    service = ApplicationSessionService(
+        supervisor,
+        RecordingObserver(),
+        compositor_resource=CompositorResource(),
+        pauses_compositor=lambda application: application.identifier == "steam-link",
+    )
+    youtube = ApplicationDefinition("youtube", "YouTube", sys.executable)
+    steam = ApplicationDefinition("steam-link", "Steam Link", sys.executable)
+
+    service.request_launch(youtube)
+    youtube_token = next(iter(supervisor.handles))
+    supervisor.emit(youtube_token)
+    assert events == []
+
+    service.request_launch(steam)
+    assert events == ["suspend"]
+    steam_token = next(token for token in supervisor.handles if token != youtube_token)
+    supervisor.emit(steam_token)
+    assert events == ["suspend", "resume"]
+    service.close()
+
+
+def test_compositor_resumes_when_steam_link_launch_fails() -> None:
+    """A failed Steam Link start must not leave picom stopped."""
+    events: list[str] = []
+
+    class CompositorResource:
+        def suspend(self) -> None:
+            events.append("suspend")
+
+        def resume(self) -> None:
+            events.append("resume")
+
+    class FailingSupervisor(FakeSupervisor):
+        def start(self, command: ProcessCommand, token: str, on_exit: object) -> ProcessHandle:
+            raise SubprocessLaunchError("steamlink missing")
+
+    service = ApplicationSessionService(
+        FailingSupervisor(),
+        RecordingObserver(),
+        compositor_resource=CompositorResource(),
+        pauses_compositor=lambda application: application.identifier == "steam-link",
+    )
+    steam = ApplicationDefinition("steam-link", "Steam Link", "steamlink")
+    result = service.request_launch(steam)
+    assert result.status is LaunchStatus.FAILED
+    assert events == ["suspend", "resume"]
+
+
+def test_compositor_resumes_when_replacing_steam_link_with_another_app() -> None:
+    """Switching away from Steam Link restores compositing for the next app."""
+    events: list[str] = []
+
+    class CompositorResource:
+        def suspend(self) -> None:
+            events.append("suspend")
+
+        def resume(self) -> None:
+            events.append("resume")
+
+    supervisor = FakeSupervisor()
+    service = ApplicationSessionService(
+        supervisor,
+        RecordingObserver(),
+        compositor_resource=CompositorResource(),
+        pauses_compositor=lambda application: application.identifier == "steam-link",
+    )
+    steam = ApplicationDefinition("steam-link", "Steam Link", sys.executable)
+    youtube = ApplicationDefinition("youtube", "YouTube", sys.executable)
+
+    service.request_launch(steam)
+    steam_token = next(iter(supervisor.handles))
+    assert events == ["suspend"]
+    service.replace_running(youtube)
+    supervisor.emit(steam_token)
+    assert events == ["suspend", "resume"]
+    service.close()
+
