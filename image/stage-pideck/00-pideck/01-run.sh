@@ -122,3 +122,14 @@ for parameter in quiet splash; do
         *) sed -i "1s/\$/ $parameter/" "$cmdline" ;;
     esac
 done
+
+# Argon ONE V5 HDMI-USB2-Audio board: front USB 2.0 hub and 3.5mm jack.
+config_txt="${ROOTFS_DIR}/boot/firmware/config.txt"
+if [ ! -f "$config_txt" ]; then
+    echo "Missing Raspberry Pi firmware config: $config_txt" >&2
+    exit 1
+fi
+overlay='dtoverlay=dwc2,dr_mode=host'
+if ! grep -qxF "$overlay" "$config_txt"; then
+    printf '\n# Argon ONE V5 USB hub / 3.5mm audio\n%s\n' "$overlay" >> "$config_txt"
+fi

@@ -333,6 +333,7 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     rootfs.mkdir()
     (rootfs / "boot/firmware").mkdir(parents=True)
     (rootfs / "boot/firmware/cmdline.txt").write_text("console=tty1 root=PARTUUID=example\n")
+    (rootfs / "boot/firmware/config.txt").write_text("# PiDeck test config\n")
     commands = tmp_path / "bin"
     commands.mkdir()
     stub = commands / "on_chroot"
@@ -388,6 +389,7 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     assert (rootfs / "boot/firmware/cmdline.txt").read_text() == (
         "console=tty1 root=PARTUUID=example quiet splash\n"
     )
+    assert "dtoverlay=dwc2,dr_mode=host" in (rootfs / "boot/firmware/config.txt").read_text()
     assert (rootfs / "usr/share/plymouth/themes/pideck/pideck.script").is_file()
     assert (rootfs / "usr/lib/pideck-updater/python/pideck/infrastructure/image_update_daemon.py").is_file()
     assert (rootfs / "etc/systemd/system/pideck-updater.service").is_file()
@@ -407,6 +409,7 @@ def test_release_image_installs_versioned_tree_without_a_key(tmp_path: Path) -> 
     rootfs.mkdir()
     (rootfs / "boot/firmware").mkdir(parents=True)
     (rootfs / "boot/firmware/cmdline.txt").write_text("console=tty1 root=PARTUUID=example\n")
+    (rootfs / "boot/firmware/config.txt").write_text("# PiDeck test config\n")
     commands = tmp_path / "bin"
     commands.mkdir()
     stub = commands / "on_chroot"

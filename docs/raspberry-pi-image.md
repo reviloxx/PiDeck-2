@@ -301,6 +301,8 @@ minimum storage capacity. On a Pi 5, verify:
   auto-login without an Imager-provisioned account.
 - HDMI video and audio; Ethernet or configured Wi-Fi; keyboard and controller
   navigation and hot-plug behavior.
+- Argon ONE V5 case: front USB 2.0 and 3.5mm audio/mic (image bakes
+  `dtoverlay=dwc2,dr_mode=host` into `/boot/firmware/config.txt`).
 - Kodi and YouTube, then installing, launching and removing every other
   catalog application including RetroArch with mGBA core loading, with
   external-window detection, closing the app, returning to PiDeck and a German
