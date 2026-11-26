@@ -299,8 +299,9 @@ minimum storage capacity. On a Pi 5, verify:
 
 - Customized first boot, filesystem expansion, subsequent boot and absence of
   auto-login without an Imager-provisioned account.
-- HDMI video and audio; Ethernet or configured Wi-Fi; keyboard and controller
-  navigation and hot-plug behavior.
+- HDMI video and audio (Pi 5 Xorg uses `99-pideck-vc4.conf` so modesetting
+  binds to the vc4 display GPU); Ethernet or configured Wi-Fi; keyboard and
+  controller navigation and hot-plug behavior.
 - Argon ONE V5 case: front USB 2.0 and 3.5mm audio/mic (image bakes
   `dtoverlay=dwc2,dr_mode=host` into `/boot/firmware/config.txt`).
 - Kodi and YouTube, then installing, launching and removing every other

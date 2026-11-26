@@ -32,6 +32,7 @@ install -m 644 files/smb.conf "${ROOTFS_DIR}/etc/samba/smb.conf"
 printf '%s\n' '# Managed by PiDeck. Do not edit; Settings > Drives rewrites this file.' \
     > "${ROOTFS_DIR}/var/lib/pideck/samba/shares.conf"
 install -m 644 files/00-pideck-keyboard.conf "${ROOTFS_DIR}/etc/X11/xorg.conf.d/00-pideck-keyboard.conf"
+install -m 644 files/99-pideck-vc4.conf "${ROOTFS_DIR}/etc/X11/xorg.conf.d/99-pideck-vc4.conf"
 install -m 644 files/71-pideck-cec-attach.rules \
     "${ROOTFS_DIR}/etc/udev/rules.d/71-pideck-cec-attach.rules"
 install -m 644 files/pideck-cec-attach@.service \

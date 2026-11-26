@@ -214,6 +214,7 @@ def test_prepare_stage_copies_snapshot_and_enables_only_custom_export(tmp_path: 
     assert "etc/polkit-1/rules.d/50-pideck-udisks.rules" in run_script
     assert "etc/polkit-1/rules.d/51-pideck-timezone.rules" in run_script
     assert "etc/X11/xorg.conf.d/00-pideck-keyboard.conf" in run_script
+    assert "etc/X11/xorg.conf.d/99-pideck-vc4.conf" in run_script
     assert os.access(stage / "prerun.sh", os.X_OK)
     assert os.access(stage / "00-pideck" / "01-run.sh", os.X_OK)
     assert (stage / "00-pideck" / "files" / "project" / "src" / "pideck" / "bootstrap.py").is_file()
@@ -390,6 +391,9 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
         "console=tty1 root=PARTUUID=example quiet splash\n"
     )
     assert "dtoverlay=dwc2,dr_mode=host" in (rootfs / "boot/firmware/config.txt").read_text()
+    assert (rootfs / "etc/X11/xorg.conf.d/99-pideck-vc4.conf").read_text() == (
+        FILES / "99-pideck-vc4.conf"
+    ).read_text()
     assert (rootfs / "usr/share/plymouth/themes/pideck/pideck.script").is_file()
     assert (rootfs / "usr/lib/pideck-updater/python/pideck/infrastructure/image_update_daemon.py").is_file()
     assert (rootfs / "etc/systemd/system/pideck-updater.service").is_file()
