@@ -45,6 +45,7 @@ jobs:
           deploy="$RUNNER_TEMP/pideck-build/pi-gen/deploy"
           sudo install -m 644 "$RUNNER_TEMP/pideck-build/source-manifest.json" "$deploy/source-manifest.json"
           sudo install -m 644 image/imager_repo.py "$deploy/imager_repo.py"
+          sudo install -m 755 image/flash.py "$deploy/flash.py"
           sudo chmod -R a+rX "$deploy"
           df -h "$RUNNER_TEMP"
 

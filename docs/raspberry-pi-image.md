@@ -82,19 +82,39 @@ succeeded, future space or timeout failures may require a larger runner or a
 separate native ARM64 build host. Private repositories may incur Actions usage
 charges; see [GitHub's runner specifications and pricing information](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
-On the machine running Imager, verify and prepare the extracted artifact:
+On the machine running Imager, check the artifact checksum and regenerate the
+local repository entry:
 
 ```bash
 cd /path/to/extracted-artifact
 sha256sum -c SHA256SUMS
 python3 imager_repo.py /absolute/path/to/pideck.img.xz
-rpi-imager --repo "$PWD/pideck-imager-repository.json"
 ```
 
 Replace the example image path with the downloaded image's actual filename.
 The included repository JSON references the GitHub runner's filesystem and
-must be regenerated as shown before flashing. Then follow the customization
+must be regenerated as shown before flashing.
+
+**GUI (needed for Imager username/password customization):**
+
+```bash
+rpi-imager --repo "$PWD/pideck-imager-repository.json"
+```
+
+Raspberry Pi Imager always starts a post-write verify pass in the GUI. When
+the progress label switches to verifying, click **Cancel Verify** to skip it
+(there is no persistent App Options toggle). Then follow the customization
 steps under **Flash and first boot**.
+
+**CLI (skips verify by default; no Imager OS customization):**
+
+```bash
+sudo python3 flash.py /absolute/path/to/pideck.img.xz /dev/sdX
+sudo python3 flash.py --verify /absolute/path/to/pideck.img.xz /dev/sdX
+```
+
+Use a real block device for `/dev/sdX`. Without Imager customization the
+image will not auto-login until you provision a UID 1000 user another way.
 
 ### Local native ARM64 build
 
@@ -198,8 +218,7 @@ system or image bootstrap components.
 
 ## Flash and first boot
 
-1. Verify the checksum. On the machine running Raspberry Pi Imager, start it
-   with the generated local repository:
+1. Check the checksum and open Imager with the generated local repository:
 
    ```bash
    rpi-imager --repo /var/tmp/pideck-build/pi-gen/deploy/pideck-imager-repository.json
@@ -208,7 +227,9 @@ system or image bootstrap components.
    Select PiDeck and the target storage device. The Imager version must
    support `--repo` with a local repository. Current Imager versions do not
    offer OS customization when selecting a file through **Use custom**, so do
-   not use that option for this image.
+   not use that option for this image. After writing, click **Cancel Verify**
+   if you want to skip the post-write check. For a CLI flash that skips verify
+   by default (and opts in with `--verify`), see `image/flash.py` above.
 2. In Imager's customization settings, configure a username and password.
    Configure Wi-Fi, country, timezone and keyboard as needed; enable SSH only
    if you need it. Autologin is enabled only for the provisioned, unlocked

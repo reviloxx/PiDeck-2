@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from image import build as image_build
+from image.flash import imager_command
 from image.imager_repo import write_repository
 from pideck.infrastructure.config.catalog import load_catalog
 from pideck.infrastructure.config.parser import YamlConfigurationParser
@@ -38,6 +39,7 @@ def test_github_image_workflow_has_valid_shell_and_artifact_inputs() -> None:
     assert '${GITHUB_REF_NAME#image-}' in steps["Build image"]["run"]
     assert "source-manifest.json" in steps["Prepare downloadable files"]["run"]
     assert "image/imager_repo.py" in steps["Prepare downloadable files"]["run"]
+    assert "image/flash.py" in steps["Prepare downloadable files"]["run"]
     upload = steps["Upload image and manifests"]["with"]
     assert upload["path"] == "${{ runner.temp }}/pideck-build/pi-gen/deploy/"
     assert upload["if-no-files-found"] == "error"
@@ -323,6 +325,18 @@ def test_imager_repository_rejects_empty_image(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="empty"):
         write_repository(image)
     assert not (tmp_path / "pideck-imager-repository.json").exists()
+
+
+def test_flash_cli_skips_verify_unless_requested(tmp_path: Path) -> None:
+    """CLI flashing disables post-write verify by default."""
+    image = tmp_path / "pideck.img.xz"
+    image.write_bytes(b"xz")
+    assert imager_command(image, "/dev/sdX", verify=False) == [
+        "rpi-imager", "--cli", "--disable-verify", str(image), "/dev/sdX",
+    ]
+    assert imager_command(image, "/dev/sdX", verify=True) == [
+        "rpi-imager", "--cli", str(image), "/dev/sdX",
+    ]
 
 
 def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
