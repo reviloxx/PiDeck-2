@@ -324,6 +324,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     login1 = (tmp_path / "etc/polkit-1/rules.d/52-pideck-login1.rules").read_text()
     assert 'subject.user === "pideck"' in login1 and "subject.local && subject.active" in login1
     assert "org.freedesktop.login1.hibernate" in login1
+    ssh = (tmp_path / "etc/polkit-1/rules.d/53-pideck-ssh.rules").read_text()
+    assert "subject.uid === 1000" in ssh and "ssh.service" in ssh
+    assert "org.freedesktop.systemd1.manage-units" in ssh
     assert 'Option "XkbLayout" "de"' in (tmp_path / "etc/X11/xorg.conf.d/00-pideck-keyboard.conf").read_text()
     assert "UserspaceHID=true" in (tmp_path / "etc/bluetooth/input.conf").read_text()
     assert "FastConnectable=true" in (tmp_path / "etc/bluetooth/main.conf").read_text()
@@ -345,7 +348,7 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     assert "splash" not in grub.split("GRUB_CMDLINE_LINUX_DEFAULT=", 1)[-1]
     assert "GRUB_TERMINAL=console\n" in grub
     nvidia_load = (tmp_path / "etc/systemd/system/pideck-nvidia-load.service").read_text()
-    assert "modprobe nvidia-drm" in nvidia_load
+    assert "modprobe nvidia-drm modeset=1 fbdev=1" in nvidia_load
     assert "WantedBy=sysinit.target" in nvidia_load
     assert "Before=sysinit.target" not in nvidia_load
     assert "After=systemd-udevd.service" in nvidia_load
@@ -371,7 +374,9 @@ def test_x86_runtime_inputs_match_shared_appliance(tmp_path: Path) -> None:
     nvidia_bottom = tmp_path / "etc/initramfs-tools/scripts/local-bottom/pideck-nvidia"
     assert nvidia_bottom.is_file()
     assert nvidia_bottom.stat().st_mode & 0o111
-    assert "nvidia-drm" in nvidia_bottom.read_text()
+    nvidia_bottom_text = nvidia_bottom.read_text()
+    assert "nvidia-current-drm modeset=1 fbdev=1" in nvidia_bottom_text
+    assert "nvidia-drm modeset=1 fbdev=1" in nvidia_bottom_text
     assert not (tmp_path / "usr/share/plymouth/themes/pideck/pideck.script").exists()
     assert "plymouth quit" not in (tmp_path / "usr/lib/pideck/pideck-xsession").read_text()
     assert "plymouth quit" not in (tmp_path / "usr/lib/pideck/pideck-session").read_text()
@@ -392,9 +397,9 @@ def test_x86_image_uses_proprietary_nvidia_driver_with_video_decoding(tmp_path: 
     assert "nvidia-open-kernel-dkms" not in packages
     assert x86_build.APT_COMPONENTS.split() == ["main", "contrib", "non-free", "non-free-firmware"]
     x86_build._write_inputs(tmp_path, None)
-    assert "options nvidia-drm modeset=1 fbdev=1" in (
-        tmp_path / "etc/modprobe.d/pideck-nvidia.conf"
-    ).read_text()
+    nvidia_modprobe = (tmp_path / "etc/modprobe.d/pideck-nvidia.conf").read_text()
+    assert "options nvidia-drm modeset=1 fbdev=1" in nvidia_modprobe
+    assert "options nvidia-current-drm modeset=1 fbdev=1" in nvidia_modprobe
     profile = tmp_path / "etc/profile.d/10-pideck-video.sh"
     # /etc/profile sources profile.d in glob order; pideck.sh then execs the session.
     assert sorted([profile.name, "pideck.sh"])[0] == profile.name

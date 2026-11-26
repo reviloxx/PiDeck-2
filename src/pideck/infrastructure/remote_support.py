@@ -87,6 +87,17 @@ def ssh_listening(port: int = _SSH_PORT) -> bool:
         return False
 
 
+def ensure_ssh_service() -> None:
+    """Best-effort enable/start of ssh.service (root broker or polkit)."""
+    try:
+        subprocess.run(
+            ["systemctl", "enable", "--now", "ssh.service"],
+            capture_output=True, text=True, check=False, timeout=30, env=_ENV,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        _LOGGER.info("Unable to enable ssh.service: %s", error)
+
+
 def local_ipv4_addresses() -> tuple[str, ...]:
     """Best-effort list of non-loopback IPv4 addresses for the status line."""
     addresses: list[str] = []
@@ -223,15 +234,19 @@ class RemoteSupportService:
             packages=("openssh-server",),
             dependencies=("ca-certificates",),
         )
-        if not self._packages.is_installed(spec):
-            self._packages.install(SUPPORT_APP_ID, spec, on_progress, None)
+        # Always run the broker install: openssh-server is often already on the
+        # image but disabled, and the plan enables/starts ssh.service.
+        self._packages.install(SUPPORT_APP_ID, spec, on_progress, None)
         write_authorized_keys(keys)
+        ensure_ssh_service()
         if not ssh_listening():
-            # Package postinst usually starts ssh; give it a moment.
+            # Broker enable/start can race host key generation on first enable.
             time.sleep(1.5)
+            ensure_ssh_service()
         if not ssh_listening():
             raise PackageOperationError(
-                "OpenSSH is installed but not listening on port 22. Reboot and try again."
+                "OpenSSH is installed but not listening on port 22. "
+                "On the console run: sudo systemctl enable --now ssh"
             )
 
     def disable(self, on_progress: InstallProgressCallback) -> None:

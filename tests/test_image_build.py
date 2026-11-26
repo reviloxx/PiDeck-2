@@ -215,6 +215,7 @@ def test_prepare_stage_copies_snapshot_and_enables_only_custom_export(tmp_path: 
         assert (stage / "00-pideck" / "files" / name).is_file()
     assert "etc/polkit-1/rules.d/50-pideck-udisks.rules" in run_script
     assert "etc/polkit-1/rules.d/51-pideck-timezone.rules" in run_script
+    assert "etc/polkit-1/rules.d/53-pideck-ssh.rules" in run_script
     assert "etc/X11/xorg.conf.d/00-pideck-keyboard.conf" in run_script
     assert "etc/X11/xorg.conf.d/99-pideck-vc4.conf" in run_script
     assert os.access(stage / "prerun.sh", os.X_OK)

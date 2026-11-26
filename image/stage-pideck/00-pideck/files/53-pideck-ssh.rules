@@ -1,0 +1,15 @@
+// Let the appliance session (Imager UID 1000) enable/start OpenSSH for
+// Settings > System > Remote support without an administrator password.
+polkit.addRule(function(action, subject) {
+    if (!(subject.local && subject.active && subject.uid === 1000)) {
+        return;
+    }
+    var unit = action.lookup("unit");
+    if (unit !== "ssh.service" && unit !== "ssh.socket") {
+        return;
+    }
+    if (action.id === "org.freedesktop.systemd1.manage-units" ||
+        action.id === "org.freedesktop.systemd1.manage-unit-files") {
+        return polkit.Result.YES;
+    }
+});

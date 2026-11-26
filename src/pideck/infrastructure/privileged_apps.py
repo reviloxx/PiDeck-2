@@ -113,11 +113,18 @@ class ApplicationPlans:
             ]
         if method == "apt":
             packages = (*spec["packages"], *spec["dependencies"])
-            return [
+            steps = [
                 Step("preparing", (_APT, "update"), cancellable=True),
                 Step("downloading", (*_APT_INSTALL, "--download-only", "--", *packages), cancellable=True),
                 Step("installing", (*_APT_INSTALL, "--", *packages)),
             ]
+            # Raspberry Pi OS ships openssh-server disabled; apt alone will not
+            # start sshd when the package is already present.
+            if identifier == "remote-support":
+                steps.append(
+                    Step("finishing", ("/bin/systemctl", "enable", "--now", "ssh.service")),
+                )
+            return steps
         package = spec["packages"][0]
         target = self._download_dir / f"{package}.deb"
         return [

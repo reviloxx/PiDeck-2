@@ -209,6 +209,7 @@ def _write_inputs(root: Path, tag: str | None) -> None:
     _install(PI_FILES / "50-pideck-udisks.rules", root / "etc/polkit-1/rules.d/50-pideck-udisks.rules")
     _install(PI_FILES / "51-pideck-timezone.rules", root / "etc/polkit-1/rules.d/51-pideck-timezone.rules")
     _install(INPUTS / "52-pideck-login1.rules", root / "etc/polkit-1/rules.d/52-pideck-login1.rules")
+    _install(PI_FILES / "53-pideck-ssh.rules", root / "etc/polkit-1/rules.d/53-pideck-ssh.rules")
     _install(PI_FILES / "smb.conf", root / "etc/samba/smb.conf")
     samba_shares = root / "var/lib/pideck/samba"
     samba_shares.mkdir(parents=True, exist_ok=True)

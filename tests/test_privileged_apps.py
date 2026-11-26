@@ -46,6 +46,13 @@ def test_apt_install_downloads_before_changing_packages() -> None:
     assert [step.cancellable for step in steps] == [True, True, False]
 
 
+def test_remote_support_install_enables_ssh_service() -> None:
+    """Remote support always enables sshd; the package may already be present."""
+    steps = plans("arm64").install("remote-support")
+    assert commands(steps)[-1] == ("/bin/systemctl", "enable", "--now", "ssh.service")
+    assert steps[-1].cancellable is False
+
+
 def test_apt_remove_checks_and_keeps_dependencies() -> None:
     """Removal targets only the app's own packages, never shared dependencies."""
     steps = plans("arm64").remove("steam-link")

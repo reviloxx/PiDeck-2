@@ -27,6 +27,7 @@ install -m 644 files/pideck.yaml "${ROOTFS_DIR}/usr/share/pideck/config/pideck.y
 install -m 644 files/70-pideck-cec.rules "${ROOTFS_DIR}/etc/udev/rules.d/70-pideck-cec.rules"
 install -m 644 files/50-pideck-udisks.rules "${ROOTFS_DIR}/etc/polkit-1/rules.d/50-pideck-udisks.rules"
 install -m 644 files/51-pideck-timezone.rules "${ROOTFS_DIR}/etc/polkit-1/rules.d/51-pideck-timezone.rules"
+install -m 644 files/53-pideck-ssh.rules "${ROOTFS_DIR}/etc/polkit-1/rules.d/53-pideck-ssh.rules"
 install -d "${ROOTFS_DIR}/etc/samba" "${ROOTFS_DIR}/var/lib/pideck/samba"
 install -m 644 files/smb.conf "${ROOTFS_DIR}/etc/samba/smb.conf"
 printf '%s\n' '# Managed by PiDeck. Do not edit; Settings > Drives rewrites this file.' \

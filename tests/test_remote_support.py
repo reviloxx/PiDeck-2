@@ -42,6 +42,36 @@ def test_authorized_keys_round_trip(tmp_path: Path, monkeypatch) -> None:  # typ
     assert not is_enabled()
 
 
+def test_enable_always_runs_broker_install_even_when_openssh_present(
+    tmp_path: Path, monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
+    """Preinstalled-but-disabled openssh still needs the broker enable plan."""
+    home = tmp_path / "home"
+    home.mkdir()
+    keys_file = tmp_path / "assets" / "support" / "ssh-authorized-keys"
+    keys_file.parent.mkdir(parents=True)
+    keys_file.write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKs pideck-tv-support\n", encoding="utf-8")
+    installs: list[str] = []
+
+    class Packages:
+        def is_installed(self, spec):  # type: ignore[no-untyped-def]
+            del spec
+            return True
+
+        def install(self, identifier, spec, on_progress, password):  # type: ignore[no-untyped-def]
+            del spec, on_progress, password
+            installs.append(identifier)
+
+    monkeypatch.setattr("pideck.infrastructure.remote_support.appliance_home", lambda: home)
+    monkeypatch.setattr("pideck.infrastructure.remote_support.clock_looks_wrong", lambda: False)
+    monkeypatch.setattr("pideck.infrastructure.remote_support.ensure_ssh_service", lambda: None)
+    monkeypatch.setattr("pideck.infrastructure.remote_support.ssh_listening", lambda: True)
+    service = RemoteSupportService(Packages(), tmp_path / "config")  # type: ignore[arg-type]
+    service.enable(lambda *_args: None)
+    assert installs == [SUPPORT_APP_ID]
+    assert is_enabled()
+
+
 def test_clock_looks_wrong_detects_epoch() -> None:
     """TLS-breaking clocks before 2024 are rejected."""
     assert clock_looks_wrong(floor_epoch=10**12) is True
