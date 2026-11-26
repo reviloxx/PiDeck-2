@@ -324,7 +324,8 @@ minimum storage capacity. On a Pi 5, verify:
   binds to the vc4 display GPU); Ethernet or configured Wi-Fi; keyboard and
   controller navigation and hot-plug behavior.
 - Argon ONE V5 case: front USB 2.0 and 3.5mm audio/mic (image bakes
-  `dtoverlay=dwc2,dr_mode=host` into `/boot/firmware/config.txt`).
+  `dtoverlay=dwc2,dr_mode=host` and `usb_max_current_enable=1` into
+  `/boot/firmware/config.txt`; a full USB-C power cycle may be needed once).
 - Kodi and YouTube, then installing, launching and removing every other
   catalog application including RetroArch with mGBA core loading, with
   external-window detection, closing the app, returning to PiDeck and a German

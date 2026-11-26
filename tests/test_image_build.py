@@ -405,7 +405,9 @@ def test_stage_installs_files_into_rootfs(tmp_path: Path) -> None:
     assert (rootfs / "boot/firmware/cmdline.txt").read_text() == (
         "console=tty1 root=PARTUUID=example quiet splash\n"
     )
-    assert "dtoverlay=dwc2,dr_mode=host" in (rootfs / "boot/firmware/config.txt").read_text()
+    config_txt = (rootfs / "boot/firmware/config.txt").read_text()
+    assert "dtoverlay=dwc2,dr_mode=host" in config_txt
+    assert "usb_max_current_enable=1" in config_txt
     assert (rootfs / "etc/X11/xorg.conf.d/99-pideck-vc4.conf").read_text() == (
         FILES / "99-pideck-vc4.conf"
     ).read_text()
