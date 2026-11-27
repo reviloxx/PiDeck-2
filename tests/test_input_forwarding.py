@@ -68,6 +68,21 @@ def test_youtube_back_and_stop_use_escape() -> None:
     assert injector.keys == [VirtualKey.ESCAPE, VirtualKey.ESCAPE]
 
 
+def test_youtube_tv_stop_uses_escape() -> None:
+    """Chromium YouTube TV also maps Stop to Escape."""
+    service, injector = _service()
+    youtube_tv = ApplicationDefinition(
+        "youtube-tv",
+        "YouTube TV",
+        "chromium",
+        preferred_input=PreferredInput.CEC,
+        cec_mode=CecMode.KEYBOARD,
+    )
+    running = SessionSnapshot(SessionState.RUNNING, youtube_tv)
+    assert service.handle(InputEvent(InputAction.STOP, "cec"), running, pideck_has_focus=False)
+    assert injector.keys == [VirtualKey.ESCAPE]
+
+
 def test_kodi_back_uses_escape_and_stop_uses_media_stop() -> None:
     """Kodi keeps Escape for Back and XF86AudioStop for Stop."""
     service, injector = _service()

@@ -32,7 +32,7 @@ _KEYS = {
 }
 
 # Chromium / Red (YouTube) ignores XF86AudioStop; Escape exits playback.
-_ESCAPE_STOP_IDS = frozenset({"youtube"})
+_ESCAPE_STOP_IDS = frozenset({"youtube", "youtube-tv"})
 
 _OVERLAY_ACTIONS = frozenset({InputAction.MENU, InputAction.HOME})
 

@@ -47,6 +47,37 @@ applications:
           --tv,
         ]
       arm64: {method: flatpak, flatpak: com.ktechpit.red}
+  - id: youtube-tv
+    name: YouTube TV
+    executable: chromium
+    arguments: [
+      --no-first-run,
+      --no-default-browser-check,
+      --password-store=basic,
+      --user-data-dir=.config/pideck/youtube-tv,
+      --class=YouTubeTV,
+      --app=https://www.youtube.com/tv,
+    ]
+    icon: ../assets/icons/youtube.svg
+    preferred_input: cec
+    cec: keyboard
+    window: maximized
+    install:
+      amd64:
+        method: apt
+        packages: [chromium, chromium-l10n]
+        arguments: [
+          --no-first-run,
+          --no-default-browser-check,
+          --password-store=basic,
+          --user-data-dir=.config/pideck/youtube-tv,
+          --class=YouTubeTV,
+          --ignore-gpu-blocklist,
+          "--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiOnNvidiaGPUs,VaapiIgnoreDriverChecks",
+          "--disable-features=UseChromeOSDirectVideoDecoder",
+          --app=https://www.youtube.com/tv,
+        ]
+      arm64: {method: apt, packages: [chromium, chromium-l10n, rpi-chromium-mods]}
   - id: steam-link
     name: Steam Link
     executable: flatpak

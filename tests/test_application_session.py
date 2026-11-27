@@ -1,8 +1,11 @@
 """Tests for application session orchestration."""
 
 from dataclasses import dataclass, field
+from pathlib import Path
 import sys
 import threading
+
+import pytest
 
 from pideck.application.ports.process import ProcessCommand, ProcessExit, ProcessHandle
 from pideck.application.session import (
@@ -160,6 +163,28 @@ def test_kodi_launch_clears_browser_vaapi_environment() -> None:
         None,
     )
     assert other.environment is None
+
+
+def test_youtube_tv_expands_relative_user_data_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """YouTube TV keeps a dedicated Chromium profile under the user home."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    service = ApplicationSessionService(FakeSupervisor(), RecordingObserver())
+    command = service._command_for(
+        ApplicationDefinition(
+            identifier="youtube-tv",
+            name="YouTube TV",
+            executable="chromium",
+            arguments=(
+                "--user-data-dir=.config/pideck/youtube-tv",
+                "--app=https://www.youtube.com/tv",
+            ),
+        ),
+        None,
+    )
+    assert f"--user-data-dir={home / '.config/pideck/youtube-tv'}" in command.arguments
+    assert "--app=https://www.youtube.com/tv" in command.arguments
 
 
 def test_session_waits_for_application_visibility() -> None:

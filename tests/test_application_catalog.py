@@ -59,6 +59,33 @@ def test_youtube_nvidia_vaapi_env_is_amd64_only() -> None:
     assert arm64.arguments == ("run", "com.ktechpit.red", "--tv")
 
 
+def test_youtube_tv_is_chromium_app_mode() -> None:
+    """YouTube TV launches Chromium Leanback without browser chrome."""
+    catalog_entry = entry("youtube-tv")
+    app = catalog_entry.application
+    assert app.identifier == "youtube-tv"
+    assert app.name == "YouTube TV"
+    assert app.executable == "chromium"
+    assert app.cec_mode is CecMode.KEYBOARD
+    assert "--app=https://www.youtube.com/tv" in app.arguments
+    assert "--class=YouTubeTV" in app.arguments
+    assert "--user-data-dir=.config/pideck/youtube-tv" in app.arguments
+    assert app.icon is not None and (ROOT / "config" / app.icon).is_file()
+    arm64 = catalog_entry.definition_for("arm64")
+    assert arm64.executable == "chromium"
+    assert arm64.arguments == app.arguments
+    assert catalog_entry.spec_for("arm64") is not None
+    assert catalog_entry.spec_for("arm64").packages == (
+        "chromium",
+        "chromium-l10n",
+        "rpi-chromium-mods",
+    )
+    amd64 = catalog_entry.definition_for("amd64")
+    assert "--app=https://www.youtube.com/tv" in amd64.arguments
+    assert "VaapiOnNvidiaGPUs" in "\x00".join(amd64.arguments)
+    assert catalog_entry.spec_for("amd64").packages == ("chromium", "chromium-l10n")
+
+
 def test_youtube_icon_renders_as_a_rounded_play_tile() -> None:
     """Render the bundled icon with the same tile shape and palette as other apps."""
     renderer = QSvgRenderer(str(ROOT / "assets/icons/youtube.svg"))
@@ -114,6 +141,7 @@ def test_catalog_declares_window_defaults() -> None:
     assert modes["chrome"].value == "maximized"
     assert modes["brave"].value == "maximized"
     assert modes["youtube"].value == "maximized"
+    assert modes["youtube-tv"].value == "maximized"
     assert modes["moonlight"].value == "fullscreen"
 
 

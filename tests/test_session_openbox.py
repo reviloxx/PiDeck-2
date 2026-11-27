@@ -24,6 +24,7 @@ def test_openbox_rc_omits_frame_left_press_and_keeps_client() -> None:
         assert 'name="Frame"' not in text
         assert "Do not bind Left Press on Frame" in text
         assert 'class="PiDeck"' in text
+        assert 'class="YouTubeTV"' in text
         assert "<fullscreen>yes</fullscreen>" in text
         assert "<decor>no</decor>" in text
 

@@ -303,9 +303,11 @@ with PiDeck on a Raspberry Pi 5:
 | Application | Source on the Pi | Remaining work |
 | --- | --- | --- |
 | Kodi | Raspberry Pi OS `kodi` (preinstalled). | Verify graphics, audio and process/window lifecycle. |
-| YouTube (Red) | Flathub `com.ktechpit.red` for aarch64 (preinstalled). | Verify playback performance and remote control. |
+| YouTube (Red) | Flathub `com.ktechpit.red` for aarch64 (preinstalled). | Red's QtWebEngine forces `--disable-accelerated-video-decode` (software decode). Verify remote control; prefer **YouTube TV** for smoother playback. |
+| YouTube TV | Catalog apt install of `chromium`, `chromium-l10n`, and `rpi-chromium-mods`; launches `chromium --app=https://www.youtube.com/tv` with a dedicated profile. | Verify 1080p playback, CEC navigation, and app-mode window (no browser chrome). Pi 5 has HEVC HW decode only; typical YouTube codecs remain software but Chromium performs better than Red. |
 | Steam Link | Raspberry Pi OS `steamlink`, which downloads Valve's program at first start; the catalog installs its runtime libraries. | Verify Pi 5 streaming and the process/window lifecycle. Requires a Steam host. |
 | Chromium | Raspberry Pi OS `chromium`, `chromium-l10n` and `rpi-chromium-mods`. | Verify fullscreen launch/return behavior. |
+
 | Chrome | Google's arm64 `google-chrome-stable`. | Verify launch behavior and video playback. |
 | Brave | Brave's arm64 `brave-browser`. | Verify launch behavior and video playback. |
 | Firefox | Debian `firefox-esr` and `firefox-esr-l10n-de`. | Verify launch behavior. |

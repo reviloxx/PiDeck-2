@@ -22,6 +22,29 @@ from pideck.domain.errors import PiDeckError, ProcessError
 
 _LOGGER = logging.getLogger(__name__)
 
+_USER_DATA_DIR_PREFIX = "--user-data-dir="
+
+
+def _absolute_user_data_dir_arguments(arguments: tuple[str, ...]) -> tuple[str, ...]:
+    """Resolve relative or ``~/…`` ``--user-data-dir`` values under the user home."""
+    home = Path.home()
+    resolved: list[str] = []
+    for argument in arguments:
+        if not argument.startswith(_USER_DATA_DIR_PREFIX):
+            resolved.append(argument)
+            continue
+        value = argument[len(_USER_DATA_DIR_PREFIX) :]
+        if value == "~":
+            path = home
+        elif value.startswith("~/"):
+            path = home / value[2:]
+        else:
+            path = Path(value)
+            if not path.is_absolute():
+                path = home / path
+        resolved.append(f"{_USER_DATA_DIR_PREFIX}{path}")
+    return tuple(resolved)
+
 
 class SessionState(StrEnum):
     """Lifecycle states of the currently managed application session."""
@@ -353,6 +376,8 @@ class ApplicationSessionService:
         arguments = command_arguments + application.arguments + (
             profile.arguments if profile else ()
         )
+        if application.identifier == "youtube-tv":
+            arguments = _absolute_user_data_dir_arguments(arguments)
         environment = dict(profile.environment) if profile else {}
         if application.identifier == "kodi":
             # Browser session exports NVIDIA VA-API vars; Kodi must use VDPAU instead.

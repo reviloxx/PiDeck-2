@@ -4,6 +4,11 @@ Each `## vMAJOR.MINOR.PATCH` section is published as the GitHub release notes
 for that tag and shown in PiDeck under **Settings > About** when the update is
 available. Write for people using PiDeck on a TV; keep it short.
 
+## v0.6.25
+
+- Added: YouTube TV — a Chromium app-mode YouTube client (no browser chrome)
+  you can install beside Red for smoother playback on Raspberry Pi.
+
 ## v0.6.24
 
 - Fixed: Steam Link pauses the compositor while streaming so the TV no longer

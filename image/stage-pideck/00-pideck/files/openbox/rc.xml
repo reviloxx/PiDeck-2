@@ -101,6 +101,9 @@
     <application class="chromium-browser">
       <maximized>yes</maximized>
     </application>
+    <application class="YouTubeTV">
+      <maximized>yes</maximized>
+    </application>
     <application class="red">
       <maximized>yes</maximized>
     </application>

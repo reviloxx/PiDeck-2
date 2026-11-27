@@ -23,7 +23,18 @@ from tests.test_configuration import configuration_document
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "assets/catalog/applications.yaml"
-SUPPORTED = ["kodi", "youtube", "steam-link", "chromium", "chrome", "brave", "firefox", "moonlight", "retroarch"]
+SUPPORTED = [
+    "kodi",
+    "youtube",
+    "youtube-tv",
+    "steam-link",
+    "chromium",
+    "chrome",
+    "brave",
+    "firefox",
+    "moonlight",
+    "retroarch",
+]
 
 
 def catalog() -> tuple[CatalogEntry, ...]:
