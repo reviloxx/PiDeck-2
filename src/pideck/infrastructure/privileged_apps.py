@@ -113,6 +113,8 @@ class ApplicationPlans:
             ]
         if method == "apt":
             packages = (*spec["packages"], *spec["dependencies"])
+            if not packages:
+                raise ValueError("Unsupported install method in catalog")
             steps = [
                 Step("preparing", (_APT, "update"), cancellable=True),
                 Step("downloading", (*_APT_INSTALL, "--download-only", "--", *packages), cancellable=True),
@@ -145,6 +147,9 @@ class ApplicationPlans:
                 Step("finishing", (_FLATPAK, "uninstall", "--system", "--unused", "--noninteractive", "--assumeyes")),
             ]
         packages = tuple(spec["packages"])
+        if not packages:
+            # Dependency-only apps (for example YouTube TV) keep shared packages.
+            return [Step("finishing", action=lambda _progress: None)]
         return [
             Step("preparing", action=lambda _progress: _check_removal(packages)),
             Step("removing", (_APT, "remove", "-y", "--autoremove", "--", *packages)),
@@ -174,7 +179,7 @@ class ApplicationPlans:
             if not isinstance(flatpak, str) or _FLATPAK_ID.fullmatch(flatpak) is None:
                 raise ValueError("Invalid Flatpak ID in catalog")
             return method, {"flatpak": flatpak}
-        if method == "apt" and packages:
+        if method == "apt" and (packages or dependencies):
             return method, {"packages": packages, "dependencies": dependencies}
         if method == "deb" and len(packages) == 1:
             url, sha256 = spec.get("url"), spec.get("sha256")

@@ -41,7 +41,8 @@ class InstalledPackages:
         if spec.method is InstallMethod.FLATPAK:
             assert spec.flatpak is not None
             return self.flatpak_scope(spec.flatpak) is not None
-        return self.debian_installed(spec.packages)
+        required = spec.packages or spec.dependencies
+        return self.debian_installed(required)
 
     def flatpak_scope(self, app_id: str) -> str | None:
         """Return ``"system"`` or ``"user"`` for an installed Flatpak, else ``None``."""

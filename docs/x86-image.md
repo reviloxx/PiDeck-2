@@ -143,7 +143,7 @@ Hardware video decoding per application:
 | Chrome, Brave | VA-API | Same modern feature flags via the catalog's amd64 launch arguments (OTA migration rewrites older `VaapiVideoDecoder` / `VaapiVideoDecodeLinuxGL` tiles). |
 | Steam Link (Flatpak) | NVIDIA GL extension | GPU rendering; stream decoding follows Steam Link's own settings. |
 | YouTube (Flatpak, QtWebEngine) | NVIDIA GL + Flatpak env | GPU rendering via the NVIDIA Flatpak GL extension. Launch passes `LIBVA_DRIVER_NAME`, `NVD_BACKEND`, and `QTWEBENGINE_CHROMIUM_FLAGS` for VA-API. Red's own `QtWebEngineProcess` still starts with `--disable-accelerated-video-decode` / `--disable-features=AcceleratedVideoDecoder`, so video decode remains on the CPU until upstream Red removes those disables. |
-| YouTube TV (Chromium `--app`) | VA-API (same Chromium flags) | Optional catalog app: chrome-less `chromium --app=https://www.youtube.com/tv` with a dedicated profile and CEC keyboard forwarding. Prefer this when Red's software decode stutters. |
+| YouTube TV (Chromium `--app`) | VA-API (same Chromium flags) | Optional catalog app: chrome-less `chromium --app=https://www.youtube.com/tv` with a dedicated profile, CEC keyboard forwarding, and shipped uBlock Origin Lite. Install markers keep it separate from the Chromium browser tile even though both use the Chromium packages. Prefer this when Red's software decode stutters. |
 
 `/etc/profile.d/10-pideck-video.sh` sets `LIBVA_DRIVER_NAME=nvidia`,
 `NVD_BACKEND=direct` and `MOZ_DISABLE_RDD_SANDBOX=1` only when the NVIDIA

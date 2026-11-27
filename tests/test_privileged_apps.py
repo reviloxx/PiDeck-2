@@ -61,6 +61,25 @@ def test_apt_remove_checks_and_keeps_dependencies() -> None:
     assert not any(step.cancellable for step in steps)
 
 
+def test_youtube_tv_installs_chromium_as_dependencies_only() -> None:
+    """YouTube TV keeps Chromium packages as dependencies so removal is a no-op apt step."""
+    install = plans("arm64").install("youtube-tv")
+    assert install[-1].command == (
+        "/usr/bin/apt-get",
+        "install",
+        "-y",
+        "--no-install-recommends",
+        "--",
+        "chromium",
+        "chromium-l10n",
+        "rpi-chromium-mods",
+    )
+    remove = plans("arm64").remove("youtube-tv")
+    assert len(remove) == 1
+    assert remove[0].stage == "finishing"
+    assert remove[0].command is None
+
+
 def test_flatpak_plans_use_system_scope_and_keep_data() -> None:
     """Flatpaks are installed system-wide and removed without --delete-data."""
     install = plans().install("youtube")

@@ -170,6 +170,13 @@ def test_youtube_tv_expands_relative_user_data_dir(monkeypatch: pytest.MonkeyPat
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    extension = tmp_path / "ubol"
+    extension.mkdir()
+    (extension / "manifest.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "pideck.application.session.ensure_ublock_origin_lite",
+        lambda: extension,
+    )
     service = ApplicationSessionService(FakeSupervisor(), RecordingObserver())
     command = service._command_for(
         ApplicationDefinition(
@@ -185,6 +192,7 @@ def test_youtube_tv_expands_relative_user_data_dir(monkeypatch: pytest.MonkeyPat
     )
     assert f"--user-data-dir={home / '.config/pideck/youtube-tv'}" in command.arguments
     assert "--app=https://www.youtube.com/tv" in command.arguments
+    assert f"--load-extension={extension}" in command.arguments
 
 
 def test_session_waits_for_application_visibility() -> None:

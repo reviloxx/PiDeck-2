@@ -62,8 +62,10 @@ class InstallSpec:
             if not self.flatpak or self.packages or self.dependencies or self.url:
                 raise ConfigurationValidationError("Flatpak installs require only a Flatpak application ID")
         elif self.method is InstallMethod.APT:
-            if not self.packages or self.flatpak or self.url:
-                raise ConfigurationValidationError("apt installs require at least one package")
+            if (not self.packages and not self.dependencies) or self.flatpak or self.url:
+                raise ConfigurationValidationError(
+                    "apt installs require at least one package or dependency"
+                )
         elif len(self.packages) != 1 or not self.url or not self.sha256 or self.flatpak:
             raise ConfigurationValidationError("deb installs require one package name, a URL and a SHA-256")
 

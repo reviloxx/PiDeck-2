@@ -9,10 +9,11 @@ from dataclasses import dataclass, replace
 import logging
 
 from pideck.application.catalog import configured_application, register_application, unregister_application
-from pideck.application.ports.installation import InstallProgressCallback
+from pideck.application.ports.installation import InstallProgress, InstallProgressCallback, InstallStage
 from pideck.application.ports.packages import ApplicationPackageManager, PackageOperationError
 from pideck.domain.catalog import CatalogEntry, InstallState
 from pideck.domain.configuration import Configuration
+from pideck.infrastructure.packages.app_markers import SHARED_CHROMIUM_APP_IDS, AppInstallMarkers
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,12 +36,17 @@ class ApplicationManagementService:
     """Coordinate the catalog, the package manager and saved applications."""
 
     def __init__(
-        self, catalog: tuple[CatalogEntry, ...], packages: ApplicationPackageManager, architecture: str,
+        self,
+        catalog: tuple[CatalogEntry, ...],
+        packages: ApplicationPackageManager,
+        architecture: str,
+        markers: AppInstallMarkers | None = None,
     ) -> None:
         """Bind the catalog to this device's architecture and package manager."""
         self._catalog = {entry.identifier: entry for entry in catalog}
         self._packages = packages
         self._architecture = architecture
+        self._markers = markers or AppInstallMarkers()
 
     @property
     def catalog(self) -> tuple[CatalogEntry, ...]:
@@ -64,6 +70,8 @@ class ApplicationManagementService:
         configured = configured_application(configuration, entry) is not None
         if spec is None:
             return CatalogItemStatus(entry, InstallState.INSTALLED if configured else InstallState.UNAVAILABLE)
+        if identifier in SHARED_CHROMIUM_APP_IDS:
+            return self._shared_chromium_status(entry, spec, configured)
         if self._packages.is_installed(spec):
             return CatalogItemStatus(entry, InstallState.INSTALLED, self._packages.can_remove(spec))
         if not self._packages.can_install(spec):
@@ -82,6 +90,8 @@ class ApplicationManagementService:
             raise PackageOperationError("This application is not available for this device")
         _LOGGER.info("Installing application id=%s method=%s", identifier, spec.method)
         self._packages.install(identifier, spec, on_progress, password)
+        if identifier in SHARED_CHROMIUM_APP_IDS:
+            self._markers.mark(identifier)
 
     def uninstall(self, identifier: str, on_progress: InstallProgressCallback) -> None:
         """Remove the application's packages but keep user data; call from a worker thread."""
@@ -89,6 +99,12 @@ class ApplicationManagementService:
         if spec is None:
             raise PackageOperationError("This application cannot be removed on this device")
         _LOGGER.info("Removing application id=%s method=%s", identifier, spec.method)
+        if identifier in SHARED_CHROMIUM_APP_IDS:
+            self._markers.unmark(identifier)
+            siblings = SHARED_CHROMIUM_APP_IDS - {identifier}
+            if self._markers.any_marked(siblings):
+                on_progress(InstallProgress(InstallStage.FINISHING, 100))
+                return
         self._packages.uninstall(identifier, spec, on_progress)
 
     def cancel(self) -> None:
@@ -109,6 +125,21 @@ class ApplicationManagementService:
         if configured is None:
             return configuration
         return unregister_application(configuration, configured.identifier)
+
+    def _shared_chromium_status(
+        self, entry: CatalogEntry, spec, configured: bool,
+    ) -> CatalogItemStatus:
+        """Use install markers so Chromium and YouTube TV stay independent."""
+        identifier = entry.identifier
+        runtime_present = self._packages.is_installed(spec)
+        if configured and runtime_present and not self._markers.is_marked(identifier):
+            # Existing home tiles from before markers keep working after OTA.
+            self._markers.mark(identifier)
+        if self._markers.is_marked(identifier) and runtime_present:
+            return CatalogItemStatus(entry, InstallState.INSTALLED, self._packages.can_remove(spec))
+        if not self._packages.can_install(spec):
+            return CatalogItemStatus(entry, InstallState.REQUIRES_NEWER_IMAGE)
+        return CatalogItemStatus(entry, InstallState.NOT_INSTALLED)
 
     def _entry(self, identifier: str) -> CatalogEntry:
         try:

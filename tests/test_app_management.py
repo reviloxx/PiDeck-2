@@ -15,6 +15,7 @@ from pideck.infrastructure.config.catalog import load_catalog
 from pideck.infrastructure.config.parser import YamlConfigurationParser
 from pideck.infrastructure.flatpak_installer import FlatpakInstaller
 from pideck.infrastructure.image_update_client import ImageUpdateError
+from pideck.infrastructure.packages.app_markers import AppInstallMarkers
 from pideck.infrastructure.packages.installed import InstalledPackages, device_architecture
 from pideck.infrastructure.packages.manager import SystemPackageManager
 from pideck.infrastructure.packages.privileged import PrivilegedApplications
@@ -128,7 +129,10 @@ class FakePackages:
 
     @staticmethod
     def _key(spec: InstallSpec) -> str:
-        return spec.flatpak or spec.packages[0]
+        if spec.flatpak:
+            return spec.flatpak
+        required = spec.packages or spec.dependencies
+        return required[0]
 
     def is_installed(self, spec: InstallSpec) -> bool:
         return self._key(spec) in self.installed
@@ -163,6 +167,29 @@ def test_service_reports_install_state_per_image() -> None:
     assert states["chrome"].state is InstallState.REQUIRES_NEWER_IMAGE
     other = ApplicationManagementService(catalog(), FakePackages(), "riscv64")
     assert other.status(config, "kodi").state is InstallState.UNAVAILABLE
+
+
+def test_youtube_tv_install_does_not_mark_chromium_installed(tmp_path: Path) -> None:
+    """Shared Chromium packages use per-app markers so the tiles stay independent."""
+    config = YamlConfigurationParser().parse(configuration_document())
+    packages = FakePackages()
+    markers = AppInstallMarkers(tmp_path / "installed")
+    service = ApplicationManagementService(catalog(), packages, "arm64", markers)
+    service.install("youtube-tv", lambda _progress: None)
+    packages.installed.add("chromium")
+    assert service.status(config, "youtube-tv").state is InstallState.INSTALLED
+    assert service.status(config, "chromium").state is InstallState.NOT_INSTALLED
+    service.install("chromium", lambda _progress: None)
+    assert service.status(config, "chromium").state is InstallState.INSTALLED
+    reports: list[InstallProgress] = []
+    service.uninstall("youtube-tv", reports.append)
+    assert ("uninstall", "youtube-tv") not in packages.calls
+    assert reports[-1].stage is InstallStage.FINISHING
+    assert service.status(config, "youtube-tv").state is InstallState.NOT_INSTALLED
+    assert service.status(config, "chromium").state is InstallState.INSTALLED
+    service.uninstall("chromium", reports.append)
+    assert ("uninstall", "chromium") in packages.calls
+    assert service.status(config, "chromium").state is InstallState.NOT_INSTALLED
 
 
 def test_service_registers_architecture_definition_and_unregisters_custom_entries() -> None:

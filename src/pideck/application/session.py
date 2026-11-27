@@ -19,10 +19,12 @@ from pideck.application.ports.process import (
 from pideck.application.ports.visibility import ProcessVisibilityDetector
 from pideck.domain.configuration import ApplicationDefinition, ApplicationProfile
 from pideck.domain.errors import PiDeckError, ProcessError
+from pideck.infrastructure.ublock_lite import ensure_ublock_origin_lite
 
 _LOGGER = logging.getLogger(__name__)
 
 _USER_DATA_DIR_PREFIX = "--user-data-dir="
+_LOAD_EXTENSION_PREFIX = "--load-extension="
 
 
 def _absolute_user_data_dir_arguments(arguments: tuple[str, ...]) -> tuple[str, ...]:
@@ -44,6 +46,16 @@ def _absolute_user_data_dir_arguments(arguments: tuple[str, ...]) -> tuple[str, 
                 path = home / path
         resolved.append(f"{_USER_DATA_DIR_PREFIX}{path}")
     return tuple(resolved)
+
+
+def _with_ublock_origin_lite(arguments: tuple[str, ...]) -> tuple[str, ...]:
+    """Append ``--load-extension`` for the shipped uBlock Origin Lite extract."""
+    if any(argument.startswith(_LOAD_EXTENSION_PREFIX) for argument in arguments):
+        return arguments
+    extension = ensure_ublock_origin_lite()
+    if extension is None:
+        return arguments
+    return (*arguments, f"{_LOAD_EXTENSION_PREFIX}{extension}")
 
 
 class SessionState(StrEnum):
@@ -377,7 +389,7 @@ class ApplicationSessionService:
             profile.arguments if profile else ()
         )
         if application.identifier == "youtube-tv":
-            arguments = _absolute_user_data_dir_arguments(arguments)
+            arguments = _with_ublock_origin_lite(_absolute_user_data_dir_arguments(arguments))
         environment = dict(profile.environment) if profile else {}
         if application.identifier == "kodi":
             # Browser session exports NVIDIA VA-API vars; Kodi must use VDPAU instead.

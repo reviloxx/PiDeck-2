@@ -75,7 +75,8 @@ def test_youtube_tv_is_chromium_app_mode() -> None:
     assert arm64.executable == "chromium"
     assert arm64.arguments == app.arguments
     assert catalog_entry.spec_for("arm64") is not None
-    assert catalog_entry.spec_for("arm64").packages == (
+    assert catalog_entry.spec_for("arm64").packages == ()
+    assert catalog_entry.spec_for("arm64").dependencies == (
         "chromium",
         "chromium-l10n",
         "rpi-chromium-mods",
@@ -83,7 +84,9 @@ def test_youtube_tv_is_chromium_app_mode() -> None:
     amd64 = catalog_entry.definition_for("amd64")
     assert "--app=https://www.youtube.com/tv" in amd64.arguments
     assert "VaapiOnNvidiaGPUs" in "\x00".join(amd64.arguments)
-    assert catalog_entry.spec_for("amd64").packages == ("chromium", "chromium-l10n")
+    assert catalog_entry.spec_for("amd64").packages == ()
+    assert catalog_entry.spec_for("amd64").dependencies == ("chromium", "chromium-l10n")
+    assert (ROOT / "assets/extensions/ublock-origin-lite.chromium.zip").is_file()
 
 
 def test_youtube_icon_renders_as_a_rounded_play_tile() -> None:

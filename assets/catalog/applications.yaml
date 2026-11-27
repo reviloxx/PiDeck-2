@@ -50,6 +50,7 @@ applications:
   - id: youtube-tv
     name: YouTube TV
     executable: chromium
+    # uBlock Origin Lite is injected at launch from the release zip (session.py).
     arguments: [
       --no-first-run,
       --no-default-browser-check,
@@ -63,9 +64,13 @@ applications:
     cec: keyboard
     window: maximized
     install:
+      # Chromium packages are dependencies so uninstalling YouTube TV does not
+      # remove them when the Chromium browser tile is also installed. Install
+      # state uses ~/.config/pideck/installed markers (see app_markers.py).
       amd64:
         method: apt
-        packages: [chromium, chromium-l10n]
+        packages: []
+        dependencies: [chromium, chromium-l10n]
         arguments: [
           --no-first-run,
           --no-default-browser-check,
@@ -77,7 +82,10 @@ applications:
           "--disable-features=UseChromeOSDirectVideoDecoder",
           --app=https://www.youtube.com/tv,
         ]
-      arm64: {method: apt, packages: [chromium, chromium-l10n, rpi-chromium-mods]}
+      arm64:
+        method: apt
+        packages: []
+        dependencies: [chromium, chromium-l10n, rpi-chromium-mods]
   - id: steam-link
     name: Steam Link
     executable: flatpak
